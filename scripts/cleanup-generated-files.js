@@ -99,12 +99,27 @@ function getTrackedFileSet(targets) {
 
 async function getPathStats(relativePath) {
   const absolutePath = path.join(rootDir, relativePath)
-  return fs.lstat(absolutePath)
+  try {
+    return await fs.lstat(absolutePath)
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return null
+    }
+    throw error
+  }
 }
 
 async function collectDirectoryEntries(relativeDir) {
   const absoluteDir = path.join(rootDir, relativeDir)
-  const entries = await fs.readdir(absoluteDir, { withFileTypes: true })
+  let entries = []
+  try {
+    entries = await fs.readdir(absoluteDir, { withFileTypes: true })
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return []
+    }
+    throw error
+  }
   return entries.map((entry) => ({
     name: entry.name,
     relativePath: normalizeRelativePath(path.join(relativeDir, entry.name)),
@@ -179,6 +194,9 @@ async function removeDirectoryContents(relativeDir, trackedFiles, removedItems) 
     }
 
     const stats = await getPathStats(entry.relativePath)
+    if (!stats) {
+      continue
+    }
     await removeFile(entry.relativePath, stats, trackedFiles, removedItems)
   }
 }
