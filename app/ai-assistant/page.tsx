@@ -1,0 +1,455 @@
+"use client"
+
+import { useState, useRef, useEffect } from 'react';
+import { MessageSquare, Loader2, Send, Sparkles, Globe, User, Bot } from 'lucide-react';
+
+export default function AIAssistantPage() {
+  // 消息类型定义
+  type MessageType = {
+    type: 'user' | 'assistant';
+    content: string;
+    isTyping?: boolean;
+  };
+
+  // 基本状态
+  const [inputValue, setInputValue] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [messages, setMessages] = useState<MessageType[]>([
+    {
+      type: 'assistant',
+      content: `我可以帮助你解答关于<strong>英国、美国、申根、法国</strong>等国家的留学中遇到的签证问题，包括：
+
+- 📋 签证申请流程和材料准备
+- 💰 资金证明和财务要求
+- 🎤 面试技巧和常见问题
+- 📅 时间规划和注意事项
+- 🚨 拒签原因分析和申诉建议
+
+请问有什么可以帮助你的吗？`
+    }
+  ]);
+  
+  // 选项状态
+  const [visaType, setVisaType] = useState('');
+  const [country, setCountry] = useState('');
+  const [location, setLocation] = useState('china');
+  const [applicantStatus, setApplicantStatus] = useState('student');
+  
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  // 自动滚动到底部
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
+  
+  // 自动调整输入框高度
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
+    }
+  }, [inputValue]);
+
+  // 处理输入框变化
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputValue(e.target.value);
+  };
+
+  // 格式化内容，使用类似ChatGPT的简洁格式
+  const formatContent = (content: string) => {
+    if (!content) return { __html: '' };
+    
+    // 处理内容，保持简洁格式
+    let processedContent = content
+      // 处理Markdown标题
+      .replace(/\n##\s+([^\n]+)/g, '</p><p class="font-medium text-lg mt-3 mb-1">$1</p><p>')
+      .replace(/\n#\s+([^\n]+)/g, '</p><p class="font-medium text-xl mt-3 mb-2">$1</p><p>')
+      // 处理加粗和强调
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      // 处理段落
+      .replace(/\n\n/g, '</p><p>')
+      // 处理标题和分类
+      .replace(/\n\[([^\]]+)\]/g, '</p><p class="font-medium mt-2 mb-1">$1</p><p>')
+      .replace(/\n【([^】]+)】/g, '</p><p class="font-medium mt-2 mb-1">$1</p><p>')
+      // 处理带编号的行
+      .replace(/\n(\d+)\. ([^\n]+)/g, '</p><p>$1. $2')
+      // 处理带表情的行
+      .replace(/\n(\p{Emoji}+) ([^\n]+)/gu, '</p><p>$1 $2')
+      // 处理无序列表
+      .replace(/\n- ([^\n]+)/g, '</p><p>• $1')
+      // 处理单行分隔
+      .replace(/\n/g, '<br/>');
+    
+    return { __html: `<p>${processedContent}</p>` };
+  };
+
+  // 处理发送消息
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() || isProcessing) return;
+    
+    // 添加用户消息
+    const userMessage = {
+      type: 'user' as const,
+      content: inputValue
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    setIsProcessing(true);
+    
+    const question = inputValue;
+    setInputValue('');
+    
+    // 添加AI临时消息带等待动画
+    const tempIndex = messages.length + 1;
+    setMessages(prev => [...prev, {
+      type: 'assistant',
+      content: '',
+      isTyping: true
+    }]);
+    
+    try {
+      console.log('发送请求到API:', {
+        question,
+        visa_type: visaType,
+        country,
+        applicant_location: location,
+        applicant_status: applicantStatus,
+        use_rag: true
+      });
+      
+      const response = await fetch('http://localhost:8000/ask-stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          question: question,
+          visa_type: visaType,
+          country: country,
+          applicant_location: location,
+          applicant_status: applicantStatus,
+          use_rag: true
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`网络请求失败: ${response.status}`);
+      }
+      
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('无法读取响应流');
+      
+      const decoder = new TextDecoder();
+      let content = '';
+      let displayContent = '';
+      
+      // 更新临时消息为空白
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[tempIndex] = {
+          type: 'assistant',
+          content: '',
+          isTyping: true
+        };
+        return newMessages;
+      });
+      
+      // 读取流式响应
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
+        
+        // 处理SSE格式的数据流
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // 保留最后一个不完整的行
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const jsonStr = line.substring(6); // 移除 "data: " 前缀
+              if (jsonStr.trim() === '[DONE]') {
+                break;
+              }
+              
+              const data = JSON.parse(jsonStr);
+              if (data.content) {
+                content += data.content;
+                
+                // 实时更新消息内容
+                setMessages(prev => {
+                  const newMessages = [...prev];
+                  newMessages[tempIndex] = {
+                    type: 'assistant',
+                    content: content,
+                    isTyping: true
+                  };
+                  return newMessages;
+                });
+                
+                // 添加小延迟以获得更好的视觉效果
+                await new Promise(resolve => setTimeout(resolve, 20));
+              }
+            } catch (e) {
+              console.warn('解析SSE数据失败:', line);
+            }
+          }
+        }
+      }
+      
+      // 打字完成，移除打字机状态
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[tempIndex] = {
+          type: 'assistant',
+          content: content,
+          isTyping: false
+        };
+        return newMessages;
+      });
+      
+    } catch (error) {
+      console.error('请求错误:', error);
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[tempIndex] = {
+          type: 'assistant',
+          content: `<div style="color: #ff3b30; padding: 10px; background: rgba(255, 59, 48, 0.1); border-radius: 8px;">抱歉，连接服务器失败: ${error instanceof Error ? error.message : '未知错误'}。请确保后端服务器已启动。</div>`,
+          isTyping: false
+        };
+        return newMessages;
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // 处理键盘事件
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  // 检测暗色模式
+  const [darkMode, setDarkMode] = useState(false);
+    
+  useEffect(() => {
+    // 检查本地存储的主题设置
+    const savedTheme = localStorage.getItem('theme');
+    const prefersDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    
+    if (savedTheme === 'dark' || (!savedTheme && prefersDarkMode)) {
+      setDarkMode(true);
+    }
+    
+    // 监听主题变化
+    const handleStorageChange = () => {
+      const currentTheme = localStorage.getItem('theme');
+      setDarkMode(currentTheme === 'dark');
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-white">
+      <style jsx global>{`
+        .typing-animation {
+          position: relative;
+        }
+        .typing-cursor {
+          display: inline-block;
+          width: 2px;
+          height: 1.2em;
+          background-color: currentColor;
+          margin-left: 2px;
+          vertical-align: middle;
+          animation: blink 1s step-end infinite;
+        }
+        @keyframes blink {
+          from, to { opacity: 1; }
+          50% { opacity: 0; }
+        }
+      `}</style>
+      
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center mb-12">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-black rounded-xl mb-6">
+            <Sparkles className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-5xl font-bold mb-4 text-black">
+            签证AI助手
+          </h1>
+          <p className="text-gray-600 text-lg max-w-2xl mx-auto leading-relaxed">
+            智能解答您的签证问题，提供专业指导和建议
+          </p>
+        </div>
+      
+        <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
+          {/* 聊天区域 */}
+          <div 
+            ref={chatContainerRef}
+            className="h-[500px] overflow-y-auto p-6 space-y-4 bg-gray-50"
+          >
+            {messages.map((message, index) => (
+              <div 
+                key={index} 
+                className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'} mb-4`}
+              >
+                {message.type === 'assistant' && (
+                  <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center mr-3 flex-shrink-0">
+                    <Bot className="text-white w-5 h-5" />
+                  </div>
+                )}
+                
+                <div 
+                  className={`max-w-[80%] rounded-2xl px-4 py-3 shadow-sm ${
+                    message.type === 'user'
+                      ? 'bg-black text-white'
+                      : 'bg-white text-gray-800 border border-gray-200'
+                  }`}
+                >
+                  {message.content ? (
+                    <div 
+                      className={`${message.type === 'user' ? 'text-white' : 'text-gray-800'}`}
+                      dangerouslySetInnerHTML={
+                        message.type === 'assistant' ? formatContent(message.content) : { __html: message.content }
+                      } 
+                    />
+                  ) : (
+                    <div className="flex items-center space-x-2">
+                      <Loader2 className="animate-spin h-4 w-4 text-gray-400" />
+                      <span className="text-gray-500">AI正在思考中...</span>
+                    </div>
+                  )}
+                  {message.isTyping && message.content && (
+                    <span className="typing-cursor">|</span>
+                  )}
+                </div>
+                
+                {message.type === 'user' && (
+                  <div className="w-10 h-10 rounded-full bg-gray-600 flex items-center justify-center ml-3 flex-shrink-0">
+                    <User className="text-white w-5 h-5" />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        
+          {/* 选项行 */}
+          <div className="border-t border-gray-200 p-4 bg-white">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              {/* 签证类型选择 */}
+              <div>
+                <label htmlFor="visa-type" className="block text-xs text-gray-600 mb-1">签证类型</label>
+                <select 
+                  id="visa-type"
+                  value={visaType}
+                  onChange={(e) => setVisaType(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                >
+                  <option value="">请选择类型</option>
+                  <option value="student">学生签证</option>
+                  <option value="tourist">旅游签证</option>
+                  <option value="business">商务签证</option>
+                  <option value="work">工作签证</option>
+                  <option value="family">家庭团聚签证</option>
+                </select>
+              </div>
+              
+              {/* 申请国家选择 */}
+              <div>
+                <label htmlFor="country" className="block text-xs text-gray-600 mb-1">申请国家</label>
+                <select 
+                  id="country"
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                >
+                  <option value="">请选择国家</option>
+                  <option value="uk">英国</option>
+                  <option value="us">美国</option>
+                  <option value="france">法国</option>
+                  <option value="canada">加拿大</option>
+                  <option value="australia">澳大利亚</option>
+                  <option value="japan">日本</option>
+                  <option value="korea">韩国</option>
+                  <option value="newzealand">新西兰</option>
+                </select>
+              </div>
+              
+              {/* 所在地选择 */}
+              <div>
+                <label htmlFor="location" className="block text-xs text-gray-600 mb-1">所在地</label>
+                <select 
+                  id="location"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                >
+                  <option value="china">中国大陆</option>
+                  <option value="uk">英国</option>
+                  <option value="us">美国</option>
+                  <option value="australia">澳大利亚</option>
+                  <option value="europe">欧洲</option>
+                  <option value="newzealand">新西兰</option>
+                  <option value="canada">加拿大</option>
+                </select>
+              </div>
+              
+              {/* 申请人身份选择 */}
+              <div>
+                <label htmlFor="applicant-status" className="block text-xs text-gray-600 mb-1">申请人身份</label>
+                <select 
+                  id="applicant-status"
+                  value={applicantStatus}
+                  onChange={(e) => setApplicantStatus(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                >
+                  <option value="student">学生</option>
+                  <option value="employed">在职</option>
+                  <option value="retired">退休</option>
+                  <option value="freelancer">自由职业</option>
+                  <option value="unemployed">待业</option>
+                </select>
+              </div>
+            </div>
+            
+            {/* 输入行 */}
+            <div className="flex items-end space-x-2">
+              <div className="flex-1 relative">
+                <textarea
+                  ref={textareaRef}
+                  value={inputValue}
+                  onChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
+                  placeholder="请输入您的签证问题..."
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent resize-none min-h-[52px] max-h-[200px] bg-white text-gray-900 placeholder-gray-500"
+                  rows={1}
+                />
+              </div>
+              <button
+                onClick={handleSendMessage}
+                disabled={isProcessing || !inputValue.trim()}
+                className="bg-black hover:bg-gray-800 text-white rounded-lg px-6 py-3 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                <Send className="w-4 h-4" />
+                <span>发送</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,264 @@
+2025-09-03 00:57:44,995 - main - INFO - === 开始转换前端数据到后端格式 ===
+2025-09-03 00:57:44,995 - main - INFO - 原始前端数据: {
+  "application_country": "china",
+  "application_city": "shenzhen",
+  "visa_type": "short_stay",
+  "travel_purpose": "tourism_private_visit",
+  "slot_types": [
+    "normal",
+    "prime_time"
+  ],
+  "date_ranges": [
+    {
+      "start_date": "2025-09-01",
+      "end_date": "2025-09-30",
+      "start_time": "08:30",
+      "end_time": "16:30"
+    }
+  ],
+  "notifications": {
+    "email": "test@example.com",
+    "phone": "13800138000"
+  }
+}
+2025-09-03 00:57:44,996 - main - INFO - 国家代码映射: {'china': 'cn', 'uk': 'gb', 'us': 'us'}
+2025-09-03 00:57:44,996 - main - INFO - 城市代码映射: {'beijing': 'BJS', 'shanghai': 'SHA', 'guangzhou': 'CAN', 'chengdu': 'CTU', 'london': 'LON', 'manchester': 'MNC', 'edinburgh': 'EDI', 'new_york': 'NYC', 'los_angeles': 'LAX', 'chicago': 'CHI', 'houston': 'HOU', 'miami': 'MIA', 'san_francisco': 'SFO', 'boston': 'BOS', 'washington': 'WAS', 'atlanta': 'ATL', 'seattle': 'SEA', 'philadelphia': 'PHL', 'detroit': 'DTT', 'denver': 'DEN', 'phoenix': 'PHX', 'las_vegas': 'LAS', 'dallas': 'DFW', 'orlando': 'ORL', 'portland': 'PDX', 'minneapolis': 'MSP', 'san_diego': 'SAN'}
+2025-09-03 00:57:44,996 - main - INFO - 国家代码转换: 'china' -> 'cn'
+2025-09-03 00:57:44,997 - main - INFO - 城市代码转换: 'shenzhen' -> 'shenzhen'
+2025-09-03 00:57:44,997 - main - INFO - Slot类型转换: ['normal', 'prime_time'] -> ['normal', 'prime_time']
+2025-09-03 00:57:44,997 - main - INFO - 转换后的后端数据: {
+  "application_city": "shenzhen",
+  "application_country": "cn",
+  "visa_country": "fr",
+  "group_id": "",
+  "phone": "13800138000",
+  "email": "test@example.com",
+  "password": "",
+  "filters": [
+    {
+      "date": {
+        "from": "2025-09-01",
+        "to": "2025-09-30"
+      },
+      "skip_days": 0,
+      "time": {
+        "from": "08:30",
+        "to": "16:30"
+      }
+    }
+  ],
+  "operational_time_ranges": [],
+  "acceptable_types": [
+    "normal",
+    "prime_time"
+  ],
+  "frontend_data": {
+    "application_country": "china",
+    "application_city": "shenzhen",
+    "visa_type": "short_stay",
+    "travel_purpose": "tourism_private_visit",
+    "slot_types": [
+      "normal",
+      "prime_time"
+    ],
+    "date_ranges": [
+      {
+        "start_date": "2025-09-01",
+        "end_date": "2025-09-30",
+        "start_time": "08:30",
+        "end_time": "16:30"
+      }
+    ],
+    "notifications": {
+      "email": "test@example.com",
+      "phone": "13800138000"
+    }
+  }
+}
+2025-09-03 00:57:44,998 - main - INFO - === 数据转换完成 ===
+2025-09-03 00:57:45,000 - main - INFO - 🔍 开始匹配槽位: N/A - N/A
+2025-09-03 00:57:45,000 - main - INFO - 📋 当前配置: {
+  "application_city": "shenzhen",
+  "application_country": "cn",
+  "visa_country": "fr",
+  "group_id": "",
+  "phone": "13800138000",
+  "email": "test@example.com",
+  "password": "",
+  "filters": [
+    {
+      "date": {
+        "from": "2025-09-01",
+        "to": "2025-09-30"
+      },
+      "skip_days": 0,
+      "time": {
+        "from": "08:30",
+        "to": "16:30"
+      }
+    }
+  ],
+  "operational_time_ranges": [],
+  "acceptable_types": [
+    "normal",
+    "prime_time"
+  ],
+  "frontend_data": {
+    "application_country": "china",
+    "application_city": "shenzhen",
+    "visa_type": "short_stay",
+    "travel_purpose": "tourism_private_visit",
+    "slot_types": [
+      "normal",
+      "prime_time"
+    ],
+    "date_ranges": [
+      {
+        "start_date": "2025-09-01",
+        "end_date": "2025-09-30",
+        "start_time": "08:30",
+        "end_time": "16:30"
+      }
+    ],
+    "notifications": {
+      "email": "test@example.com",
+      "phone": "13800138000"
+    }
+  }
+}
+2025-09-03 00:57:45,001 - main - INFO - 🌍 国家匹配检查: 槽位=, 配置=cn
+2025-09-03 00:57:45,001 - main - INFO - ❌ 国家不匹配:  != cn
+2025-09-03 00:57:45,001 - main - INFO - 🔍 开始匹配槽位: N/A - N/A
+2025-09-03 00:57:45,002 - main - INFO - 📋 当前配置: {
+  "application_city": "shenzhen",
+  "application_country": "cn",
+  "visa_country": "fr",
+  "group_id": "",
+  "phone": "13800138000",
+  "email": "test@example.com",
+  "password": "",
+  "filters": [
+    {
+      "date": {
+        "from": "2025-09-01",
+        "to": "2025-09-30"
+      },
+      "skip_days": 0,
+      "time": {
+        "from": "08:30",
+        "to": "16:30"
+      }
+    }
+  ],
+  "operational_time_ranges": [],
+  "acceptable_types": [
+    "normal",
+    "prime_time"
+  ],
+  "frontend_data": {
+    "application_country": "china",
+    "application_city": "shenzhen",
+    "visa_type": "short_stay",
+    "travel_purpose": "tourism_private_visit",
+    "slot_types": [
+      "normal",
+      "prime_time"
+    ],
+    "date_ranges": [
+      {
+        "start_date": "2025-09-01",
+        "end_date": "2025-09-30",
+        "start_time": "08:30",
+        "end_time": "16:30"
+      }
+    ],
+    "notifications": {
+      "email": "test@example.com",
+      "phone": "13800138000"
+    }
+  }
+}
+2025-09-03 00:57:45,002 - main - INFO - 🌍 国家匹配检查: 槽位=, 配置=cn
+2025-09-03 00:57:45,002 - main - INFO - ❌ 国家不匹配:  != cn
+2025-09-03 00:57:45,003 - main - INFO - 🔍 开始匹配槽位: N/A - N/A
+2025-09-03 00:57:45,003 - main - INFO - 📋 当前配置: {
+  "application_city": "shenzhen",
+  "application_country": "cn",
+  "visa_country": "fr",
+  "group_id": "",
+  "phone": "13800138000",
+  "email": "test@example.com",
+  "password": "",
+  "filters": [
+    {
+      "date": {
+        "from": "2025-09-01",
+        "to": "2025-09-30"
+      },
+      "skip_days": 0,
+      "time": {
+        "from": "08:30",
+        "to": "16:30"
+      }
+    }
+  ],
+  "operational_time_ranges": [],
+  "acceptable_types": [
+    "normal",
+    "prime_time"
+  ],
+  "frontend_data": {
+    "application_country": "china",
+    "application_city": "shenzhen",
+    "visa_type": "short_stay",
+    "travel_purpose": "tourism_private_visit",
+    "slot_types": [
+      "normal",
+      "prime_time"
+    ],
+    "date_ranges": [
+      {
+        "start_date": "2025-09-01",
+        "end_date": "2025-09-30",
+        "start_time": "08:30",
+        "end_time": "16:30"
+      }
+    ],
+    "notifications": {
+      "email": "test@example.com",
+      "phone": "13800138000"
+    }
+  }
+}
+2025-09-03 00:57:45,003 - main - INFO - 🌍 国家匹配检查: 槽位=, 配置=cn
+2025-09-03 00:57:45,003 - main - INFO - ❌ 国家不匹配:  != cn
+2025-09-03 10:25:34,687 - __main__ - INFO - 🚀 TLS法签监控系统启动
+2025-09-03 10:25:34,688 - __main__ - INFO - 🔗 连接上游WebSocket...
+2025-09-03 10:25:34,933 - __main__ - ERROR - ❌ WebSocket错误: [WinError 10054] 远程主机强迫关闭了一个现有的连接。
+2025-09-03 10:25:34,933 - websocket - ERROR - [WinError 10054] 远程主机强迫关闭了一个现有的连接。 - goodbye
+2025-09-03 10:25:34,934 - __main__ - INFO - 🔌 WebSocket连接关闭 - 状态码: None, 消息: None
+2025-09-03 10:25:37,691 - __main__ - INFO - 🔗 连接上游WebSocket...
+2025-09-03 10:25:37,892 - __main__ - ERROR - ❌ WebSocket错误: [WinError 10054] 远程主机强迫关闭了一个现有的连接。
+2025-09-03 10:25:37,893 - websocket - ERROR - [WinError 10054] 远程主机强迫关闭了一个现有的连接。 - goodbye
+2025-09-03 10:25:37,893 - __main__ - INFO - 🔌 WebSocket连接关闭 - 状态码: None, 消息: None
+2025-09-03 10:25:41,693 - __main__ - INFO - 🔗 连接上游WebSocket...
+2025-09-03 10:25:41,900 - __main__ - ERROR - ❌ WebSocket错误: [WinError 10054] 远程主机强迫关闭了一个现有的连接。
+2025-09-03 10:25:41,901 - websocket - ERROR - [WinError 10054] 远程主机强迫关闭了一个现有的连接。 - goodbye
+2025-09-03 10:25:41,901 - __main__ - INFO - 🔌 WebSocket连接关闭 - 状态码: None, 消息: None
+2025-09-03 10:25:42,146 - __main__ - INFO - 🛑 收到中断信号，正在关闭...
+2025-09-03 10:25:42,147 - __main__ - INFO - ✅ TLS法签监控系统已关闭
+2025-09-03 10:26:21,415 - __main__ - INFO - 🚀 TLS法签监控系统启动
+2025-09-03 10:26:21,416 - __main__ - INFO - 🔗 连接上游WebSocket...
+2025-09-03 10:26:21,662 - __main__ - ERROR - ❌ WebSocket错误: [WinError 10054] 远程主机强迫关闭了一个现有的连接。
+2025-09-03 10:26:21,662 - websocket - ERROR - [WinError 10054] 远程主机强迫关闭了一个现有的连接。 - goodbye
+2025-09-03 10:26:21,662 - __main__ - INFO - 🔌 WebSocket连接关闭 - 状态码: None, 消息: None
+2025-09-03 10:26:24,419 - __main__ - INFO - 🔗 连接上游WebSocket...
+2025-09-03 10:26:24,646 - __main__ - ERROR - ❌ WebSocket错误: [WinError 10054] 远程主机强迫关闭了一个现有的连接。
+2025-09-03 10:26:24,647 - websocket - ERROR - [WinError 10054] 远程主机强迫关闭了一个现有的连接。 - goodbye
+2025-09-03 10:26:24,647 - __main__ - INFO - 🔌 WebSocket连接关闭 - 状态码: None, 消息: None
+2025-09-03 10:26:28,420 - __main__ - INFO - 🔗 连接上游WebSocket...
+2025-09-03 10:26:28,628 - __main__ - ERROR - ❌ WebSocket错误: [WinError 10054] 远程主机强迫关闭了一个现有的连接。
+2025-09-03 10:26:28,629 - websocket - ERROR - [WinError 10054] 远程主机强迫关闭了一个现有的连接。 - goodbye
+2025-09-03 10:26:28,629 - __main__ - INFO - 🔌 WebSocket连接关闭 - 状态码: None, 消息: None
+2025-09-03 10:26:29,798 - __main__ - INFO - 🛑 收到中断信号，正在关闭...
+2025-09-03 10:26:29,798 - __main__ - INFO - ✅ TLS法签监控系统已关闭

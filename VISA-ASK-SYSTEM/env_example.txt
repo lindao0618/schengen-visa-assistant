@@ -1,0 +1,12 @@
+# DeepSeek API 配置
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
+
+# 可选配置
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+
+# 服务器配置
+HOST=0.0.0.0
+PORT=8000
+
+# 日志级别
+LOG_LEVEL=INFO

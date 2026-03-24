@@ -1,0 +1,7 @@
+# 法签自动化（提取 + 注册等）
+pandas>=1.3.0
+openpyxl>=3.0.0
+# 注册/回执/生成申请/提交最终表（Playwright，与美签一致）
+playwright>=1.40.0
+selenium>=4.0.0
+requests>=2.28.0

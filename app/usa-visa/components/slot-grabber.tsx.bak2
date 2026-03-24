@@ -1,0 +1,709 @@
+"use client"
+
+import { useState } from "react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Calendar, CheckCircle2, ChevronLeft, ChevronRight, CreditCard, Globe, Mail, MapPin, Phone, User, MessageSquare } from "lucide-react"
+
+// 签证类型数据
+const visaTypes = [
+  { id: "b1b2", name: "B1/B2 旅游/商务签证", description: "用于短期旅游、探亲访友或商务活动", fee: 160 },
+  { id: "f1", name: "F1 学生签证", description: "用于赴美接受全日制学术教育的学生", fee: 160 },
+  { id: "j1", name: "J1 交流访问学者签证", description: "用于参加交流项目的访问学者、教授、研究人员", fee: 160 },
+  { id: "h1b", name: "H1B 工作签证", description: "用于在美国从事专业工作的人员", fee: 190 },
+  { id: "l1", name: "L1 跨国公司内部调动签证", description: "用于跨国企业内部调动的管理人员或专业人员", fee: 190 },
+  { id: "o1", name: "O1 杰出人才签证", description: "用于在科学、艺术、教育、商业或体育领域有杰出成就的人员", fee: 190 },
+]
+
+interface DateTimeRange {
+  id: number;
+  startDate: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+}
+
+interface SecurityQuestion {
+  question: string;
+  answer: string;
+}
+
+interface SlotGrabberFormData {
+  // 第1步 - 选择国家/地区
+  region: string;
+  country: string;
+  consulate: string;
+  systemType: string;
+  
+  // 第2步 - 选择签证类型
+  visaType: string;
+  
+  // 第3步 - 设置预约时间范围
+  dateTimeRanges: DateTimeRange[];
+  
+  // 第4步 - 通知方式
+  notifyByWechat: boolean;
+  notifyByEmail: boolean;
+  email: string;
+  
+  // 第5步 - 账号信息
+  username: string;
+  password: string;
+  ivrNumber?: string;          // AIS系统
+  applicationGroupId?: string; // AVITS系统
+  securityQuestions?: SecurityQuestion[]; // CGI系统
+  peopleCount: number;
+  isUrgent: boolean;
+  
+  // 第6步 - 支付
+  paymentMethod: 'wechat' | 'alipay' | 'card';
+}
+
+// 根据国家代码获取该国家的领事馆城市列表
+const getConsulatesForCountry = (countryCode: string) => {
+  const consulatesByCountry: Record<string, {code: string, name: string}[]> = {
+    // 美洲国家领事馆
+    'ca': [ // 加拿大
+      {code: 'cal', name: '卡尔加里'},
+      {code: 'hal', name: '哈利法克斯'},
+      {code: 'mon', name: '蒙特利尔'},
+      {code: 'ott', name: '渥太华'},
+      {code: 'que', name: '魏北克'},
+      {code: 'tor', name: '多伦多'},
+      {code: 'van', name: '温哥华'}
+    ],
+    'mx': [ // 墨西哥
+      {code: 'cdj', name: '华雷斯城'},
+      {code: 'gdl', name: '瓜达拉哈拉'},
+      {code: 'her', name: '埃莫西约'},
+      {code: 'mat', name: '马塔莫罗斯'},
+      {code: 'mex', name: '墨西哥城'},
+      {code: 'mty', name: '蒙特雷'},
+      {code: 'nog', name: '诺加莱斯'},
+      {code: 'nle', name: '新拉雷多'},
+      {code: 'tij', name: '蒂华纳'}
+    ],
+    'cl': [{code: 'san', name: '圣地亚哥'}], // 智利
+    'br': [ // 巴西
+      {code: 'bra', name: '巴西利亚'},
+      {code: 'rio', name: '里约热内卢'},
+      {code: 'sao', name: '圣保罗'},
+      {code: 'rec', name: '累西腔'},
+      {code: 'por', name: '阿雷格里港'}
+    ],
+    'do': [{code: 'sdo', name: '圣多明各'}], // 多米尼加共和国
+    'ar': [{code: 'bue', name: '布宜诺斯艾利斯'}], // 阿根廷
+    'bs': [{code: 'nas', name: '拿骑'}], // 巴哈马
+    'bb': [{code: 'bri', name: '布里奇顿'}], // 巴巴多斯
+    'bz': [{code: 'blz', name: '伯利兹城'}], // 伯利兹
+    'bo': [{code: 'lpz', name: '拉巴斯'}], // 玻利维亚
+    'co': [{code: 'bog', name: '波哥大'}], // 哥伦比亚
+    'cr': [{code: 'sjo', name: '圣何塞'}], // 哥斯达黎加
+    'cw': [{code: 'wlm', name: '威廉斯塔德'}], // 库拉索
+    'ec': [ // 厄瓜多尔
+      {code: 'gya', name: '瓜亚基尔'},
+      {code: 'qui', name: '基多'}
+    ],
+    'gy': [{code: 'geo', name: '乔治敦'}], // 圭亚那
+    'jm': [{code: 'kin', name: '金斯敦'}], // 牙买加
+    'py': [{code: 'asu', name: '亚松森'}], // 巴拉圭
+    'pe': [{code: 'lim', name: '利马'}], // 秘鲁
+    'sr': [{code: 'par', name: '帕拉马里博'}], // 苏里南
+    'tt': [{code: 'pos', name: '西班牙港'}], // 特立尼达和多巴哥
+    'uy': [{code: 'mon', name: '蒙得维的亚'}], // 乌拉圭
+    
+    // 欧洲国家领事馆
+    'gb': [ // 英国
+      {code: 'lon', name: '伦敦'},
+      {code: 'bel', name: '贝尔法斯特'}
+    ],
+    'fr': [ // 法国
+      {code: 'par', name: '巴黎'},
+      {code: 'lyo', name: '里昂'},
+      {code: 'mar', name: '马赛'},
+      {code: 'str', name: '斯特拉斯堡'}
+    ],
+    'es': [ // 西班牙
+      {code: 'mad', name: '马德里'},
+      {code: 'bcn', name: '巴塞罗那'}
+    ],
+    'it': [ // 意大利
+      {code: 'rom', name: '罗马'},
+      {code: 'mil', name: '米兰'},
+      {code: 'nap', name: '那不勒斯'},
+      {code: 'flo', name: '佛罗伦萨'}
+    ],
+    'de': [ // 德国
+      {code: 'ber', name: '柏林'},
+      {code: 'fra', name: '法兰克福'},
+      {code: 'mun', name: '慕尼黑'},
+      {code: 'ham', name: '汉堡'},
+      {code: 'dus', name: '杜塞尔多夫'}
+    ],
+    
+    // 亚洲国家领事馆
+    'cn': [ // 中国
+      {code: 'bjs', name: '北京'},
+      {code: 'sha', name: '上海'},
+      {code: 'guz', name: '广州'},
+      {code: 'che', name: '成都'},
+      {code: 'she', name: '沈阳'}
+    ],
+    'hk': [{code: 'hkg', name: '香港'}], // 香港
+    
+    // 其他亚洲国家
+    'sg': [{code: 'sin', name: '新加坡'}], // 新加坡
+    'in': [ // 印度
+      {code: 'nde', name: '新德里'},
+      {code: 'mum', name: '孟买'}
+    ],
+    'jp': [ // 日本
+      {code: 'tok', name: '东京'},
+      {code: 'osa', name: '大阪'}
+    ],
+    'kr': [{code: 'seo', name: '首尔'}], // 韩国
+    'tw': [{code: 'tpe', name: '台北'}], // 台湾
+    'th': [{code: 'bkk', name: '曼谷'}], // 泰国
+    'vn': [{code: 'han', name: '河内'}], // 越南
+    'my': [{code: 'kul', name: '吉隆坡'}], // 马来西亚
+    'il': [{code: 'tlv', name: '特拉维夫'}], // 以色列
+    'qa': [{code: 'doh', name: '多哈'}], // 卡塔尔
+    'sa': [{code: 'ruh', name: '利雅得'}], // 沙特阿拉伯
+    'ae': [{code: 'auh', name: '阿布扎比'}], // 阿联酋
+    
+    // 大洋洲国家
+    'au': [ // 澳大利亚
+      {code: 'syd', name: '悉尼'},
+      {code: 'mel', name: '墨尔本'}
+    ],
+    'nz': [{code: 'akl', name: '奥克兰'}], // 新西兰
+    'fj': [{code: 'suv', name: '苏瓦'}]  // 斐济
+  };
+  
+  return consulatesByCountry[countryCode] || [];
+};
+
+// u81eau5b9au4e49u6edau52a8u6761u6837u5f0f
+const customScrollbarStyle = `
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(156, 163, 175, 0.5);
+    border-radius: 20px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(156, 163, 175, 0.7);
+  }
+`;
+
+export function SlotGrabber() {
+  const [currentStep, setCurrentStep] = useState(1)
+  const [loading, setLoading] = useState(false)
+  
+  // 初始化表单数据
+  const [formData, setFormData] = useState<SlotGrabberFormData>({
+    region: "",
+    country: "",
+    consulate: "",
+    systemType: "",
+    visaType: "b1b2", // 默认选择B1/B2签证
+    dateTimeRanges: [{
+      id: 1,
+      startDate: new Date().toISOString().substring(0, 10),
+      endDate: new Date(new Date().setMonth(new Date().getMonth() + 3)).toISOString().substring(0, 10),
+      startTime: "08:00",
+      endTime: "17:00"
+    }],
+    notifyByWechat: true,
+    notifyByEmail: false,
+    email: '',
+    username: '',
+    password: '',
+    peopleCount: 1,
+    isUrgent: false,
+    paymentMethod: 'wechat'
+  })
+  
+  // 计算总费用
+  const calculateTotalFee = () => {
+    const baseVisaFee = visaTypes.find(type => type.id === formData.visaType)?.fee || 160;
+    const serviceFee = 300; // 抢号服务费
+    const urgentFee = formData.isUrgent ? 200 : 0; // 加急费
+    const perPersonFee = baseVisaFee + serviceFee + urgentFee;
+    return perPersonFee * formData.peopleCount;
+  }
+
+  // 下一步
+  const handleNextStep = () => {
+    setCurrentStep(prev => prev + 1)
+  }
+  
+  // 上一步
+  const handlePrevStep = () => {
+    setCurrentStep(prev => prev - 1)
+  }
+  
+  // 提交表单
+  const handleSubmit = () => {
+    setLoading(true)
+    // 模拟支付过程
+    setTimeout(() => {
+      setLoading(false)
+      setCurrentStep(7) // 跳转到成功页面
+    }, 2000)
+  }
+
+  return (
+    <div className="space-y-6">
+      <style dangerouslySetInnerHTML={{ __html: customScrollbarStyle }} />
+      {/* 步骤指示器 */}
+      <div className="flex justify-between items-center mb-6">
+        {[1, 2, 3, 4, 5].map((step) => (
+          <div key={step} className="flex flex-col items-center">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm ${
+              currentStep === step 
+                ? 'bg-blue-600 text-white' 
+                : (currentStep > step ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500 dark:bg-gray-700')
+            }`}>
+              {currentStep > step ? <CheckCircle2 className="h-5 w-5" /> : step}
+            </div>
+            <span className="text-xs mt-1 text-gray-500">
+              {step === 1 && '国家/地区'}
+              {step === 2 && '时间范围'}
+              {step === 3 && '通知方式'}
+              {step === 4 && '账号信息'}
+              {step === 5 && '支付确认'}
+            </span>
+          </div>
+
+      <Card className="border-gray-200 dark:border-gray-800">
+        <CardContent className="pt-6">
+           {currentStep === 2 && (
+            <div>
+              <h3 className="text-lg font-medium mb-2">时间范围</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                请设置您希望预约的时间范围，系统将在这些时间段内监控可用的签证面试名额
+              </p>
+              
+              <div className="space-y-6">
+                {formData.dateTimeRanges.map((range, index) => (
+                  <div key={range.id} className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <div className="flex justify-between items-center mb-4">
+                      <h4 className="font-medium">时间范围 {index + 1}</h4>
+                      {formData.dateTimeRanges.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                          onClick={() => {
+                            setFormData({
+                              ...formData,
+                              dateTimeRanges: formData.dateTimeRanges.filter(r => r.id !== range.id)
+                            })
+                          }}
+                        >
+                          删除
+                        </Button>
+                      )}
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor={`startDate-${range.id}`}>开始日期</Label>
+                        <Input
+                          id={`startDate-${range.id}`}
+                          type="date"
+                          value={range.startDate}
+                          onChange={(e) => {
+                            const updatedRanges = formData.dateTimeRanges.map(r => {
+                              if (r.id === range.id) {
+                                return { ...r, startDate: e.target.value }
+                              }
+                              return r
+                            })
+                            setFormData({...formData, dateTimeRanges: updatedRanges})
+                          }}
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor={`endDate-${range.id}`}>结束日期</Label>
+                        <Input
+                          id={`endDate-${range.id}`}
+                          type="date"
+                          value={range.endDate}
+                          onChange={(e) => {
+                            const updatedRanges = formData.dateTimeRanges.map(r => {
+                              if (r.id === range.id) {
+                                return { ...r, endDate: e.target.value }
+                              }
+                              return r
+                            })
+                            setFormData({...formData, dateTimeRanges: updatedRanges})
+                          }}
+                          min={range.startDate}
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor={`startTime-${range.id}`}>开始时间</Label>
+                        <Input
+                          id={`startTime-${range.id}`}
+                          type="time"
+                          value={range.startTime}
+                          onChange={(e) => {
+                            const updatedRanges = formData.dateTimeRanges.map(r => {
+                              if (r.id === range.id) {
+                                return { ...r, startTime: e.target.value }
+                              }
+                              return r
+                            })
+                            setFormData({...formData, dateTimeRanges: updatedRanges})
+                          }}
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor={`endTime-${range.id}`}>结束时间</Label>
+                        <Input
+                          id={`endTime-${range.id}`}
+                          type="time"
+                          value={range.endTime}
+                          onChange={(e) => {
+                            const updatedRanges = formData.dateTimeRanges.map(r => {
+                              if (r.id === range.id) {
+                                return { ...r, endTime: e.target.value }
+                              }
+                              return r
+                            })
+                            setFormData({...formData, dateTimeRanges: updatedRanges})
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    // 添加新的时间范围
+                    const newRange = {
+                      id: Math.max(0, ...formData.dateTimeRanges.map(r => r.id)) + 1,
+                      startDate: new Date().toISOString().substring(0, 10),
+                      endDate: new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString().substring(0, 10),
+                      startTime: "08:00",
+                      endTime: "17:00"
+                    }
+                    setFormData({
+                      ...formData,
+                      dateTimeRanges: [...formData.dateTimeRanges, newRange]
+                    })
+                  }}
+                >
+                  <span className="flex items-center gap-2">
+                    + 添加更多时间范围
+                  </span>
+                </Button>
+              </div>
+            </div>
+          )}
+          
+          {currentStep === 1 && (
+            <>
+              {/* 国家地区选择 */}
+              <div>
+                <h3 className="text-lg font-medium mb-2">国家/地区</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  请选择您需要办理签证的国家和领事馆所在城市
+                </p>
+                
+                <div className="space-y-4">
+                  <div>
+                    <Label className="mb-2">大洲</Label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                      {Object.entries(regionCountries).map(([key, value]) => {
+                        // 根据大洲选择相应的旗帜或标志性图标
+                        const regionFlag = (() => {
+                          switch(key) {
+                        case 'america':
+                          // 美洲代表：美国旗
+                          return <div className="h-12 w-16 mb-2 overflow-hidden rounded shadow-sm">
+                            <img src="https://flagcdn.com/w160/us.png" alt="美洲" className="h-full w-full object-cover" />
+                          </div>;
+                        case 'europe':
+                          // 欧洲代表：欧盟旗
+                          return <div className="h-12 w-16 mb-2 overflow-hidden rounded shadow-sm">
+                            <img src="https://flagcdn.com/w160/eu.png" alt="欧洲" className="h-full w-full object-cover" />
+                          </div>;
+                        case 'asia':
+                          // 亚洲没有统一旗帜，使用中国旗作为代表
+                          return <div className="h-12 w-16 mb-2 overflow-hidden rounded shadow-sm">
+                            <img src="https://flagcdn.com/w160/cn.png" alt="亚洲" className="h-full w-full object-cover" />
+                          </div>;
+                        case 'oceania':
+                          // 大洋洲代表：澳大利亚旗
+                          return <div className="h-12 w-16 mb-2 overflow-hidden rounded shadow-sm">
+                            <img src="https://flagcdn.com/w160/au.png" alt="大洋洲" className="h-full w-full object-cover" />
+                          </div>;
+                        default:
+                          return <Globe className="h-8 w-8 mb-2 text-gray-500" />;
+                      }
+                    })();
+                    
+                    return (
+                      <div
+                        key={key}
+                        className={`border rounded-lg p-3 cursor-pointer transition-all hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 flex flex-col items-center ${
+                          formData.region === key ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 dark:border-blue-400' : 'border-gray-200 dark:border-gray-700'
+                        }`}
+                        onClick={() => {
+                          setFormData({
+                            ...formData,
+                            region: key,
+                            country: "",
+                            consulate: "",
+                            systemType: ""
+                          })
+                        }}
+                      >
+                        {regionFlag}
+                        <span className="text-sm font-medium">{regionCountries[key as keyof typeof regionCountries].name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              
+              {/* 选择国家 */}
+              <div className="space-y-3 mt-6">
+                <h4 className="text-base font-medium mb-2">选择国家/地区</h4>
+                {!formData.region ? (
+                  <div className="text-sm text-gray-500 p-4 border border-dashed border-gray-300 rounded-lg text-center">
+                    请先选择大洲/地区
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-[280px] overflow-y-auto pr-1 custom-scrollbar">
+                    {regionCountries[formData.region as keyof typeof regionCountries].countries.map((country) => {
+                      const systemType = systemTypeByCountry[country.code as keyof typeof systemTypeByCountry] || "";
+                      const systemTypeClass = 
+                        systemType === 'ais' ? 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20' : 
+                        systemType === 'avits' ? 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20' : 
+                        systemType === 'cgi' ? 'border-purple-200 bg-purple-50 dark:border-purple-800 dark:bg-purple-900/20' : '';
+                      
+                      return (
+                        <div
+                          key={country.code}
+                          className={`border rounded-lg p-3 cursor-pointer transition-all hover:border-blue-400 ${
+                            formData.country === country.code ? 'ring-2 ring-blue-500 dark:ring-blue-400' : 'border-gray-200 dark:border-gray-700'
+                          } ${systemTypeClass}`}
+                          onClick={() => {
+                            setFormData({
+                              ...formData,
+                              country: country.code,
+                              consulate: "",
+                              systemType
+                            })
+                          }}
+                        >
+                          <div className="flex flex-col items-center">
+                            <div className="h-6 w-10 mb-2 overflow-hidden rounded shadow-sm">
+                              <img
+                                src={`https://flagcdn.com/w80/${country.code}.png`}
+                                alt={`${country.name}国旗`}
+                                className="h-full w-full object-cover"
+                              />
+                            </div>
+                            <span className="text-sm font-medium">{country.name}</span>
+                            {systemType && (
+                              <span className="text-xs mt-1 px-2 py-0.5 rounded-full bg-white dark:bg-gray-800">
+                                {systemType.toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              
+              {/* 选择领事馆/使馆城市 */}
+              <div className="space-y-3">
+                <Label htmlFor="consulate">领事馆/使馆城市</Label>
+                <Select 
+                  value={formData.consulate} 
+                  onValueChange={(value) => {
+                    setFormData({
+                      ...formData,
+                      consulate: value
+                    })
+                  }}
+                  disabled={!formData.country}
+                >
+                  <SelectTrigger id="consulate" className="w-full">
+                    <SelectValue placeholder={formData.country ? "选择领事馆城市" : "请先选择国家"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {formData.country && getConsulatesForCountry(formData.country).map(city => (
+                      <SelectItem key={city.code} value={city.code}>
+                        {city.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {/* 显示系统类型 */}
+              {formData.systemType && (
+                <div className="p-4 rounded-lg bg-blue-50 border border-blue-100 dark:bg-blue-900/20 dark:border-blue-800">
+                  <div className="flex items-start gap-3">
+                    <Globe className="h-5 w-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <h4 className="font-medium text-blue-700 dark:text-blue-400">签证系统类型: {formData.systemType.toUpperCase()}</h4>
+                      <p className="text-sm text-blue-600 dark:text-blue-300 mt-1">
+                        {formData.systemType === 'ais' && 'AIS系统需要提供IVR号码 (8位追踪号码)'}
+                        {formData.systemType === 'avits' && 'AVITS系统需要提供申请组ID'}
+                        {formData.systemType === 'cgi' && 'CGI系统需要提供三个安全问题及答案'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* 预约信息填写 */}
+        </CardContent>
+      </Card>
+
+      <div className="flex justify-between">
+        {currentStep > 1 && (
+          <Button
+            variant="outline"
+            onClick={handlePrevStep}
+            className="flex items-center gap-2"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            上一步
+          </Button>
+        )}
+        
+        {currentStep < 5 ? (
+          <Button
+            onClick={handleNextStep}
+            className="ml-auto flex items-center gap-2"
+          >
+            下一步
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        ) : currentStep === 5 && (
+          <Button
+            onClick={handleSubmit}
+            className="ml-auto bg-blue-600 hover:bg-blue-700 text-white"
+            disabled={loading}
+          >
+            {loading ? '处理中...' : '确认支付'}
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// 系统类型映射表
+const systemTypeByCountry = {
+  // AIS 系统国家
+  ca: 'ais', mx: 'ais', cl: 'ais', br: 'ais', ar: 'ais', co: 'ais', pe: 'ais', // 美洲
+  gb: 'ais', es: 'ais', it: 'ais', ie: 'ais', gr: 'ais', pt: 'ais', tr: 'ais', // 欧洲
+  ae: 'ais', // 亚洲
+  
+  // AVITS 系统国家
+  fr: 'avits', be: 'avits', nl: 'avits', // 欧洲
+  
+  // CGI 系统国家
+  de: 'cgi', dk: 'cgi', fi: 'cgi', hu: 'cgi', no: 'cgi', me: 'cgi', se: 'cgi', ch: 'cgi', // 欧洲
+  cn: 'cgi', hk: 'cgi', sg: 'cgi', in: 'cgi', jp: 'cgi', kr: 'cgi', tw: 'cgi', // 亚洲
+  th: 'cgi', vn: 'cgi', il: 'cgi', my: 'cgi', qa: 'cgi', sa: 'cgi', // 亚洲
+  au: 'cgi', nz: 'cgi', fj: 'cgi' // 大洋洲
+}
+
+// 地区和国家数据
+const regionCountries = {
+  america: {
+    name: "美洲",
+    countries: [
+      { code: "ca", name: "加拿大" },
+      { code: "mx", name: "墨西哥" },
+      { code: "cl", name: "智利" },
+      { code: "br", name: "巴西" },
+      { code: "ar", name: "阿根廷" },
+      { code: "co", name: "哥伦比亚" },
+      { code: "pe", name: "秘鲁" },
+    ]
+  },
+  europe: {
+    name: "欧洲",
+    countries: [
+      { code: "gb", name: "英国" },
+      { code: "de", name: "德国" },
+      { code: "fr", name: "法国" },
+      { code: "es", name: "西班牙" },
+      { code: "it", name: "意大利" },
+      { code: "nl", name: "荷兰" },
+      { code: "be", name: "比利时" },
+      { code: "ch", name: "瑞士" },
+      { code: "se", name: "瑞典" },
+      { code: "ie", name: "爱尔兰" },
+      { code: "dk", name: "丹麦" },
+      { code: "fi", name: "芬兰" },
+      { code: "gr", name: "希腊" },
+      { code: "hu", name: "匈牙利" },
+      { code: "no", name: "挪威" },
+      { code: "pt", name: "葡萄牙" },
+      { code: "tr", name: "土耳其" },
+      { code: "me", name: "黑山" },
+    ]
+  },
+  asia: {
+    name: "亚洲",
+    countries: [
+      { code: "cn", name: "中国大陆" },
+      { code: "hk", name: "中国香港" },
+      { code: "tw", name: "中国台湾" },
+      { code: "jp", name: "日本" },
+      { code: "kr", name: "韩国" },
+      { code: "sg", name: "新加坡" },
+      { code: "in", name: "印度" },
+      { code: "th", name: "泰国" },
+      { code: "vn", name: "越南" },
+      { code: "ae", name: "阿联酋" },
+      { code: "il", name: "以色列" },
+      { code: "my", name: "马来西亚" },
+      { code: "qa", name: "卡塔尔" },
+      { code: "sa", name: "沙特阿拉伯" },
+    ]
+  },
+  oceania: {
+    name: "大洋洲",
+    countries: [
+      { code: "au", name: "澳大利亚" },
+      { code: "nz", name: "新西兰" },
+      { code: "fj", name: "斐济" },
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "token": "9513a9ba-c388-4d5d-8ed5-408c0d5ec658",
+  "allowed_cities": [
+    "LON",
+    "EDI",
+    "BHM",
+    "MAN",
+    "GLA"
+  ],
+  "allowed_countries": [
+    "gb"
+  ],
+  "allowed_visa_types": [
+    "B1",
+    "B2"
+  ],
+  "date_ranges": [
+    {
+      "start_date": "2025-09-05",
+      "end_date": "2025-11-14"
+    }
+  ],
+  "reconnect_delay": 10,
+  "max_reconnect_attempts": 10,
+  "log_level": "INFO",
+  "selected_countries": [
+    "英国"
+  ],
+  "selected_visa_types": [
+    "B1/B2"
+  ]
+}

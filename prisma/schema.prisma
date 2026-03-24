@@ -1,0 +1,188 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 用户模型
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String    // For credentials provider
+  role          String    @default("user") // 用户角色: user, admin
+  status        String    @default("active") // active, inactive, banned
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+
+  applications  Application[]
+  documents     Document[]
+  usVisaTasks     UsVisaTask[]
+  frenchVisaTasks FrenchVisaTask[]
+}
+
+// 签证申请模型
+model Application {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  visaType      String    // 签证类型
+  status        String    // 申请状态
+  country       String    // 申请国家
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  documents     Document[]
+  reviews       Review[]
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([userId, createdAt])
+}
+
+// 文档模型
+model Document {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  type          String    // 文档类型 (hotel, flight, insurance, etc)
+  filename      String
+  fileUrl       String
+  status        String    // 文档状态
+  aiAnalysis    String?   @db.Text // AI分析结果，可能较长
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  reviews       Review[]
+
+  @@index([userId])
+  @@index([applicationId])
+  @@index([userId, status])
+  @@index([applicationId, status])
+}
+
+// 审核记录模型
+model Review {
+  id            String    @id @default(cuid())
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  documentId    String
+  document      Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  result        String    @db.Text // 审核结果，可能较长
+  feedback      String    @db.Text // 审核反馈，可能较长
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([applicationId])
+  @@index([documentId])
+  @@index([applicationId, documentId])
+}
+
+// NextAuth.js Models
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?  @db.Text
+  access_token       String?  @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?  @db.Text
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// 美签任务模型（持久化）
+model UsVisaTask {
+  id        String   @id @default(cuid())
+  taskId    String   @unique // 如 task-xxx
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // check-photo | fill-ds160 | submit-ds160 | register-ais
+  status    String   // pending | running | completed | failed
+  progress  Int      @default(0)
+  message   String   @default("")
+  result    Json?    // { files, aaCode, emailSent, ... }
+  error     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, createdAt])
+  @@index([userId, status])
+}
+
+// 法签任务模型（持久化）
+model FrenchVisaTask {
+  id        String   @id @default(cuid())
+  taskId    String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // extract | register | create-application | fill-receipt | submit-final
+  status    String   // pending | running | completed | failed
+  progress  Int      @default(0)
+  message   String   @default("")
+  result    Json?    // { download_excel, download_json, download_pdf, ... }
+  error     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, createdAt])
+  @@index([userId, status])
+}
+
+// 管理后台设置
+model AdminSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  valueJson Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+// 内容管理
+model ContentBlock {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  title     String
+  content   String   @db.Text
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}

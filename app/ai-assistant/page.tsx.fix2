@@ -1,0 +1,429 @@
+"use client"
+
+import { useState, useRef, useEffect } from 'react';
+import { MessageSquare, Loader2 } from 'lucide-react';
+
+export default function AIAssistantPage() {
+  // u6d88u606fu7c7bu578bu5b9au4e49
+  type MessageType = {
+    type: 'user' | 'assistant';
+    content: string;
+    isTyping?: boolean;
+  };
+
+  // u57fau672cu72b6u6001
+  const [inputValue, setInputValue] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [messages, setMessages] = useState<MessageType[]>([
+    {
+      type: 'assistant',
+      content: `u6211u53efu4ee5u5e2eu52a9u4f60u89e3u7b54u5173u4e8e<strong>u82f1u56fdu3001u7f8eu56fdu3001u7533u6839u3001u6cd5u56fd</strong>u7b49u56fdu5bb6u7684u7559u5b66u4e2du9047u5230u7684u7b7eu8bc1u95eeu9898uff0cu5305u62ecuff1a
+
+- ud83dudccb u7b7eu8bc1u7533u8bf7u6d41u7a0bu548cu6750u6599u51c6u5907
+- ud83dudcb0 u8d44u91d1u8bc1u660eu548cu8d22u52a1u8981u6c42
+- ud83cudfa4 u9762u8bd5u6280u5de7u548cu5e38u89c1u95eeu9898
+- ud83dudcc5 u65f6u95f4u89c4u5212u548cu6ce8u610fu4e8bu9879
+- ud83dudea8 u62d2u7b7eu539fu56e0u5206u6790u548cu7533u8bc9u5efau8bae
+
+u8bf7u95eeu6709u4ec0u4e48u53efu4ee5u5e2eu52a9u4f60u7684u5417uff1f`
+    }
+  ]);
+  
+  // u9009u9879u72b6u6001
+  const [visaType, setVisaType] = useState('');
+  const [country, setCountry] = useState('');
+  const [location, setLocation] = useState('china');
+  const [applicantStatus, setApplicantStatus] = useState('student');
+  
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  // u81eau52a8u6edau52a8u5230u5e95u90e8
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
+  
+  // u81eau52a8u8c03u6574u8f93u5165u6846u9ad8u5ea6
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
+    }
+  }, [inputValue]);
+
+  // u5904u7406u8f93u5165u6846u53d8u5316
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputValue(e.target.value);
+  };
+
+  // u683cu5f0fu5316u5185u5bb9uff0cu4f7fu7528u7c7bu4f3cChatGPTu7684u7b80u6d01u683cu5f0f
+  const formatContent = (content: string) => {
+    if (!content) return { __html: '' };
+    
+    // u5904u7406u5185u5bb9uff0cu4fddu6301u7b80u6d01u683cu5f0f
+    let processedContent = content
+      // u5904u7406Markdownu6807u9898
+      .replace(/\n##\s+([^\n]+)/g, '</p><p class="font-medium text-lg mt-3 mb-1">$1</p><p>')
+      .replace(/\n#\s+([^\n]+)/g, '</p><p class="font-medium text-xl mt-3 mb-2">$1</p><p>')
+      // u5904u7406u52a0u7c97u548cu5f3au8c03
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      // u5904u7406u6bb5u843d
+      .replace(/\n\n/g, '</p><p>')
+      // u5904u7406u6807u9898u548cu5206u7c7b
+      .replace(/\n\[([^\]]+)\]/g, '</p><p class="font-medium mt-2 mb-1">$1</p><p>')
+      .replace(/\n\u3010([^\u3011]+)\u3011/g, '</p><p class="font-medium mt-2 mb-1">$1</p><p>')
+      // u5904u7406u5e26u7f16u53f7u7684u884c
+      .replace(/\n(\d+)\. ([^\n]+)/g, '</p><p>$1. $2')
+      // u5904u7406u5e26u8868u60c5u7684u884c
+      .replace(/\n(\p{Emoji}+) ([^\n]+)/gu, '</p><p>$1 $2')
+      // u5904u7406u65e0u5e8fu5217u8868
+      .replace(/\n- ([^\n]+)/g, '</p><p>u2022 $1')
+      // u5904u7406u5355u884cu5206u9694
+      .replace(/\n/g, '<br/>');
+    
+    return { __html: `<p>${processedContent}</p>` };
+  };
+
+  // u5904u7406u53d1u9001u6d88u606f
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() || isProcessing) return;
+    
+    // u6dfbu52a0u7528u6237u6d88u606f
+    const userMessage = {
+      type: 'user' as const,
+      content: inputValue
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    setIsProcessing(true);
+    
+    const question = inputValue;
+    setInputValue('');
+    
+    // u6dfbu52a0AIu4e34u65f6u6d88u606fu5e26u7b49u5f85u52a8u753b
+    const tempIndex = messages.length + 1;
+    setMessages(prev => [...prev, {
+      type: 'assistant',
+      content: '',
+      isTyping: true
+    }]);
+    
+    try {
+      console.log('u53d1u9001u8bf7u6c42u5230API:', {
+        question,
+        visa_type: visaType,
+        country,
+        applicant_location: location,
+        applicant_status: applicantStatus,
+        use_rag: true
+      });
+      
+      const response = await fetch('http://localhost:8000/ask-stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          question: question,
+          visa_type: visaType,
+          country: country,
+          applicant_location: location,
+          applicant_status: applicantStatus,
+          use_rag: true
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`u7f51u7edcu8bf7u6c42u5931u8d25: ${response.status}`);
+      }
+      
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('u65e0u6cd5u8bfbu53d6u54cdu5e94u6d41');
+      
+      const decoder = new TextDecoder();
+      let content = '';
+      let displayContent = '';
+      
+      // u66f4u65b0u4e34u65f6u6d88u606fu4e3au7a7au767d
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[tempIndex] = {
+          type: 'assistant',
+          content: '',
+          isTyping: true
+        };
+        return newMessages;
+      });
+      
+      // u8bfbu53d6u6d41u5f0fu54cdu5e94
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        content += chunk;
+        
+        // u6a21u62dfu6253u5b57u673au6548u679cuff0cu6bcfu6b21u663eu793au5185u5bb9u589eu52a0u4e00u70b9
+        for (let i = displayContent.length; i < content.length; i++) {
+          displayContent = content.substring(0, i + 1);
+          
+          // u66f4u65b0u6d88u606fu5185u5bb9
+          setMessages(prev => {
+            const newMessages = [...prev];
+            newMessages[tempIndex] = {
+              type: 'assistant',
+              content: displayContent,
+              isTyping: true
+            };
+            return newMessages;
+          });
+          
+          // u6bcfu4e2au5b57u7b26u95f4u7684u5ef6u8fdfuff0cu8c03u6574u4e3au5f88u5c0fu7684u503cu4ee5u907fu514du592au6162
+          await new Promise(resolve => setTimeout(resolve, 5));
+        }
+      }
+      
+      // u6253u5b57u5b8cu6210uff0cu79fbu9664u6253u5b57u673au72b6u6001
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[tempIndex] = {
+          type: 'assistant',
+          content: content,
+          isTyping: false
+        };
+        return newMessages;
+      });
+      
+    } catch (error) {
+      console.error('u8bf7u6c42u9519u8bef:', error);
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[tempIndex] = {
+          type: 'assistant',
+          content: `<div style="color: #ff3b30; padding: 10px; background: rgba(255, 59, 48, 0.1); border-radius: 8px;">u62b1u6b49uff0cu8fdeu63a5u670du52a1u5668u5931u8d25: ${error instanceof Error ? error.message : 'u672au77e5u9519u8bef'}u3002u8bf7u786eu4fddu540eu7aefu670du52a1u5668u5df2u542fu52a8u3002</div>`,
+          isTyping: false
+        };
+        return newMessages;
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // u5904u7406u952eu76d8u4e8bu4ef6
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  // u68c0u6d4bu6697u8272u6a21u5f0f
+  const [darkMode, setDarkMode] = useState(false);
+    
+  useEffect(() => {
+    // u68c0u67e5u672cu5730u5b58u50a8u7684u4e3bu9898u8bbeu7f6e
+    const savedTheme = localStorage.getItem('theme');
+    const prefersDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    
+    if (savedTheme === 'dark' || (!savedTheme && prefersDarkMode)) {
+      setDarkMode(true);
+    }
+    
+    // u76d1u542cu4e3bu9898u53d8u5316
+    const handleStorageChange = () => {
+      const currentTheme = localStorage.getItem('theme');
+      setDarkMode(currentTheme === 'dark');
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  return (
+    <div className={`container mx-auto px-4 py-8 ${darkMode ? 'dark' : ''}`}>
+      <style jsx global>{`
+        .typing-animation {
+          position: relative;
+        }
+        .typing-cursor {
+          display: inline-block;
+          width: 2px;
+          height: 1.2em;
+          background-color: currentColor;
+          margin-left: 2px;
+          vertical-align: middle;
+          animation: blink 1s step-end infinite;
+        }
+        @keyframes blink {
+          from, to { opacity: 1; }
+          50% { opacity: 0; }
+        }
+      `}</style>
+      <div className="text-center mb-12">
+        <h1 className="text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-b from-gray-900 to-gray-700 dark:from-white dark:to-gray-400">
+          u7559u5b66u751fu7b7eu8bc1AIu52a9u624b
+        </h1>
+        <p className="text-gray-500 dark:text-gray-400 text-lg">
+          u667au80fdu89e3u7b54u60a8u7684u7b7eu8bc1u95eeu9898uff0cu63d0u4f9bu4e13u4e1au6307u5bfc
+        </p>
+      </div>
+      
+      <div className="max-w-4xl mx-auto bg-white dark:bg-zinc-900 rounded-xl shadow-lg overflow-hidden border border-gray-200 dark:border-zinc-800">
+        {/* u804au5929u533au57df */}
+        <div 
+          ref={chatContainerRef}
+          className="h-[500px] overflow-y-auto p-6 space-y-6 bg-gray-50 dark:bg-zinc-900"
+        >
+          {messages.map((message, index) => (
+            <div 
+              key={index} 
+              className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'} mb-4`}
+            >
+              {message.type === 'assistant' && (
+                <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center mr-4 flex-shrink-0 border-2 border-blue-200 dark:border-blue-800">
+                  <MessageSquare className="text-blue-600 dark:text-blue-300 w-5 h-5" />
+                </div>
+              )}
+              
+              <div 
+                className={`max-w-[80%] rounded-2xl px-5 py-3 shadow-sm ${
+                  message.type === 'user'
+                    ? 'bg-blue-50 dark:bg-gray-700 text-gray-800 dark:text-gray-200 border border-blue-100 dark:border-gray-600'
+                    : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-100 dark:border-gray-700'
+                }`}
+              >
+                {message.content ? (
+                  <div 
+                    dangerouslySetInnerHTML={
+                      message.type === 'assistant' ? formatContent(message.content) : { __html: message.content }
+                    } 
+                  />
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <Loader2 className="animate-spin h-4 w-4 text-gray-400" />
+                    <span className="text-gray-400">u6b63u5728u601du8003u4e2d...</span>
+                  </div>
+                )}
+                {message.isTyping && message.content && (
+                  <span className="typing-cursor">|</span>
+                )}
+              </div>
+              
+              {message.type === 'user' && (
+                <div className="w-10 h-10 rounded-full bg-blue-500 dark:bg-blue-600 flex items-center justify-center ml-4 flex-shrink-0 border-2 border-blue-400 dark:border-blue-700">
+                  <span className="text-white text-sm font-medium">u4f60</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        
+        {/* u9009u9879u884c */}
+        <div className="border-t border-gray-200 dark:border-zinc-800 p-4 bg-gray-50 dark:bg-zinc-900">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            {/* u7b7eu8bc1u7c7bu578bu9009u62e9 */}
+            <div>
+              <label htmlFor="visa-type" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">u7b7eu8bc1u7c7bu578b</label>
+              <select 
+                id="visa-type"
+                value={visaType}
+                onChange={(e) => setVisaType(e.target.value)}
+                className="w-full text-sm border border-gray-300 dark:border-zinc-700 rounded-md px-3 py-2 bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
+              >
+                <option value="">u8bf7u9009u62e9u7c7bu578b</option>
+                <option value="student">u5b66u751fu7b7eu8bc1</option>
+                <option value="tourist">u65c5u6e38u7b7eu8bc1</option>
+                <option value="business">u5546u52a1u7b7eu8bc1</option>
+                <option value="work">u5de5u4f5cu7b7eu8bc1</option>
+                <option value="family">u5bb6u5eadu56e2u805au7b7eu8bc1</option>
+              </select>
+            </div>
+            
+            {/* u7533u8bf7u56fdu5bb6u9009u62e9 */}
+            <div>
+              <label htmlFor="country" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">u7533u8bf7u56fdu5bb6</label>
+              <select 
+                id="country"
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+                className="w-full text-sm border border-gray-300 dark:border-zinc-700 rounded-md px-3 py-2 bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
+              >
+                <option value="">u8bf7u9009u62e9u56fdu5bb6</option>
+                <option value="uk">u82f1u56fd</option>
+                <option value="us">u7f8eu56fd</option>
+                <option value="france">u6cd5u56fd</option>
+                <option value="canada">u52a0u62ffu5927</option>
+                <option value="australia">u6fb3u5927u5229u4e9a</option>
+                <option value="japan">u65e5u672c</option>
+                <option value="korea">u97e9u56fd</option>
+                <option value="newzealand">u65b0u897fu5170</option>
+              </select>
+            </div>
+            
+            {/* u6240u5728u5730u9009u62e9 */}
+            <div>
+              <label htmlFor="location" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">u6240u5728u5730</label>
+              <select 
+                id="location"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                className="w-full text-sm border border-gray-300 dark:border-zinc-700 rounded-md px-3 py-2 bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
+              >
+                <option value="china">u4e2du56fdu5927u9646</option>
+                <option value="uk">u82f1u56fd</option>
+                <option value="us">u7f8eu56fd</option>
+                <option value="australia">u6fb3u5927u5229u4e9a</option>
+                <option value="europe">u6b27u6d32</option>
+                <option value="newzealand">u65b0u897fu5170</option>
+                <option value="canada">u52a0u62ffu5927</option>
+              </select>
+            </div>
+            
+            {/* u7533u8bf7u4ebau8eabu4efdu9009u62e9 */}
+            <div>
+              <label htmlFor="applicant-status" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">u7533u8bf7u4ebau8eabu4efd</label>
+              <select 
+                id="applicant-status"
+                value={applicantStatus}
+                onChange={(e) => setApplicantStatus(e.target.value)}
+                className="w-full text-sm border border-gray-300 dark:border-zinc-700 rounded-md px-3 py-2 bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
+              >
+                <option value="student">u5b66u751f</option>
+                <option value="employed">u5728u804c</option>
+                <option value="retired">u9000u4f11</option>
+                <option value="freelancer">u81eau7531u804cu4e1a</option>
+                <option value="unemployed">u5f85u4e1a</option>
+              </select>
+            </div>
+          </div>
+          
+          {/* u8f93u5165u884c */}
+          <div className="flex items-end space-x-2">
+            <div className="flex-1 relative">
+              <textarea
+                ref={textareaRef}
+                value={inputValue}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder="u8bf7u8f93u5165u60a8u7684u7b7eu8bc1u95eeu9898..."
+                className="w-full border border-gray-300 dark:border-zinc-700 rounded-lg px-4 py-3 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none min-h-[52px] max-h-[200px] bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
+                rows={1}
+              />
+            </div>
+            <button
+              onClick={handleSendMessage}
+              disabled={isProcessing || !inputValue.trim()}
+              className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg px-6 py-3 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              u53d1u9001
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

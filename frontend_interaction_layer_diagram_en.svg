@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1200" height="800" viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Gradients -->
+    <linearGradient id="headerGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#3B82F6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8B5CF6;stop-opacity:1" />
+    </linearGradient>
+    
+    <linearGradient id="cardGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#F8FAFC;stop-opacity:1" />
+    </linearGradient>
+    
+    <linearGradient id="apiGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#10B981;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#059669;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Shadows -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.1"/>
+    </filter>
+    
+    <!-- Icons -->
+    <symbol id="chat-icon" viewBox="0 0 24 24">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    
+    <symbol id="upload-icon" viewBox="0 0 24 24">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="7,10 12,15 17,10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="12" y1="15" x2="12" y2="3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    
+    <symbol id="form-icon" viewBox="0 0 24 24">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="14,2 14,8 20,8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="16" y1="13" x2="8" y2="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="16" y1="17" x2="8" y2="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="10,9 9,9 8,9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    
+    <symbol id="pdf-icon" viewBox="0 0 24 24">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="14,2 14,8 20,8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M10 13h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M10 17h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M10 9h1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    
+    <symbol id="notification-icon" viewBox="0 0 24 24">
+      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    
+    <symbol id="api-icon" viewBox="0 0 24 24">
+      <rect x="2" y="3" width="20" height="14" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="8" y1="21" x2="16" y2="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="12" y1="17" x2="12" y2="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="1200" height="800" fill="#F8FAFC"/>
+  
+  <!-- Title -->
+  <rect x="0" y="0" width="1200" height="80" fill="url(#headerGradient)"/>
+  <text x="600" y="50" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="bold">
+    Frontend Interaction Layer Architecture
+  </text>
+  
+  <!-- User Interface Layer -->
+  <g transform="translate(50, 120)">
+    <!-- Section Title -->
+    <rect x="0" y="0" width="1100" height="40" fill="#E2E8F0" rx="8"/>
+    <text x="550" y="25" text-anchor="middle" fill="#1E293B" font-family="Arial, sans-serif" font-size="16" font-weight="bold">
+      User Interface Layer
+    </text>
+    
+    <!-- Chat Component -->
+    <g transform="translate(50, 60)">
+      <rect x="0" y="0" width="180" height="120" fill="url(#cardGradient)" stroke="#E2E8F0" stroke-width="2" rx="12" filter="url(#shadow)"/>
+      <use href="#chat-icon" x="75" y="20" width="30" height="30" fill="#3B82F6"/>
+      <text x="90" y="70" text-anchor="middle" fill="#1E293B" font-family="Arial, sans-serif" font-size="14" font-weight="bold">Chat</text>
+      <text x="90" y="85" text-anchor="middle" fill="#64748B" font-family="Arial, sans-serif" font-size="11">Q&A Interaction</text>
+      <text x="90" y="100" text-anchor="middle" fill="#64748B" font-family="Arial, sans-serif" font-size="10">AI Assistant</text>
+    </g>
+    
+    <!-- File Upload Component -->
+    <g transform="translate(250, 60)">
+      <rect x="0" y="0" width="180" height="120" fill="url(#cardGradient)" stroke="#E2E8F0" stroke-width="2" rx="12" filter="url(#shadow)"/>
+      <use href="#upload-icon" x="75" y="20" width="30" height="30" fill="#10B981"/>
+      <text x="90" y="70" text-anchor="middle" fill="#1E293B" font-family="Arial, sans-serif" font-size="14" font-weight="bold">File Upload</text>
+      <text x="90" y="85" text-anchor="middle" fill="#64748B" font-family="Arial, sans-serif" font-size="11">Document Upload</text>
+      <text x="90" y="100" text-anchor="middle" fill="#64748B" font-family="Arial, sans-serif" font-size="10">Material Review</text>
+    </g>
+    
+    <!-- Param Submit Component -->
+    <g transform="translate(450, 60)">
+      <rect x="0" y="0" width="180" height="120" fill="url(#cardGradient)" stroke="#E2E8F0" stroke-width="2" rx="12" filter="url(#shadow)"/>
+      <use href="#form-icon" x="75" y="20" width="30" height="30" fill="#F59E0B"/>
+      <text x="90" y="70" text-anchor="middle" fill="#1E293B" font-family="Arial, sans-serif" font-size="14" font-weight="bold">Param Submit</text>
+      <text x="90" y="85" text-anchor="middle" fill="#64748B" font-family="Arial, sans-serif" font-size="11">Parameter Input</text>
+      <text x="90" y="100" text-anchor="middle" fill="#64748B" font-family="Arial, sans-serif" font-size="10">Task Trigger</text>
+    </g>
+    
+    <!-- PDF Preview Component -->
+    <g transform="translate(650, 60)">
+      <rect x="0" y="0" width="180" height="120" fill="url(#cardGradient)" stroke="#E2E8F0" stroke-width="2" rx="12" filter="url(#shadow)"/>
+      <use href="#pdf-icon" x="75" y="20" width="30" height="30" fill="#EF4444"/>
+      <text x="90" y="70" text-anchor="middle" fill="#1E293B" font-family="Arial, sans-serif" font-size="14" font-weight="bold">PDF Preview</text>
+      <text x="90" y="85" text-anchor="middle" fill="#64748B" font-family="Arial, sans-serif" font-size="11">Document Preview</text>
+      <text x="90" y="100" text-anchor="middle" fill="#64748B" font-family="Arial, sans-serif" font-size="10">Export</text>
+    </g>
+    
+    <!-- Notifications Component -->
+    <g transform="translate(850, 60)">
+      <rect x="0" y="0" width="180" height="120" fill="url(#cardGradient)" stroke="#E2E8F0" stroke-width="2" rx="12" filter="url(#shadow)"/>
+      <use href="#notification-icon" x="75" y="20" width="30" height="30" fill="#8B5CF6"/>
+      <text x="90" y="70" text-anchor="middle" fill="#1E293B" font-family="Arial, sans-serif" font-size="14" font-weight="bold">Notifications</text>
+      <text x="90" y="85" text-anchor="middle" fill="#64748B" font-family="Arial, sans-serif" font-size="11">Real-time Alerts</text>
+      <text x="90" y="100" text-anchor="middle" fill="#64748B" font-family="Arial, sans-serif" font-size="10">Slot Alerts</text>
+    </g>
+  </g>
+  
+  <!-- API Gateway Layer -->
+  <g transform="translate(50, 280)">
+    <!-- Section Title -->
+    <rect x="0" y="0" width="1100" height="40" fill="url(#apiGradient)" rx="8"/>
+    <text x="550" y="25" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="16" font-weight="bold">
+      API Gateway Layer - Next.js API Routes
+    </text>
+    
+    <!-- API Routes -->
+    <g transform="translate(50, 60)">
+      <rect x="0" y="0" width="200" height="80" fill="url(#apiGradient)" stroke="#059669" stroke-width="2" rx="8" filter="url(#shadow)"/>
+      <use href="#api-icon" x="85" y="15" width="30" height="30" fill="white"/>
+      <text x="100" y="55" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12" font-weight="bold">/api/chat</text>
+      <text x="100" y="70" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="10">AI Q&A Interface</text>
+    </g>
+    
+    <g transform="translate(270, 60)">
+      <rect x="0" y="0" width="200" height="80" fill="url(#apiGradient)" stroke="#059669" stroke-width="2" rx="8" filter="url(#shadow)"/>
+      <use href="#api-icon" x="85" y="15" width="30" height="30" fill="white"/>
+      <text x="100" y="55" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12" font-weight="bold">/api/upload</text>
+      <text x="100" y="70" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="10">File Upload Interface</text>
+    </g>
+    
+    <g transform="translate(490, 60)">
+      <rect x="0" y="0" width="200" height="80" fill="url(#apiGradient)" stroke="#059669" stroke-width="2" rx="8" filter="url(#shadow)"/>
+      <use href="#api-icon" x="85" y="15" width="30" height="30" fill="white"/>
+      <text x="100" y="55" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12" font-weight="bold">/api/schengen</text>
+      <text x="100" y="70" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="10">Schengen Visa Interface</text>
+    </g>
+    
+    <g transform="translate(710, 60)">
+      <rect x="0" y="0" width="200" height="80" fill="url(#apiGradient)" stroke="#059669" stroke-width="2" rx="8" filter="url(#shadow)"/>
+      <use href="#api-icon" x="85" y="15" width="30" height="30" fill="white"/>
+      <text x="100" y="55" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12" font-weight="bold">/api/usa-visa</text>
+      <text x="100" y="70" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="10">US Visa Interface</text>
+    </g>
+    
+    <g transform="translate(930, 60)">
+      <rect x="0" y="0" width="200" height="80" fill="url(#apiGradient)" stroke="#059669" stroke-width="2" rx="8" filter="url(#shadow)"/>
+      <use href="#api-icon" x="85" y="15" width="30" height="30" fill="white"/>
+      <text x="100" y="55" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12" font-weight="bold">/api/monitor</text>
+      <text x="100" y="70" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="10">Monitoring Interface</text>
+    </g>
+  </g>
+  
+  <!-- Responsibilities Section -->
+  <g transform="translate(50, 420)">
+    <!-- Section Title -->
+    <rect x="0" y="0" width="1100" height="40" fill="#FEF3C7" rx="8"/>
+    <text x="550" y="25" text-anchor="middle" fill="#92400E" font-family="Arial, sans-serif" font-size="16" font-weight="bold">
+      Frontend Layer Responsibilities
+    </text>
+    
+    <!-- Responsibility Cards -->
+    <g transform="translate(50, 60)">
+      <rect x="0" y="0" width="300" height="120" fill="#FEF3C7" stroke="#F59E0B" stroke-width="2" rx="8" filter="url(#shadow)"/>
+      <text x="150" y="25" text-anchor="middle" fill="#92400E" font-family="Arial, sans-serif" font-size="14" font-weight="bold">Parameter Collection & File Upload</text>
+      <text x="150" y="45" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• Form data collection</text>
+      <text x="150" y="60" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• File type validation</text>
+      <text x="150" y="75" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• Data format conversion</text>
+      <text x="150" y="90" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• User input validation</text>
+      <text x="150" y="105" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• Error handling</text>
+    </g>
+    
+    <g transform="translate(380, 60)">
+      <rect x="0" y="0" width="300" height="120" fill="#FEF3C7" stroke="#F59E0B" stroke-width="2" rx="8" filter="url(#shadow)"/>
+      <text x="150" y="25" text-anchor="middle" fill="#92400E" font-family="Arial, sans-serif" font-size="14" font-weight="bold">Task Trigger & State Management</text>
+      <text x="150" y="45" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• API call initiation</text>
+      <text x="150" y="60" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• Loading state display</text>
+      <text x="150" y="75" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• Progress bar updates</text>
+      <text x="150" y="90" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• Task queue management</text>
+      <text x="150" y="105" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• Error retry mechanism</text>
+    </g>
+    
+    <g transform="translate(710, 60)">
+      <rect x="0" y="0" width="300" height="120" fill="#FEF3C7" stroke="#F59E0B" stroke-width="2" rx="8" filter="url(#shadow)"/>
+      <text x="150" y="25" text-anchor="middle" fill="#92400E" font-family="Arial, sans-serif" font-size="14" font-weight="bold">Result Display & User Interaction</text>
+      <text x="150" y="45" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• AI response rendering</text>
+      <text x="150" y="60" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• PDF online preview</text>
+      <text x="150" y="75" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• File download links</text>
+      <text x="150" y="90" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• Real-time notifications</text>
+      <text x="150" y="105" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-size="11">• Interactive feedback</text>
+    </g>
+  </g>
+  
+  <!-- Communication Flow -->
+  <g transform="translate(50, 620)">
+    <!-- Section Title -->
+    <rect x="0" y="0" width="1100" height="40" fill="#DBEAFE" rx="8"/>
+    <text x="550" y="25" text-anchor="middle" fill="#1E40AF" font-family="Arial, sans-serif" font-size="16" font-weight="bold">
+      Communication Pattern
+    </text>
+    
+    <!-- Communication Flow -->
+    <g transform="translate(50, 60)">
+      <rect x="0" y="0" width="1000" height="80" fill="#DBEAFE" stroke="#3B82F6" stroke-width="2" rx="8" filter="url(#shadow)"/>
+      <text x="500" y="25" text-anchor="middle" fill="#1E40AF" font-family="Arial, sans-serif" font-size="14" font-weight="bold">
+        Frontend Layer Communicates Only with API Gateway (Next.js API Routes)
+      </text>
+      <text x="500" y="45" text-anchor="middle" fill="#1E40AF" font-family="Arial, sans-serif" font-size="12">
+        • No business orchestration logic • No long-running task processing • Focus on user interaction and data display
+      </text>
+      <text x="500" y="65" text-anchor="middle" fill="#1E40AF" font-family="Arial, sans-serif" font-size="12">
+        • RESTful API for data exchange • WebSocket for real-time notifications • Responsive design for optimal UX
+      </text>
+    </g>
+  </g>
+  
+  <!-- Arrows showing data flow -->
+  <!-- From UI to API Gateway -->
+  <g stroke="#3B82F6" stroke-width="3" fill="none" marker-end="url(#arrowhead)">
+    <line x1="140" y1="240" x2="140" y2="280"/>
+    <line x1="340" y1="240" x2="340" y2="280"/>
+    <line x1="540" y1="240" x2="540" y2="280"/>
+    <line x1="740" y1="240" x2="740" y2="280"/>
+    <line x1="940" y1="240" x2="940" y2="280"/>
+  </g>
+  
+  <!-- Arrow marker -->
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#3B82F6"/>
+    </marker>
+  </defs>
+  
+  <!-- Legend -->
+  <g transform="translate(50, 720)">
+    <rect x="0" y="0" width="1100" height="60" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="1" rx="8"/>
+    <text x="550" y="20" text-anchor="middle" fill="#475569" font-family="Arial, sans-serif" font-size="14" font-weight="bold">
+      Legend
+    </text>
+    <text x="50" y="40" fill="#475569" font-family="Arial, sans-serif" font-size="12">
+      • Blue components: User Interface Layer, responsible for user interaction and data display
+    </text>
+    <text x="400" y="40" fill="#475569" font-family="Arial, sans-serif" font-size="12">
+      • Green components: API Gateway Layer, responsible for routing and request forwarding
+    </text>
+    <text x="750" y="40" fill="#475569" font-family="Arial, sans-serif" font-size="12">
+      • Yellow components: Responsibility descriptions, showing functional positioning
+    </text>
+  </g>
+</svg>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

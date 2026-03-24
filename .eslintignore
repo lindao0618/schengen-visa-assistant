@@ -1,0 +1,15 @@
+.next/
+node_modules/
+temp/
+logs/
+uploads/
+output/
+public/uploads/
+services/usvisa-runtime/
+services/**/venv/
+services/ds160-processor/excel_files/
+services/ds160-processor/photos/
+app/trip_generator/output/
+app/api/usa-visa/usvisa/
+*.rar
+*.log

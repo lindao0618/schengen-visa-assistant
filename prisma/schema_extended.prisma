@@ -1,0 +1,561 @@
+// 申根签证助手 - 扩展数据库模型
+// 去掉社区和问答系统模块的精简版本
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ========================================
+// 1. 用户管理模块
+// ========================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String
+  emailVerified DateTime?
+  image         String?
+  phone         String?
+  country       String?
+  language      String    @default("zh-CN")
+  timezone      String    @default("Asia/Shanghai")
+  status        UserStatus @default(ACTIVE)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // 关联关系
+  accounts      Account[]
+  sessions      Session[]
+  applications  Application[]
+  documents     Document[]
+  documentReviews DocumentReview[] @relation("Reviewer")
+  chatSessions  ChatSession[]
+  appointments  Appointment[]
+  slotMonitors  SlotMonitor[]
+  userActivities UserActivity[]
+
+  @@map("users")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  BANNED
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?  @db.Text
+  access_token       String?  @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?  @db.Text
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ========================================
+// 2. 签证申请管理模块
+// ========================================
+
+model Application {
+  id                String           @id @default(cuid())
+  userId            String
+  visaType          VisaType
+  country           String
+  status            ApplicationStatus @default(DRAFT)
+  priority          Priority         @default(NORMAL)
+  applicationData   Json
+  intendedEntryDate DateTime?
+  intendedExitDate  DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  submittedAt       DateTime?
+  processedAt       DateTime?
+
+  // 关联关系
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents         Document[]
+  schengenApplication SchengenApplication?
+  usaApplication    UsaApplication?
+  chatSessions      ChatSession[]
+  appointments      Appointment[]
+
+  @@map("applications")
+}
+
+enum VisaType {
+  SCHENGEN
+  USA
+  JAPAN
+  UK
+  CANADA
+  AUSTRALIA
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  PROCESSING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum Priority {
+  NORMAL
+  URGENT
+  SUPER_URGENT
+}
+
+// 申根签证申请表（扩展表）
+model SchengenApplication {
+  id                String   @id @default(cuid())
+  applicationId     String   @unique
+  personalInfo      Json
+  travelInfo        Json
+  accommodationInfo Json
+  financialInfo     Json
+  insuranceInfo     Json
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // 关联关系
+  application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("schengen_applications")
+}
+
+// 美国签证申请表（扩展表）
+model UsaApplication {
+  id              String   @id @default(cuid())
+  applicationId   String   @unique
+  ds160Data       Json
+  interviewInfo   Json?
+  appointmentInfo Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // 关联关系
+  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("usa_applications")
+}
+
+// ========================================
+// 3. 文档管理模块
+// ========================================
+
+model Document {
+  id               String           @id @default(cuid())
+  userId           String
+  applicationId    String
+  type             DocumentType
+  category         String?
+  filename         String
+  originalFilename String
+  fileUrl          String
+  fileSize         BigInt
+  mimeType         String
+  status           DocumentStatus   @default(UPLOADED)
+  aiAnalysis       Json?
+  aiConfidence     Decimal?         @db.Decimal(3,2)
+  reviewNotes      String?
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  // 关联关系
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application      Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  reviews          DocumentReview[]
+
+  @@map("documents")
+}
+
+enum DocumentType {
+  PASSPORT
+  PHOTO
+  FLIGHT
+  HOTEL
+  INSURANCE
+  FINANCIAL
+  EMPLOYMENT
+  OTHER
+}
+
+enum DocumentStatus {
+  UPLOADED
+  PROCESSING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+model DocumentReview {
+  id            String           @id @default(cuid())
+  documentId    String
+  reviewerId    String
+  result        ReviewResult
+  feedback      String?
+  score         Decimal?         @db.Decimal(3,2)
+  reviewDetails Json?
+  createdAt     DateTime         @default(now())
+
+  // 关联关系
+  document      Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  reviewer      User             @relation("Reviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@map("document_reviews")
+}
+
+enum ReviewResult {
+  APPROVED
+  REJECTED
+  NEEDS_REVISION
+}
+
+// ========================================
+// 4. AI助手和聊天模块
+// ========================================
+
+model ChatSession {
+  id            String           @id @default(cuid())
+  userId        String
+  applicationId String?
+  title         String?
+  sessionType   ChatSessionType  @default(GENERAL)
+  status        ChatSessionStatus @default(ACTIVE)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  // 关联关系
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application   Application?     @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  messages      ChatMessage[]
+
+  @@map("chat_sessions")
+}
+
+enum ChatSessionType {
+  GENERAL
+  APPLICATION_HELP
+  DOCUMENT_REVIEW
+  VISA_GUIDANCE
+}
+
+enum ChatSessionStatus {
+  ACTIVE
+  ARCHIVED
+  DELETED
+}
+
+model ChatMessage {
+  id               String           @id @default(cuid())
+  sessionId        String
+  role             ChatMessageRole
+  content          String
+  contentType      ChatMessageContentType @default(TEXT)
+  model            String?
+  tokensUsed       Int?
+  processingTimeMs Int?
+  status           ChatMessageStatus @default(SENT)
+  createdAt        DateTime         @default(now())
+
+  // 关联关系
+  session          ChatSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("chat_messages")
+}
+
+enum ChatMessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum ChatMessageContentType {
+  TEXT
+  IMAGE
+  FILE
+  JSON
+}
+
+enum ChatMessageStatus {
+  SENDING
+  SENT
+  FAILED
+  DELIVERED
+}
+
+model AiKnowledgeBase {
+  id              String           @id @default(cuid())
+  question        String
+  answer          String
+  category        String?
+  tags            Json?
+  country         String?
+  visaType        String?
+  usageCount      Int              @default(0)
+  helpfulCount    Int              @default(0)
+  notHelpfulCount Int              @default(0)
+  status          KnowledgeStatus  @default(ACTIVE)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@map("ai_knowledge_base")
+}
+
+enum KnowledgeStatus {
+  ACTIVE
+  INACTIVE
+  PENDING_REVIEW
+}
+
+// ========================================
+// 5. 预约和监控模块
+// ========================================
+
+model Appointment {
+  id              String              @id @default(cuid())
+  applicationId   String
+  userId          String
+  visaCenter      String
+  appointmentDate DateTime
+  appointmentTime DateTime
+  appointmentType AppointmentType
+  status          AppointmentStatus   @default(SCHEDULED)
+  feeAmount       Decimal?            @db.Decimal(10,2)
+  feeCurrency     String              @default("USD")
+  paymentStatus   PaymentStatus       @default(PENDING)
+  reminderSent    Boolean             @default(false)
+  reminderSentAt  DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  // 关联关系
+  application     Application         @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("appointments")
+}
+
+enum AppointmentType {
+  INTERVIEW
+  DOCUMENT_SUBMISSION
+  BIOMETRICS
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+}
+
+model SlotMonitor {
+  id                   String           @id @default(cuid())
+  userId               String
+  visaType             String
+  country              String
+  city                 String
+  consulateCode        String
+  dateRanges           Json
+  status               SlotMonitorStatus @default(ACTIVE)
+  emailNotifications   Boolean          @default(true)
+  browserNotifications Boolean          @default(true)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  matchedAt            DateTime?
+  expiresAt            DateTime?
+
+  // 关联关系
+  user                 User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  matches              SlotMatch[]
+
+  @@map("slot_monitors")
+}
+
+enum SlotMonitorStatus {
+  ACTIVE
+  PAUSED
+  MATCHED
+  EXPIRED
+}
+
+model SlotData {
+  id            BigInt   @id @default(autoincrement())
+  slotHash      String   @unique
+  country       String
+  city          String
+  visaType      String
+  availableDates Json
+  fromSource    String?
+  receivedAt    DateTime @default(now())
+  processedAt   DateTime?
+
+  // 关联关系
+  matches       SlotMatch[]
+
+  @@map("slot_data")
+}
+
+model SlotMatch {
+  id                BigInt   @id @default(autoincrement())
+  monitorId         String
+  slotId            BigInt
+  matchScore        Decimal  @default(1.00) @db.Decimal(3,2)
+  matchedCriteria   Json
+  emailSent         Boolean  @default(false)
+  emailSentAt       DateTime?
+  notificationSent  Boolean  @default(false)
+  notificationSentAt DateTime?
+  createdAt         DateTime @default(now())
+
+  // 关联关系
+  monitor           SlotMonitor @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  slot              SlotData   @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  emailNotifications EmailNotification[]
+
+  @@unique([monitorId, slotId])
+  @@map("slot_matches")
+}
+
+model EmailNotification {
+  id              BigInt           @id @default(autoincrement())
+  matchRecordId   BigInt
+  recipientEmail  String
+  subject         String
+  emailContent    String
+  status          EmailStatus      @default(PENDING)
+  sentAt          DateTime?
+  errorMessage    String?
+  createdAt       DateTime         @default(now())
+
+  // 关联关系
+  matchRecord     SlotMatch        @relation(fields: [matchRecordId], references: [id], onDelete: Cascade)
+
+  @@map("email_notifications")
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// ========================================
+// 6. 系统管理模块
+// ========================================
+
+model SystemConfig {
+  id          String        @id @default(cuid())
+  configKey   String        @unique
+  configValue String
+  configType  ConfigType    @default(STRING)
+  description String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@map("system_configs")
+}
+
+enum ConfigType {
+  STRING
+  NUMBER
+  BOOLEAN
+  JSON
+}
+
+model SystemLog {
+  id           BigInt       @id @default(autoincrement())
+  level        LogLevel
+  message      String
+  context      Json?
+  userId       String?
+  ipAddress    String?
+  userAgent    String?
+  requestUrl   String?
+  requestMethod String?
+  errorStack   String?
+  errorCode    String?
+  createdAt    DateTime     @default(now())
+
+  @@map("system_logs")
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+  FATAL
+}
+
+model UserActivity {
+  id           BigInt   @id @default(autoincrement())
+  userId       String
+  activityType String
+  activityData Json?
+  ipAddress    String?
+  userAgent    String?
+  sessionId    String?
+  createdAt    DateTime @default(now())
+
+  // 关联关系
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_activities")
+}
+
+
+
+
+
+
+
+
+
+

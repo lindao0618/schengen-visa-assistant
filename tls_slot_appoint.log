@@ -1,0 +1,52 @@
+2025-08-28 09:11:49,111 - INFO - 提交 TLS 参数:
+{
+  "application_city": "MNC",
+  "application_country": "gb",
+  "visa_country": "fr",
+  "group_id": "21824962",
+  "phone": "19857181202",
+  "email": "ybcssx@outlook.com",
+  "password": "***",
+  "filters": [
+    {
+      "date": {
+        "from": "2025-07-01",
+        "to": "2025-07-01"
+      },
+      "skip_days": 0,
+      "time": {
+        "from": "00:00",
+        "to": "23:59"
+      }
+    }
+  ],
+  "operational_time_ranges": []
+}
+2025-08-28 09:11:49,194 - ERROR - 提交请求异常: 'latin-1' codec can't encode characters in position 0-4: ordinal not in range(256)
+2025-08-28 09:12:13,708 - INFO - 提交 TLS 参数:
+{
+  "application_city": "MNC",
+  "application_country": "gb",
+  "visa_country": "fr",
+  "group_id": "21824962",
+  "phone": "19857181202",
+  "email": "ybcssx@outlook.com",
+  "password": "***",
+  "filters": [
+    {
+      "date": {
+        "from": "2025-07-01",
+        "to": "2025-07-01"
+      },
+      "skip_days": 0,
+      "time": {
+        "from": "00:00",
+        "to": "23:59"
+      }
+    }
+  ],
+  "operational_time_ranges": []
+}
+2025-08-28 09:12:13,833 - INFO - 提交响应状态码: 200
+2025-08-28 09:12:13,833 - INFO - 响应体(文本)：
+

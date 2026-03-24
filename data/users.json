@@ -1,0 +1,107 @@
+[
+  {
+    "id": "1",
+    "email": "admin@example.com",
+    "password": "admin123",
+    "name": "管理员",
+    "role": "admin"
+  },
+  {
+    "id": "2",
+    "email": "1474348344@qq.com",
+    "password": "123456",
+    "name": "测试用户",
+    "role": "admin"
+  },
+  {
+    "id": "3",
+    "email": "user@example.com",
+    "password": "password123",
+    "name": "测试普通用户",
+    "role": "user"
+  },
+  {
+    "id": "user_1756272753983",
+    "email": "123@qq.com",
+    "password": "$2b$10$PU2yjGT7kXUEGZt12EV96.emUXVUrHHi2ncaHUhBm1exnAJUYxVnG",
+    "name": "123",
+    "role": "user"
+  },
+  {
+    "id": "user_seed_admin_1772164662518_admin",
+    "email": "admin@163.com",
+    "password": "$2b$10$YBhMLF8hhNUMDJzPOykSy.YlAOCAgVF1cqhTFqw69gexq77q5Uk02",
+    "name": "Admin",
+    "role": "admin"
+  },
+  {
+    "id": "user_seed_user_1772164662518_user01",
+    "email": "user01@163.com",
+    "password": "$2b$10$YBhMLF8hhNUMDJzPOykSy.YlAOCAgVF1cqhTFqw69gexq77q5Uk02",
+    "name": "User01",
+    "role": "user"
+  },
+  {
+    "id": "user_seed_user_1772164662518_user02",
+    "email": "user02@163.com",
+    "password": "$2b$10$YBhMLF8hhNUMDJzPOykSy.YlAOCAgVF1cqhTFqw69gexq77q5Uk02",
+    "name": "User02",
+    "role": "user"
+  },
+  {
+    "id": "user_seed_user_1772164662518_user03",
+    "email": "user03@163.com",
+    "password": "$2b$10$YBhMLF8hhNUMDJzPOykSy.YlAOCAgVF1cqhTFqw69gexq77q5Uk02",
+    "name": "User03",
+    "role": "user"
+  },
+  {
+    "id": "user_seed_user_1772164662518_user04",
+    "email": "user04@163.com",
+    "password": "$2b$10$YBhMLF8hhNUMDJzPOykSy.YlAOCAgVF1cqhTFqw69gexq77q5Uk02",
+    "name": "User04",
+    "role": "user"
+  },
+  {
+    "id": "user_seed_user_1772164662518_user05",
+    "email": "user05@163.com",
+    "password": "$2b$10$YBhMLF8hhNUMDJzPOykSy.YlAOCAgVF1cqhTFqw69gexq77q5Uk02",
+    "name": "User05",
+    "role": "user"
+  },
+  {
+    "id": "user_seed_user_1772164662518_user06",
+    "email": "user06@163.com",
+    "password": "$2b$10$YBhMLF8hhNUMDJzPOykSy.YlAOCAgVF1cqhTFqw69gexq77q5Uk02",
+    "name": "User06",
+    "role": "user"
+  },
+  {
+    "id": "user_seed_user_1772164662518_user07",
+    "email": "user07@163.com",
+    "password": "$2b$10$YBhMLF8hhNUMDJzPOykSy.YlAOCAgVF1cqhTFqw69gexq77q5Uk02",
+    "name": "User07",
+    "role": "user"
+  },
+  {
+    "id": "user_seed_user_1772164662518_user08",
+    "email": "user08@163.com",
+    "password": "$2b$10$YBhMLF8hhNUMDJzPOykSy.YlAOCAgVF1cqhTFqw69gexq77q5Uk02",
+    "name": "User08",
+    "role": "user"
+  },
+  {
+    "id": "user_seed_user_1772164662518_user09",
+    "email": "user09@163.com",
+    "password": "$2b$10$YBhMLF8hhNUMDJzPOykSy.YlAOCAgVF1cqhTFqw69gexq77q5Uk02",
+    "name": "User09",
+    "role": "user"
+  },
+  {
+    "id": "user_seed_user_1772164662518_user10",
+    "email": "user10@163.com",
+    "password": "$2b$10$YBhMLF8hhNUMDJzPOykSy.YlAOCAgVF1cqhTFqw69gexq77q5Uk02",
+    "name": "User10",
+    "role": "user"
+  }
+]

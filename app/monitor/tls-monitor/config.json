@@ -1,0 +1,59 @@
+{
+  "websocket": {
+    "url": "wss://tls.vis.lol/api/slots",
+    "token": "9513a9ba-c388-4d5d-8ed5-408c0d5ec658"
+  },
+  "cache": {
+    "max_slots": 1000,
+    "persist_file": "slots_cache.json",
+    "cleanup_interval": 3600
+  },
+  "api": {
+    "host": "0.0.0.0",
+    "port": 8004,
+    "cors_origins": ["http://localhost:3000", "http://localhost:3001"]
+  },
+  "notifications": {
+    "enable_webhook": false,
+    "webhook_url": "",
+    "enable_email": true,
+    "email_config": {
+      "smtp_server": "smtp.163.com",
+      "smtp_port": 465,
+      "username": "19857174374@163.com",
+      "password": "FTn7LTc27jfmi2rv",
+      "to_email": "yidianmeile@gmail.com"
+    }
+  },
+  "monitoring": {
+    "max_active_monitors": 10,
+    "auto_stop_on_match": true,
+    "notification_cooldown": 300
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

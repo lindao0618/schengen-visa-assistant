@@ -1,0 +1,92 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files（保留 .env.example 作为模板）
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# temp (包括任务持久化文件等)
+/temp/
+
+# IDE / 编辑器
+.cursor/
+
+# 日志与缓存
+*.log
+logs/
+slots_cache.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+
+# DS-160 运行时产物（勿提交）
+/services/usvisa-runtime/ds160-server-package/error_*.png
+/services/usvisa-runtime/ds160-server-package/error_html_*.html
+/services/usvisa-runtime/ds160-server-package/initial_html_*.html
+/services/usvisa-runtime/ds160-server-package/initial_page_*.png
+/services/usvisa-runtime/ds160-server-package/captcha_*.png
+/services/usvisa-runtime/ds160-server-package/full_page_for_captcha_*.png
+/services/usvisa-runtime/ds160-server-package/page_html_for_captcha_*.html
+/services/usvisa-runtime/ds160-server-package/ds160_timing_*.txt
+/services/usvisa-runtime/ds160-server-package/employer_debug_*.html
+/services/usvisa-runtime/ds160-server-package/AA*.png
+/services/usvisa-runtime/ds160-server-package/ds160.log
+/services/usvisa-runtime/ds160-server-package/ds160_api.log
+/services/usvisa-runtime/ds160-server-package/~$*
+# 邮箱命名的 PDF 输出目录
+/services/usvisa-runtime/ds160-server-package/*/
+# DS-160 用户上传的 Excel、照片（体积大，~60MB/个）
+/services/usvisa-runtime/ds160-server-package/excel_files/
+/services/usvisa-runtime/ds160-server-package/photos/
+/services/usvisa-runtime/venv/
+/services/ds160-processor/excel_files/
+/services/ds160-processor/photos/
+/services/ds160-processor/*/
+
+# 压缩包（如 ds160-server-package.rar 约 692MB）
+*.rar
+
+# 用户上传目录
+/uploads/
+
+# generated outputs and local runtime caches
+/app/trip_generator/output/
+/output/
+/excel_files/
+/photos/
+/public/uploads/
+/services/usvisa-runtime/uploads/
+/services/usvisa-runtime/__pycache__/
+/services/usvisa-runtime/*.rar
+/services/usvisa-runtime/log.txt
+/services/usvisa-runtime/result.json
+/services/usvisa-runtime/ds160-server-package/logs/
+/services/usvisa-runtime/ds160-server-package/output/
+/services/usvisa-runtime/ds160-server-package/venv/
+/services/usvisa-runtime/ds160-server-package/__pycache__/

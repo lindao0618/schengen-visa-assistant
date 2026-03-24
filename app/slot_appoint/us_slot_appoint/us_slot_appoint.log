@@ -1,0 +1,144 @@
+2025-08-26 08:01:50,657 - INFO - 开始处理 cgi-v2 系统提交
+2025-08-26 08:01:50,658 - INFO - 映射 cgi-v2 系统表单数据，国家: cn
+2025-08-26 08:01:50,658 - INFO - 提交到 cgi-v2 系统: https://us-cgi-v2.vis.lol/api/users
+2025-08-26 08:01:50,659 - INFO - 标识字段: username = zhang.san@example.com
+2025-08-26 08:01:50,659 - INFO - Payload: {
+  "action": "create",
+  "country": "cn",
+  "username": "zhang.san@example.com",
+  "password": "***",
+  "language": "zh",
+  "link_appointment_cities": true,
+  "security_questions": [
+    {
+      "question": "您最喜欢的颜色是什么？",
+      "answer": "***"
+    },
+    {
+      "question": "您的出生地是哪里？",
+      "answer": "***"
+    },
+    {
+      "question": "您最喜欢的食物是什么？",
+      "answer": "***"
+    }
+  ],
+  "filters": [
+    {
+      "cities": [
+        "Shanghai"
+      ],
+      "from": 20241201,
+      "to": 20241231,
+      "skip_days": 1
+    },
+    {
+      "cities": [
+        "Shanghai"
+      ],
+      "from": 20250101,
+      "to": 20250131,
+      "skip_days": 1
+    }
+  ]
+}
+2025-08-26 08:01:51,234 - INFO - 提交响应状态码: 200
+2025-08-26 08:01:51,234 - INFO - 提交成功
+2025-08-26 08:01:51,235 - INFO - 等待 60 秒后开始轮询 cgi-v2 系统...
+2025-08-26 08:02:51,713 - INFO - 找到 1 条记录，已保存到 submit_check_cgi-v2_zhang.san@example.com.json
+2025-08-26 08:02:51,714 - ERROR - [失败] #1 zhang.san@example.com status=inactive -> 提交失败：用户名或密码错误<br>Invalid username or password<br>"zhang.san@example.com" / "mypassword123"
+2025-08-26 08:02:51,714 - INFO - cgi-v2 系统处理完成，最终结果: 失败
+2025-08-26 08:46:12,824 - INFO - 开始处理 cgi-v2 系统提交
+2025-08-26 08:46:12,824 - INFO - 映射 cgi-v2 系统表单数据，国家: cn
+2025-08-26 08:46:12,825 - INFO - 提交到 cgi-v2 系统: https://us-cgi-v2.vis.lol/api/users
+2025-08-26 08:46:12,825 - INFO - 标识字段: username = zhang.san@example.com
+2025-08-26 08:46:12,825 - INFO - Payload: {
+  "action": "create",
+  "country": "cn",
+  "username": "zhang.san@example.com",
+  "password": "***",
+  "language": "zh",
+  "link_appointment_cities": true,
+  "security_questions": [
+    {
+      "question": "您最喜欢的颜色是什么？",
+      "answer": "***"
+    },
+    {
+      "question": "您的出生地是哪里？",
+      "answer": "***"
+    },
+    {
+      "question": "您最喜欢的食物是什么？",
+      "answer": "***"
+    }
+  ],
+  "filters": [
+    {
+      "cities": [
+        "Shanghai"
+      ],
+      "from": 20241201,
+      "to": 20241231,
+      "skip_days": 1
+    },
+    {
+      "cities": [
+        "Shanghai"
+      ],
+      "from": 20250101,
+      "to": 20250131,
+      "skip_days": 1
+    }
+  ]
+}
+2025-08-26 08:46:13,368 - INFO - 提交响应状态码: 200
+2025-08-26 08:46:13,368 - INFO - 提交成功
+2025-08-26 08:46:13,369 - INFO - 等待 60 秒后开始轮询 cgi-v2 系统...
+2025-08-26 08:55:05,676 - INFO - 开始处理 cgi-v2 系统提交
+2025-08-26 08:55:05,676 - INFO - 映射 cgi-v2 系统表单数据，国家: cn
+2025-08-26 08:55:05,677 - INFO - 提交到 cgi-v2 系统: https://us-cgi-v2.vis.lol/api/users
+2025-08-26 08:55:05,677 - INFO - 标识字段: username = zhang.san@example.com
+2025-08-26 08:55:05,677 - INFO - Payload: {
+  "action": "create",
+  "country": "cn",
+  "username": "zhang.san@example.com",
+  "password": "***",
+  "language": "zh",
+  "link_appointment_cities": true,
+  "security_questions": [
+    {
+      "question": "您最喜欢的颜色是什么？",
+      "answer": "***"
+    },
+    {
+      "question": "您的出生地是哪里？",
+      "answer": "***"
+    },
+    {
+      "question": "您最喜欢的食物是什么？",
+      "answer": "***"
+    }
+  ],
+  "filters": [
+    {
+      "cities": [
+        "Shanghai"
+      ],
+      "from": 20241201,
+      "to": 20241231,
+      "skip_days": 1
+    },
+    {
+      "cities": [
+        "Shanghai"
+      ],
+      "from": 20250101,
+      "to": 20250131,
+      "skip_days": 1
+    }
+  ]
+}
+2025-08-26 08:55:06,221 - INFO - 提交响应状态码: 200
+2025-08-26 08:55:06,221 - INFO - 提交成功
+2025-08-26 08:55:06,222 - INFO - 等待 60 秒后开始轮询 cgi-v2 系统...
