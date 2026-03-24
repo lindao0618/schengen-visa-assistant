@@ -68,6 +68,13 @@ __pycache__/
 /services/ds160-processor/excel_files/
 /services/ds160-processor/photos/
 /services/ds160-processor/*/
+/services/ds160-processor/AA*.png
+/services/ds160-processor/error_*.png
+/services/ds160-processor/error_html_*.html
+/services/ds160-processor/initial_page_*.png
+/services/ds160-processor/page_html_for_captcha_*.html
+/services/ds160-processor/ds160_api.log
+/services/ds160-processor/ds160_data*.jpg
 
 # 压缩包（如 ds160-server-package.rar 约 692MB）
 *.rar
