@@ -13,13 +13,11 @@ const inter = Inter({
 
 interface RootLayoutProps {
   children: React.ReactNode
-  modal: React.ReactNode
 }
 
 
 export default function RootLayout({
   children,
-  modal,
 }: RootLayoutProps) {
   return (
     <html lang="zh" suppressHydrationWarning>
@@ -34,7 +32,6 @@ export default function RootLayout({
             <NavBar />
             <main className="flex-1">
               {children}
-              {modal}
             </main>
           </div>
           <Toaster richColors closeButton />

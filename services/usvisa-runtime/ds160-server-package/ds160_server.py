@@ -1015,24 +1015,13 @@ class DS160Filler:
                 "--disable-background-timer-throttling",
             ]
             
-            # 检查是否在无头环境中运行（前端调用时）
             import os
-            is_headless = os.environ.get('HEADLESS', 'false').lower() == 'true'
-            
-            # 如果设置了HEADLESS环境变量，使用无头模式
-            # 否则使用有头模式（更稳定）
-            if is_headless:
-                browser_args.extend([
-                    "--headless=new",  # 使用新的无头模式
-                    "--disable-gpu",
-                    "--no-sandbox"
-                ])
-            else:
-                # 有头模式专用参数
-                browser_args.extend([
-                    "--no-sandbox",  # 在某些环境下需要
-                    "--disable-gpu-sandbox",  # 禁用GPU沙盒
-                ])
+            is_headless = True
+            browser_args.extend([
+                "--headless=new",
+                "--disable-gpu",
+                "--no-sandbox",
+            ])
             
             # 尝试使用 Playwright 自带的 Chromium，若未安装则回退到系统 Chrome
             chrome_path = None
@@ -1052,7 +1041,7 @@ class DS160Filler:
                 browser = p.chromium.launch(
                     headless=is_headless,
                     args=browser_args,
-                    slow_mo=50 if not is_headless else 0,
+                    slow_mo=0,
                     executable_path=chrome_path if chrome_path else None,
                 )
             except Exception as e:
@@ -1069,7 +1058,7 @@ class DS160Filler:
                                 headless=is_headless,
                                 args=browser_args,
                                 executable_path=path,
-                                slow_mo=50 if not is_headless else 0,
+                                slow_mo=0,
                             )
                             break
                     else:
@@ -2162,14 +2151,33 @@ class DS160Filler:
                 prev_emp_raw = str(personal_info.get('Were you previously employed', '') or personal_info.get('是否有工作经历', '') or 'No').strip().upper()
                 is_prev_emp_yes = prev_emp_raw in ('YES', 'Y', '1') or str(prev_emp_raw) in ('是', '有')
                 if is_prev_emp_yes:
-                    # 直接定位 Employer Name 标签（lblEmployerName），label 通常先于 input 渲染，定位更快
-                    sel_prev = "label[id*='lblEmployerName'], [id*='tbEmployerName'], [id*='tbJobTitle']"
                     try:
-                        page.locator(sel_prev).first.wait_for(state="visible", timeout=2500)
+                        page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblPreviouslyEmployed_0", timeout=2000)
+                    except Exception:
+                        try:
+                            page.evaluate("""() => {
+                                const el = document.querySelector('#ctl00_SiteContentPlaceHolder_FormView1_rblPreviouslyEmployed_0');
+                                if (el) el.click();
+                            }""")
+                        except Exception as click_err:
+                            _get_logger().warning(f"[Employer] 鐐瑰嚮 Previously Employed=Yes 澶辫触: {click_err}")
+                    # 直接定位 Employer Name 标签（lblEmployerName），label 通常先于 input 渲染，定位更快
+                    sel_prev = "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_lblEmployerName"
+                    sel_prev = "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_lblEmployerName"
+                    sel_prev_input = "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerName"
+                    for _ in range(8):
+                        try:
+                            if page.locator(sel_prev).first.is_visible(timeout=80):
+                                break
+                        except Exception:
+                            pass
+                        page.wait_for_timeout(40)
+                    try:
+                        page.locator(sel_prev).first.wait_for(state="visible", timeout=200)
                     except Exception:
                         page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblPreviouslyEmployed_0")
                         try:
-                            page.locator(sel_prev).first.wait_for(state="visible", timeout=3500)
+                            page.locator(sel_prev).first.wait_for(state="visible", timeout=400)
                         except Exception as we:
                             _get_logger().warning(f"[Employer] 等待雇主字段超时: {we}")
                             try:
@@ -2178,7 +2186,7 @@ class DS160Filler:
                                 _get_logger().info("[Employer] 已保存 employer_debug_*.html 便于排查")
                             except Exception:
                                 pass
-                    page.wait_for_timeout(150)
+                    page.wait_for_timeout(20)
 
                     # 使用 evaluate 直接查找并填写，规避 Playwright 选择器/visibility 问题
                     def _prev_eval(id_part, val):
@@ -2197,6 +2205,19 @@ class DS160Filler:
                             pass
 
                     # 先完成会触发 postback 的操作（国家、日期），再填文本字段，避免 postback 清空
+                    try:
+                        page.locator(sel_prev_input).first.wait_for(state="visible", timeout=250)
+                    except Exception:
+                        pass
+                    _prev_eval("tbEmployerName", personal_info.get('Previous Employer or School Name'))
+                    _prev_eval("tbEmployerStreetAddress1", personal_info.get('Previous Employer or School Address'))
+                    _prev_eval("tbEmployerCity", personal_info.get('Previous Employer or School City'))
+                    _prev_eval("tbxPREV_EMPL_ADDR_STATE", personal_info.get('Previous Employer or School State'))
+                    _prev_eval("tbxPREV_EMPL_ADDR_POSTAL_CD", personal_info.get('Previous Employer or School Zip'))
+                    _prev_eval("tbEmployerPhone", personal_info.get('Previous Employer or School Phone'))
+                    _prev_eval("tbJobTitle", personal_info.get('Job Title', ''))
+                    page.wait_for_timeout(20)
+
                     prev_country = personal_info.get('Previous Employer or School Country', '') or ''
                     if prev_country:
                         previous_country_code = get_country_code(prev_country)

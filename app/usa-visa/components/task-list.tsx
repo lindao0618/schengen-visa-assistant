@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Loader2, CheckCircle2, XCircle, Clock, ListTodo, RefreshCw, Search, Download, ImageIcon, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
 
 function getTaskFilename(task: UsVisaTask): string {
   if (task.type === "check-photo") {
@@ -68,6 +69,8 @@ export interface UsVisaTask {
   updated_at?: number
   result?: Record<string, unknown>
   error?: string
+  applicantProfileId?: string
+  applicantName?: string
 }
 
 interface TaskListProps {
@@ -91,7 +94,9 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
   const [needsLogin, setNeedsLogin] = useState(false)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [searchKeyword, setSearchKeyword] = useState("")
+  const [onlyCurrentApplicant, setOnlyCurrentApplicant] = useState(false)
   const { status } = useSession()
+  const activeApplicant = useActiveApplicantProfile()
   const filterTaskIdsKey = useMemo(() => (filterTaskIds ?? []).join(","), [filterTaskIds])
   const filterTaskTypesKey = useMemo(() => (filterTaskTypes ?? []).join(","), [filterTaskTypes])
 
@@ -107,6 +112,7 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
     try {
       const params = new URLSearchParams({ limit: "50", t: String(Date.now()) })
       if (statusFilter !== "all") params.set("status", statusFilter)
+      if (onlyCurrentApplicant && activeApplicant?.id) params.set("applicantProfileId", activeApplicant.id)
       const res = await fetch("/api/usa-visa/tasks-list?" + params.toString(), {
         cache: "no-store",
         headers: { "Cache-Control": "no-cache" },
@@ -149,7 +155,7 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
     } finally {
       setLoading(false)
     }
-  }, [filterTaskIdsKey, filterTaskTypesKey, statusFilter, status])
+  }, [filterTaskIdsKey, filterTaskTypesKey, statusFilter, status, onlyCurrentApplicant, activeApplicant])
 
   const interval = tasks.some((t) => t.status === "running") ? 500 : pollInterval
 
@@ -224,6 +230,20 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
             </SelectContent>
           </Select>
         </div>
+        {activeApplicant?.id && (
+          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+            <input
+              id="us-only-current-applicant"
+              type="checkbox"
+              checked={onlyCurrentApplicant}
+              onChange={(e) => setOnlyCurrentApplicant(e.target.checked)}
+              className="rounded"
+            />
+            <label htmlFor="us-only-current-applicant" className="cursor-pointer">
+              只看当前申请人：{activeApplicant.name || activeApplicant.label}
+            </label>
+          </div>
+        )}
         {(tasks.length === 0 || displayedTasks.length === 0) && (
           <div className="py-4 text-center">
             {needsLogin ? (
@@ -245,7 +265,7 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
             )}
           </div>
         )}
-        <ScrollArea className="h-[220px] pr-4">
+        <ScrollArea className="min-h-[220px] max-h-[min(55vh,650px)] pr-4">
           <div className="space-y-3">
             {displayedTasks.map((task) => (
               <div
@@ -261,6 +281,9 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
                   <StatusBadge status={task.status} />
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">{task.message}</p>
+                {task.applicantName && (
+                  <p className="text-xs text-blue-600 dark:text-blue-300">申请人: {task.applicantName}</p>
+                )}
                 <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
                   <span>创建时间: {formatTimestamp(task.created_at)}</span>
                   <span>最近更新时间: {formatTimestamp(task.updated_at || task.created_at)}</span>
@@ -331,6 +354,7 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
                         <p>任务ID: {task.task_id}</p>
                         <p>任务类型: {TYPE_LABELS[task.type] || task.type}</p>
                         <p>状态: {task.status}</p>
+                        {task.applicantName && <p>申请人: {task.applicantName}</p>}
                         <p>创建时间: {formatTimestamp(task.created_at)}</p>
                         <p>最近更新时间: {formatTimestamp(task.updated_at || task.created_at)}</p>
                         {task.status === "failed" && (

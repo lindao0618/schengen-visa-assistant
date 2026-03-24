@@ -7,6 +7,7 @@ import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
 import { createTask, updateTask } from '@/lib/usa-visa-tasks';
+import { getApplicantProfile, getApplicantProfileFileByCandidates, saveApplicantProfileFileFromAbsolutePath } from '@/lib/applicant-profiles';
 
 const execAsync = promisify(exec);
 
@@ -101,6 +102,36 @@ const normalizePhotoResult = async (result: Record<string, unknown>) => {
   return result;
 };
 
+function inferImageMimeType(filename: string) {
+  const lower = filename.toLowerCase()
+  if (lower.endsWith('.png')) return 'image/png'
+  if (lower.endsWith('.webp')) return 'image/webp'
+  return 'image/jpeg'
+}
+
+async function replaceApplicantProfilePhoto(params: {
+  userId: string
+  applicantProfileId?: string
+  outputDir: string
+  result: Record<string, unknown>
+}) {
+  const { userId, applicantProfileId, outputDir, result } = params
+  if (!applicantProfileId || !result.success || !result.processed_photo_file) return false
+
+  const processedPhotoPath = path.join(outputDir, String(result.processed_photo_file))
+  await fs.access(processedPhotoPath)
+  await saveApplicantProfileFileFromAbsolutePath({
+    userId,
+    id: applicantProfileId,
+    slot: 'usVisaPhoto',
+    sourcePath: processedPhotoPath,
+    originalName: String(result.processed_photo_file),
+    mimeType: inferImageMimeType(String(result.processed_photo_file)),
+  })
+  result.profile_photo_replaced = true
+  return true
+}
+
 /**
  * 处理美国签证照片检测请求
  * 支持同步/异步模式，本地Python服务和外部API服务
@@ -113,7 +144,23 @@ export async function POST(request: NextRequest) {
     }
 
     const formData = await request.formData();
-    const photo = formData.get('photo');
+    let photo = formData.get('photo');
+    const applicantProfileId = (formData.get('applicantProfileId') as string | null)?.trim() || '';
+    const applicantProfile = applicantProfileId ? await getApplicantProfile(session.user.id, applicantProfileId) : null;
+
+    if (!photo && applicantProfileId) {
+      const stored = await getApplicantProfileFileByCandidates(session.user.id, applicantProfileId, ['usVisaPhoto', 'photo']);
+      if (!stored) {
+        return NextResponse.json(
+          { success: false, message: '当前申请人档案中没有可用照片' },
+          { status: 400 }
+        );
+      }
+      const fileBuffer = await fs.readFile(stored.absolutePath);
+      photo = new File([fileBuffer], stored.meta.originalName, {
+        type: stored.meta.mimeType || 'image/jpeg',
+      });
+    }
 
     if (!photo) {
       return NextResponse.json(
@@ -145,9 +192,14 @@ export async function POST(request: NextRequest) {
 
     // 异步模式：创建任务，后台执行，任务列表会显示进度
     if (asyncMode) {
-      const task = await createTask(session.user.id, 'check-photo', `准备中 · ${originalFilename}`);
+      const task = await createTask(session.user.id, 'check-photo', `准备中 · ${originalFilename}`, {
+        applicantProfileId: applicantProfileId || undefined,
+        applicantName: applicantProfile?.name || applicantProfile?.label,
+      });
       await updateTask(task.task_id, { status: 'running', progress: 5, message: `准备中 · ${originalFilename}` });
       runPhotoCheckInBackground(task.task_id, {
+        userId: session.user.id,
+        applicantProfileId: applicantProfileId || undefined,
         photoPath,
         outputDir,
         outputId,
@@ -164,6 +216,14 @@ export async function POST(request: NextRequest) {
     // 同步模式
     try {
       const result = await runPhotoCheckSync(photoPath, outputDir, outputId, useWebsite);
+      await replaceApplicantProfilePhoto({
+        userId: session.user.id,
+        applicantProfileId: applicantProfileId || undefined,
+        outputDir,
+        result,
+      }).catch((error) => {
+        console.error('[PhotoCheck] replace profile photo failed:', error);
+      });
       try {
         await fs.rm(tempDir, { recursive: true, force: true });
       } catch {}
@@ -210,6 +270,8 @@ async function runPhotoCheckSync(
 }
 
 interface PhotoCheckParams {
+  userId: string;
+  applicantProfileId?: string;
   photoPath: string;
   outputDir: string;
   outputId: string;
@@ -219,7 +281,7 @@ interface PhotoCheckParams {
 }
 
 async function runPhotoCheckInBackground(taskId: string, params: PhotoCheckParams): Promise<void> {
-  const { photoPath, outputDir, outputId, tempDir, useWebsite, originalFilename } = params;
+  const { userId, applicantProfileId, photoPath, outputDir, outputId, tempDir, useWebsite, originalFilename } = params;
   const pythonServicePath = path.join(process.cwd(), 'services', 'photo-checker');
   const scriptPath = path.join(pythonServicePath, 'checker.py');
   const args = [scriptPath, photoPath, '--output-dir', outputDir, ...(useWebsite ? ['--website'] : [])];
@@ -297,6 +359,16 @@ async function runPhotoCheckInBackground(taskId: string, params: PhotoCheckParam
       if (originalFilename) result.originalFilename = originalFilename;
       await normalizePhotoResult(result);
       const success = !!result.success;
+      if (success) {
+        await replaceApplicantProfilePhoto({
+          userId,
+          applicantProfileId,
+          outputDir,
+          result,
+        }).catch((error) => {
+          console.error('[PhotoCheck] replace profile photo failed:', error);
+        });
+      }
       await updateTask(taskId, {
         status: success ? 'completed' : 'failed',
         progress: success ? 100 : 0,

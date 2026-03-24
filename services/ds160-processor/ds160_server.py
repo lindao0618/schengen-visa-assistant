@@ -270,9 +270,9 @@ class DS160Filler:
             ]
             
             browser = p.chromium.launch(
-                headless=False,  # 显示浏览器窗口，方便调试
+                headless=True,
                 args=browser_args,
-                slow_mo=50  # Add a small delay between actions for stability
+                slow_mo=0
             )
             
             browser_context = browser.new_context(

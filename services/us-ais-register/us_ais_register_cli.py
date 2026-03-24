@@ -142,12 +142,13 @@ def send_ais_activation_email(to_email: str, personal_info: Dict, password: str)
     smtp_host = os.environ.get("SMTP_HOST", "smtp.163.com")
     smtp_port = int(os.environ.get("SMTP_PORT", "465"))
     if not smtp_user or not smtp_pass:
-        print("[ERROR] 未配置 SMTP，无法发送激活指引邮件", file=sys.stderr)
+        print("[ERROR] SMTP not configured, cannot send AIS activation email", file=sys.stderr)
         return False
+
     try:
         import smtplib
-        from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
 
         given_name = str(personal_info.get("given_name", "") or personal_info.get("名", "") or "").strip()
         surname = str(personal_info.get("surname", "") or personal_info.get("姓", "") or "").strip()
@@ -156,42 +157,139 @@ def send_ais_activation_email(to_email: str, personal_info: Dict, password: str)
         passport_number = str(personal_info.get("passport_number", "") or personal_info.get("护照号", "") or "").strip()
         primary_phone = str(personal_info.get("Primary Phone Number", "") or personal_info.get("主要电话", "") or "").strip()
         chinese_name = str(personal_info.get("chinese_name", "") or personal_info.get("中文名", "") or "").strip()
+        account_email = str(personal_info.get("Personal Email Address", "") or personal_info.get("个人邮箱", "") or to_email).strip()
+        ds160_number = str(
+            personal_info.get("DS-160 Number", "")
+            or personal_info.get("DS160 Number", "")
+            or personal_info.get("Application ID", "")
+            or personal_info.get("AA码", "")
+            or personal_info.get("aaCode", "")
+            or ""
+        ).strip()
+        passport_country = str(
+            personal_info.get("Country / Authority that issued Passport", "")
+            or personal_info.get("护照签发国家", "")
+            or "China"
+        ).strip()
+        birth_country = str(
+            personal_info.get("Country of Birth", "")
+            or personal_info.get("出生国家", "")
+            or "China"
+        ).strip()
+        residence_country = str(
+            personal_info.get("Country of Permanent Residence", "")
+            or personal_info.get("常住国家", "")
+            or "China"
+        ).strip()
+        visa_class = str(
+            personal_info.get("Visa Class", "")
+            or personal_info.get("签证类型", "")
+            or "B1/B2 Business & Tourism (Temporary visitor)"
+        ).strip()
+
+        birth_day = "-"
+        birth_month = "-"
+        birth_year = "-"
+        if birth_date:
+            try:
+                dt = pd.to_datetime(birth_date, errors="coerce")
+                if not pd.isna(dt):
+                    birth_day = str(int(dt.day))
+                    birth_month = dt.strftime("%B")
+                    birth_year = str(int(dt.year))
+            except Exception:
+                pass
+        if birth_year == "-" and birth_date and re.match(r"^\d{4}-\d{2}-\d{2}$", birth_date):
+            year, month, day = birth_date.split("-")
+            birth_day = str(int(day))
+            birth_month = month
+            birth_year = year
 
         g_name, s_name = html.escape(given_name), html.escape(surname)
         b_date = html.escape(birth_date)
         p_num = html.escape(passport_number)
         p_phone = html.escape(primary_phone)
         c_name = html.escape(chinese_name)
+        mail_addr = html.escape(account_email)
+        ds160_no = html.escape(ds160_number)
+        passport_country_html = html.escape(passport_country)
+        birth_country_html = html.escape(birth_country)
+        residence_country_html = html.escape(residence_country)
+        visa_class_html = html.escape(visa_class)
+        birth_day_html = html.escape(birth_day)
+        birth_month_html = html.escape(birth_month)
+        birth_year_html = html.escape(birth_year)
+        birth_display_html = html.escape(
+            f"{str(birth_day).zfill(2)}/{str(birth_month).zfill(2)}/{birth_year}"
+            if birth_day != "-" and birth_month != "-" and birth_year != "-"
+            else birth_date
+        )
+
+        greeting_cn = f"您好，{c_name}！" if c_name else "您好！"
+        greeting_en = f"Hello, {g_name} {s_name}!" if (g_name or s_name) else "Hello!"
 
         body_html = f"""
-        <html><body style="font-family: 'Microsoft YaHei', Arial, sans-serif; color: #333; padding: 20px;">
-            <h2 style="color: #007bff;">AIS 账号注册成功 - 激活指引</h2>
-            <p>您好{c_name and f'，{c_name}' or ''}！</p>
-            <p>您的 AIS 签证预约账号已成功创建，请点击邮件中的激活链接完成激活。</p>
-            <p>激活后请按以下表格填写：</p>
-            <table style="border-collapse: collapse; width: 100%; max-width: 500px;">
-                <tr style="background: #007bff; color: white;"><th style="padding: 12px;">字段</th><th style="padding: 12px;">填写内容</th></tr>
-                <tr><td style="padding: 10px; border: 1px solid #eee;">名 Given name</td><td style="padding: 10px; border: 1px solid #eee;">{g_name}</td></tr>
-                <tr><td style="padding: 10px; border: 1px solid #eee;">姓 Surname</td><td style="padding: 10px; border: 1px solid #eee;">{s_name}</td></tr>
-                <tr><td style="padding: 10px; border: 1px solid #eee;">护照号</td><td style="padding: 10px; border: 1px solid #eee;">{p_num}</td></tr>
-                <tr><td style="padding: 10px; border: 1px solid #eee;">出生日期</td><td style="padding: 10px; border: 1px solid #eee;">{b_date}</td></tr>
-                <tr><td style="padding: 10px; border: 1px solid #eee;">主要电话</td><td style="padding: 10px; border: 1px solid #eee;">{p_phone}</td></tr>
-            </table>
-            <p style="color: #888;">祝您签证顺利！</p>
-        </body></html>
+        <html>
+          <body style="font-family: 'Microsoft YaHei', Arial, sans-serif; color: #333; padding: 24px; line-height: 1.7; background: #f8fafc;">
+            <div style="max-width: 760px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 16px; overflow: hidden; background: #fff;">
+              <div style="background: linear-gradient(135deg, #0f62fe, #3b82f6); color: #fff; padding: 20px 24px;">
+                <h2 style="margin: 0; font-size: 24px;">AIS 账号注册成功 / AIS Account Created Successfully</h2>
+              </div>
+
+              <div style="padding: 24px;">
+                <p style="margin: 0 0 8px 0;">{greeting_cn}</p>
+                <p style="margin: 0 0 16px 0;">{greeting_en}</p>
+
+                <p style="margin: 0 0 10px 0;">
+                  您的 AIS 签证预约账号已成功创建，请先点击系统邮件中的激活链接完成激活。
+                </p>
+                <p style="margin: 0 0 18px 0;">
+                  Your AIS visa appointment account has been created successfully. Please click the activation link in the system email to activate your account first.
+                </p>
+
+                <div style="font-weight: 700; margin: 0 0 10px 0;">申请人基础信息 / Applicant Basics</div>
+                <table style="border-collapse: collapse; width: 100%; max-width: 620px; margin-bottom: 18px;">
+                  <tr style="background: #0f62fe; color: white;">
+                    <th style="padding: 12px; text-align: left; border: 1px solid #dbeafe;">字段 / Field</th>
+                    <th style="padding: 12px; text-align: left; border: 1px solid #dbeafe;">内容 / Value</th>
+                  </tr>
+                  <tr><td style="padding: 10px; border: 1px solid #e5e7eb;">名 / Given Name</td><td style="padding: 10px; border: 1px solid #e5e7eb;">{g_name or '-'}</td></tr>
+                  <tr><td style="padding: 10px; border: 1px solid #e5e7eb;">姓 / Surname</td><td style="padding: 10px; border: 1px solid #e5e7eb;">{s_name or '-'}</td></tr>
+                  <tr><td style="padding: 10px; border: 1px solid #e5e7eb;">Country / Authority that issued Passport</td><td style="padding: 10px; border: 1px solid #e5e7eb;">{passport_country_html or '-'}</td></tr>
+                  <tr><td style="padding: 10px; border: 1px solid #e5e7eb;">Country of Birth</td><td style="padding: 10px; border: 1px solid #e5e7eb;">{birth_country_html or '-'}</td></tr>
+                  <tr><td style="padding: 10px; border: 1px solid #e5e7eb;">Country of Permanent Residence</td><td style="padding: 10px; border: 1px solid #e5e7eb;">{residence_country_html or '-'}</td></tr>
+                  <tr><td style="padding: 10px; border: 1px solid #e5e7eb;">护照号 / Passport Number</td><td style="padding: 10px; border: 1px solid #e5e7eb;">{p_num or '-'}</td></tr>
+                  <tr><td style="padding: 10px; border: 1px solid #e5e7eb;">DS-160 Number</td><td style="padding: 10px; border: 1px solid #e5e7eb;">{ds160_no or '-'}</td></tr>
+                  <tr><td style="padding: 10px; border: 1px solid #e5e7eb;">Visa Class</td><td style="padding: 10px; border: 1px solid #e5e7eb;">{visa_class_html or '-'}</td></tr>
+                  <tr><td style="padding: 10px; border: 1px solid #e5e7eb;">Date of Birth</td><td style="padding: 10px; border: 1px solid #e5e7eb;">{birth_display_html or '-'}</td></tr>
+                  <tr><td style="padding: 10px; border: 1px solid #e5e7eb;">主要电话 / Primary Phone</td><td style="padding: 10px; border: 1px solid #e5e7eb;">{p_phone or '-'}</td></tr>
+                  <tr><td style="padding: 10px; border: 1px solid #e5e7eb;">Email Address</td><td style="padding: 10px; border: 1px solid #e5e7eb;">{mail_addr or '-'}</td></tr>
+                  <tr><td style="padding: 10px; border: 1px solid #e5e7eb;">Were you previously issued a visa to enter the United States?</td><td style="padding: 10px; border: 1px solid #e5e7eb;">No</td></tr>
+                  <tr><td style="padding: 10px; border: 1px solid #e5e7eb;">Are you traveling from another country to apply for a U.S. visa in United Kingdom?</td><td style="padding: 10px; border: 1px solid #e5e7eb;">No</td></tr>
+                </table>
+
+                <p style="margin: 18px 0 6px 0; color: #6b7280;">此邮件由系统自动发送，请勿直接回复。</p>
+                <p style="margin: 0; color: #6b7280;">This email was generated automatically. Please do not reply directly.</p>
+              </div>
+            </div>
+          </body>
+        </html>
         """
+
         msg = MIMEMultipart()
         msg["From"] = smtp_user
         msg["To"] = to_email
-        msg["Subject"] = "AIS 账号注册成功 - 请激活"
+        msg["Subject"] = "AIS 账号注册成功 / AIS Account Created Successfully"
         msg.attach(MIMEText(body_html, "html", "utf-8"))
+
         with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
-        print(f"[INFO] AIS 激活指引邮件已发送至 {to_email}", file=sys.stderr)
+
+        print(f"[INFO] AIS activation email sent to {to_email}", file=sys.stderr)
         return True
     except Exception as e:
-        print(f"[ERROR] 发送 AIS 激活指引邮件失败: {e}", file=sys.stderr)
+        print(f"[ERROR] Failed to send AIS activation email: {e}", file=sys.stderr)
         return False
 
 
@@ -221,7 +319,7 @@ def register_ais(
             return {"success": False, "error": "Excel 缺少必填字段：名(given_name)、姓(surname)、个人邮箱"}
 
         out_dir = Path(output_dir) if output_dir else Path(excel_path).parent
-        mode_text = "有头模式（测试）" if test_mode else "无头模式"
+        mode_text = "无头测试模式" if test_mode else "无头模式"
         callback(10, f"启动浏览器（{mode_text}）...")
 
         with sync_playwright() as p:
@@ -235,7 +333,7 @@ def register_ais(
                 "--disable-popup-blocking",
                 "--window-size=1920,1080",
             ]
-            is_headless = False  # 有头模式便于排查，完成调试后可改回 not test_mode
+            is_headless = True
             if is_headless:
                 browser_args.extend(["--headless=new", "--disable-gpu", "--no-sandbox"])
 
@@ -327,10 +425,6 @@ def register_ais(
                         send_ais_activation_email(extra_email.strip(), personal_info, password)
 
                 callback(100, "AIS 账号注册完成！")
-                # 有头模式：关闭前等待，方便用户查看结果页面
-                if not is_headless or test_mode:
-                    print("[INFO] 3 秒后关闭浏览器...", file=sys.stderr)
-                    page.wait_for_timeout(3000)
                 extra_email_msg = ""
                 if send_activation_email and extra_email and extra_email.strip() and extra_email.strip().lower() != email.lower():
                     extra_email_msg = f"，并抄送 {extra_email.strip()}"
@@ -350,10 +444,6 @@ def register_ais(
                         screenshot = _save_ais_error_screenshot(page, str(out_dir), "error")
                 except Exception as ex:
                     print(f"[WARNING] 保存异常截图失败: {ex}", file=sys.stderr)
-                # 有头模式或测试模式：关闭前等待，方便用户查看页面
-                if not is_headless or test_mode:
-                    print("[INFO] 5 秒后关闭浏览器，请查看当前页面状态...", file=sys.stderr)
-                    page.wait_for_timeout(5000)
                 return {"success": False, "error": str(e), "screenshot": screenshot, "email": email or ""}
             finally:
                 try:
@@ -374,7 +464,7 @@ def main() -> None:
     parser.add_argument("--output-dir", "-o", default="", help="输出目录（截图等）")
     parser.add_argument("--no-email", action="store_true", help="不发送激活指引邮件")
     parser.add_argument("--extra-email", default="", help="抄送邮箱")
-    parser.add_argument("--test-mode", "-t", action="store_true", help="有头模式")
+    parser.add_argument("--test-mode", "-t", action="store_true", help="测试模式（仍使用无头，仅增加慢速执行）")
     args = parser.parse_args()
     result = register_ais(
         excel_path=args.excel_path,

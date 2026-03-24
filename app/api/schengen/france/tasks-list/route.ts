@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const limit = Math.min(parseInt(searchParams.get("limit") || "50", 10), 100)
   const statusFilter = searchParams.get("status") || undefined
-  const tasks = await listTasks(session.user.id, limit, statusFilter)
+  const applicantProfileId = searchParams.get("applicantProfileId") || undefined
+  const tasks = await listTasks(session.user.id, limit, statusFilter, applicantProfileId)
   return NextResponse.json({ tasks })
 }

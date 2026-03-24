@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10), 100)
   const statusFilter = searchParams.get('status') // 'completed' | 'failed' | 'running' | null
-  const tasks = await listTasks(session.user.id, limit, statusFilter || undefined)
+  const applicantProfileId = searchParams.get('applicantProfileId') || undefined
+  const tasks = await listTasks(session.user.id, limit, statusFilter || undefined, applicantProfileId)
   return NextResponse.json({ tasks })
 }

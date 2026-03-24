@@ -5,6 +5,7 @@
 
 # next.js
 /.next/
+/.next-build/
 /out/
 
 # production
@@ -32,6 +33,7 @@ next-env.d.ts
 
 # IDE / 编辑器
 .cursor/
+/.vscode/
 
 # 日志与缓存
 *.log
@@ -85,6 +87,8 @@ __pycache__/
 # generated outputs and local runtime caches
 /app/trip_generator/output/
 /output/
+/storage/
+/data/applicant-profiles.json
 /excel_files/
 /photos/
 /public/uploads/

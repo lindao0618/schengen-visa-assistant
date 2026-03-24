@@ -124,7 +124,7 @@ sudo chown -R www-data:www-data temp output .next
 ```bash
 sudo tee /etc/systemd/system/visa-next.service > /dev/null <<'EOF'
 [Unit]
-Description=Visa Assistant Next.js
+Description=Visa Assistant Next.
 After=network.target
 
 [Service]

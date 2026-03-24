@@ -126,8 +126,8 @@ def _website_photo_check(photo_path: str) -> Optional[Dict[str, Any]]:
         with sync_playwright() as p:
             # 仅使用 Chromium，避免 Firefox 未安装时报错（需先执行 playwright install chromium）
             browser = p.chromium.launch(
-                headless=False,  # 有头模式，便于调试
-                args=['--disable-blink-features=AutomationControlled', '--disable-web-security', '--no-sandbox']
+                headless=True,
+                args=['--disable-blink-features=AutomationControlled', '--disable-web-security', '--no-sandbox', '--headless=new', '--disable-gpu']
             )
             context = browser.new_context(
                 viewport={'width': 1920, 'height': 1080},

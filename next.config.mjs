@@ -7,6 +7,7 @@ try {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  distDir: process.env.NEXT_BUILD_SEPARATE === "1" ? ".next-build" : ".next",
   eslint: {
     ignoreDuringBuilds: true,
   },

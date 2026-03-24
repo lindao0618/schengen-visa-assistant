@@ -8,9 +8,10 @@
     "dev:trip": "node scripts/start-trip-generator.js",
     "dev:letter": "node scripts/start-explanation-letter.js",
     "dev:review": "node scripts/start-material-review.js",
-    "build": "next build",
-    "start": "next start",
+    "build": "node scripts/run-next-build.js",
+    "start": "node scripts/run-next-start.js",
     "lint": "next lint",
+    "migrate:applicants": "node scripts/import-applicant-profiles-to-db.js",
     "setup:us-visa": "python scripts/setup-us-visa.py",
     "size:report": "node scripts/report-large-paths.js",
     "clean:generated": "node scripts/cleanup-generated-files.js",
@@ -81,6 +82,7 @@
     "sonner": "^1.7.1",
     "tailwind-merge": "^2.5.5",
     "vaul": "^0.9.6",
+    "xlsx": "^0.18.5",
     "zod": "^3.25.50"
   },
   "devDependencies": {

@@ -9,6 +9,7 @@ const includeRuntime = args.has("--include-runtime")
 
 const safeDirectoryTargets = [
   ".next",
+  ".next-build",
   "temp",
   "logs",
   "output",

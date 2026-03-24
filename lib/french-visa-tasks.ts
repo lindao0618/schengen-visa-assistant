@@ -1,12 +1,16 @@
-/** 法签任务存储：优先 Prisma 数据库，数据库不可用时回退到文件持久化 */
-
+import { Prisma } from "@prisma/client"
 import prisma from "@/lib/db"
 import * as fs from "fs/promises"
 import * as path from "path"
 import { ensureTempCleanup } from "@/lib/temp-cleanup"
 
 export type TaskStatus = "pending" | "running" | "completed" | "failed"
-export type TaskType = "extract" | "register" | "create-application" | "fill-receipt" | "submit-final"
+export type TaskType = "extract" | "extract-register" | "register" | "create-application" | "fill-receipt" | "submit-final"
+
+export interface TaskMeta {
+  applicantProfileId?: string
+  applicantName?: string
+}
 
 export interface FrenchVisaTaskResponse {
   task_id: string
@@ -18,6 +22,8 @@ export interface FrenchVisaTaskResponse {
   updated_at?: number
   result?: Record<string, unknown>
   error?: string
+  applicantProfileId?: string
+  applicantName?: string
 }
 
 interface FileTask extends FrenchVisaTaskResponse {
@@ -25,7 +31,6 @@ interface FileTask extends FrenchVisaTaskResponse {
 }
 
 const TASKS_FILE = path.join(process.cwd(), "temp", "french-visa-tasks.json")
-
 let fileOpsQueue = Promise.resolve<unknown>(undefined)
 
 async function readFileTasks(): Promise<Record<string, FileTask>> {
@@ -65,6 +70,28 @@ function belongsToUser(task: FileTask, userId: string): boolean {
   return task.userId === userId
 }
 
+function extractTaskMeta(result: unknown): TaskMeta {
+  const record = result && typeof result === "object" ? (result as Record<string, unknown>) : undefined
+  return {
+    applicantProfileId: typeof record?.applicantProfileId === "string" ? record.applicantProfileId : undefined,
+    applicantName: typeof record?.applicantName === "string" ? record.applicantName : undefined,
+  }
+}
+
+function mergeMetaIntoResult(result: unknown, meta?: TaskMeta) {
+  if (!meta?.applicantProfileId && !meta?.applicantName) {
+    return result as Record<string, unknown> | undefined
+  }
+  const base = result && typeof result === "object" ? { ...(result as Record<string, unknown>) } : {}
+  if (meta.applicantProfileId) base.applicantProfileId = meta.applicantProfileId
+  if (meta.applicantName) base.applicantName = meta.applicantName
+  return base
+}
+
+function toPrismaJson(result: Record<string, unknown> | undefined) {
+  return result as Prisma.InputJsonValue | undefined
+}
+
 function toResponse(row: {
   taskId: string
   type: string
@@ -73,9 +100,13 @@ function toResponse(row: {
   message: string
   createdAt: Date
   updatedAt: Date
+  applicantProfileId: string | null
+  applicantProfile?: { name: string } | null
   result: unknown
   error: string | null
 }): FrenchVisaTaskResponse {
+  const result = row.result as Record<string, unknown> | undefined
+  const meta = extractTaskMeta(result)
   return {
     task_id: row.taskId,
     type: row.type as TaskType,
@@ -84,15 +115,18 @@ function toResponse(row: {
     message: row.message,
     created_at: row.createdAt.getTime(),
     updated_at: row.updatedAt.getTime(),
-    result: row.result as Record<string, unknown> | undefined,
+    result,
     error: row.error ?? undefined,
+    applicantProfileId: row.applicantProfileId ?? meta.applicantProfileId,
+    applicantName: row.applicantProfile?.name ?? meta.applicantName,
   }
 }
 
 export async function createTask(
   userId: string,
   type: TaskType,
-  message = "任务已创建"
+  message = "任务已创建",
+  meta?: TaskMeta
 ): Promise<FrenchVisaTaskResponse> {
   await ensureTempCleanup().catch(() => {})
   const taskId = `fv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
@@ -104,16 +138,27 @@ export async function createTask(
     message,
     created_at: Date.now(),
     userId,
+    applicantProfileId: meta?.applicantProfileId,
+    applicantName: meta?.applicantName,
+    result: mergeMetaIntoResult(undefined, meta),
   }
+
   try {
     const row = await prisma.frenchVisaTask.create({
       data: {
         taskId,
         userId,
+        applicantProfileId: meta?.applicantProfileId,
         type,
         status: "pending",
         progress: 0,
         message,
+        result: toPrismaJson(mergeMetaIntoResult(undefined, meta)),
+      },
+      include: {
+        applicantProfile: {
+          select: { name: true },
+        },
       },
     })
     runExclusive(async () => {
@@ -144,26 +189,43 @@ export async function updateTask(
   updates: Partial<Pick<FrenchVisaTaskResponse, "status" | "progress" | "message" | "result" | "error">>
 ): Promise<FrenchVisaTaskResponse | null> {
   try {
+    const current = await prisma.frenchVisaTask.findUnique({
+      where: { taskId },
+      select: { result: true, applicantProfileId: true },
+    })
     const data: Record<string, unknown> = {}
     if (updates.status != null) data.status = updates.status
     if (updates.progress != null) data.progress = updates.progress
     if (updates.message != null) data.message = updates.message
-    if (updates.result != null) data.result = updates.result
+    if (updates.result != null || current?.result) {
+      data.result = toPrismaJson(mergeMetaIntoResult(updates.result ?? current?.result, extractTaskMeta(current?.result)))
+    }
     if (updates.error != null) data.error = updates.error
 
     const row = await prisma.frenchVisaTask.update({
       where: { taskId },
       data,
+      include: {
+        applicantProfile: {
+          select: { name: true },
+        },
+      },
     })
     return toResponse(row)
   } catch {
     return runExclusive(async () => {
       const tasks = await readFileTasks()
-      const t = tasks[taskId]
-      if (!t) return null
-      Object.assign(t, updates, { updated_at: Date.now() })
+      const task = tasks[taskId]
+      if (!task) return null
+      Object.assign(task, updates, {
+        result: mergeMetaIntoResult(updates.result ?? task.result, {
+          applicantProfileId: task.applicantProfileId,
+          applicantName: task.applicantName,
+        }),
+        updated_at: Date.now(),
+      })
       await writeFileTasks(tasks)
-      return { ...t }
+      return { ...task }
     })
   }
 }
@@ -171,7 +233,8 @@ export async function updateTask(
 export async function listTasks(
   userId: string,
   limit = 50,
-  statusFilter?: string
+  statusFilter?: string,
+  applicantProfileId?: string
 ): Promise<FrenchVisaTaskResponse[]> {
   const statusWhere =
     statusFilter === "completed"
@@ -187,7 +250,23 @@ export async function listTasks(
 
   try {
     const rows = await prisma.frenchVisaTask.findMany({
-      where: { userId, ...statusWhere },
+      where: {
+        userId,
+        ...statusWhere,
+        ...(applicantProfileId
+          ? {
+              OR: [
+                { applicantProfileId },
+                {
+                  result: {
+                    path: ["applicantProfileId"],
+                    equals: applicantProfileId,
+                  },
+                },
+              ],
+            }
+          : {}),
+      },
       orderBy: { createdAt: "desc" },
       take: limit * 2,
       select: {
@@ -198,42 +277,50 @@ export async function listTasks(
         message: true,
         createdAt: true,
         updatedAt: true,
+        applicantProfileId: true,
+        applicantProfile: {
+          select: { name: true },
+        },
         result: true,
         error: true,
       },
     })
     prismaTasks.push(...rows.map(toResponse))
   } catch {
-    /* 继续尝试文件 */
+    // Ignore Prisma errors and continue with file fallback.
   }
 
   try {
     const fileMap = await runExclusive(async () => {
       const tasks = await readFileTasks()
-      return Object.values(tasks).filter((t) => belongsToUser(t, userId))
+      return Object.values(tasks).filter((task) => belongsToUser(task, userId))
     })
-    fileTasks.push(...fileMap.map((t) => ({ ...t })))
+    fileTasks.push(...fileMap.map((task) => ({ ...task })))
   } catch {
-    fileTasks.length = 0
+    // Ignore file errors when Prisma works.
   }
 
   const merged = new Map<string, FrenchVisaTaskResponse>()
-  for (const t of [...prismaTasks, ...fileTasks]) {
-    const existing = merged.get(t.task_id)
-    const updatedA = t.updated_at ?? t.created_at
-    const updatedB = existing?.updated_at ?? existing?.created_at ?? 0
-    if (!existing || updatedA > updatedB) {
-      merged.set(t.task_id, t)
+  for (const task of [...prismaTasks, ...fileTasks]) {
+    const existing = merged.get(task.task_id)
+    const updatedTask = task.updated_at ?? task.created_at
+    const updatedExisting = existing?.updated_at ?? existing?.created_at ?? 0
+    if (!existing || updatedTask > updatedExisting) {
+      merged.set(task.task_id, task)
     }
   }
 
-  let lst = Array.from(merged.values())
-  if (statusFilter === "completed") lst = lst.filter((t) => t.status === "completed")
-  else if (statusFilter === "failed") lst = lst.filter((t) => t.status === "failed")
-  else if (statusFilter === "running")
-    lst = lst.filter((t) => t.status === "running" || t.status === "pending")
+  let list = Array.from(merged.values())
 
-  return lst
+  if (applicantProfileId) {
+    list = list.filter((task) => task.applicantProfileId === applicantProfileId)
+  }
+
+  if (statusFilter === "completed") list = list.filter((task) => task.status === "completed")
+  else if (statusFilter === "failed") list = list.filter((task) => task.status === "failed")
+  else if (statusFilter === "running") list = list.filter((task) => task.status === "running" || task.status === "pending")
+
+  return list
     .sort((a, b) => (b.updated_at ?? b.created_at) - (a.updated_at ?? a.created_at))
     .slice(0, limit)
 }

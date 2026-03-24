@@ -10,11 +10,10 @@ import { useSession, signIn, signOut } from "next-auth/react"
 import {
   Plane,
   FileText,
-  Users,
-  MessageSquare,
   Globe,
   UserCircle,
   FilePlus2,
+  Users,
 } from "lucide-react"
 
 const navigation = [
@@ -40,6 +39,12 @@ const navigation = [
     href: "/material-customization",
     icon: FilePlus2,
     active: (path: string) => path.startsWith("/material-customization"),
+  },
+  {
+    name: "申请人档案",
+    href: "/applicants",
+    icon: Users,
+    active: (path: string) => path.startsWith("/applicants"),
   },
 ]
 

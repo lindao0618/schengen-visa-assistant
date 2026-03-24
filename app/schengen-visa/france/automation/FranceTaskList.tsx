@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Loader2, CheckCircle2, XCircle, Clock, ListTodo, RefreshCw, Search, Download, ExternalLink } from "lucide-react"
+import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
 
 export interface FranceVisaTask {
   task_id: string
@@ -22,6 +23,8 @@ export interface FranceVisaTask {
   updated_at?: number
   result?: Record<string, unknown>
   error?: string
+  applicantProfileId?: string
+  applicantName?: string
 }
 
 function getTaskFilename(task: FranceVisaTask): string {
@@ -56,6 +59,7 @@ function statusRank(status: FranceVisaTask["status"]) {
 }
 
 const TYPE_LABELS: Record<string, string> = {
+  "extract-register": "提取+注册",
   extract: "提取注册信息",
   register: "账号注册",
   "create-application": "生成新申请",
@@ -81,6 +85,8 @@ export function FranceTaskList({
   const [needsLogin, setNeedsLogin] = useState(false)
   const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "failed" | "running">("all")
   const [searchKeyword, setSearchKeyword] = useState("")
+  const [onlyCurrentApplicant, setOnlyCurrentApplicant] = useState(false)
+  const activeApplicant = useActiveApplicantProfile()
   const filterTaskTypesKey = useMemo(() => (filterTaskTypes ?? []).join(","), [filterTaskTypes])
 
   const fetchTasks = useCallback(async () => {
@@ -89,6 +95,7 @@ export function FranceTaskList({
     try {
       const params = new URLSearchParams({ limit: "50", t: String(Date.now()) })
       if (statusFilter !== "all") params.set("status", statusFilter)
+      if (onlyCurrentApplicant && activeApplicant?.id) params.set("applicantProfileId", activeApplicant.id)
       const res = await fetch("/api/schengen/france/tasks-list?" + params.toString(), {
         cache: "no-store",
         headers: { "Cache-Control": "no-cache" },
@@ -111,7 +118,7 @@ export function FranceTaskList({
     } finally {
       setLoading(false)
     }
-  }, [filterTaskTypesKey, statusFilter])
+  }, [filterTaskTypesKey, statusFilter, onlyCurrentApplicant, activeApplicant])
 
   const interval = tasks.some((t) => t.status === "running") ? 500 : pollInterval
 
@@ -186,6 +193,20 @@ export function FranceTaskList({
             </SelectContent>
           </Select>
         </div>
+        {activeApplicant?.id && (
+          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+            <input
+              id="fr-only-current-applicant"
+              type="checkbox"
+              checked={onlyCurrentApplicant}
+              onChange={(e) => setOnlyCurrentApplicant(e.target.checked)}
+              className="rounded"
+            />
+            <label htmlFor="fr-only-current-applicant" className="cursor-pointer">
+              只看当前申请人：{activeApplicant.name || activeApplicant.label}
+            </label>
+          </div>
+        )}
         {(tasks.length === 0 || displayedTasks.length === 0) && (
           <div className="py-4 text-center">
             {needsLogin ? (
@@ -223,6 +244,9 @@ export function FranceTaskList({
                   <StatusBadge status={task.status} />
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">{task.message}</p>
+                {task.applicantName && (
+                  <p className="text-xs text-blue-600 dark:text-blue-300">申请人: {task.applicantName}</p>
+                )}
                 <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
                   <span>创建时间: {formatTimestamp(task.created_at)}</span>
                   <span>最近更新时间: {formatTimestamp(task.updated_at || task.created_at)}</span>
@@ -258,6 +282,7 @@ export function FranceTaskList({
                         <p>任务ID: {task.task_id}</p>
                         <p>任务类型: {TYPE_LABELS[task.type] || task.type}</p>
                         <p>状态: {task.status}</p>
+                        {task.applicantName && <p>申请人: {task.applicantName}</p>}
                         <p>创建时间: {formatTimestamp(task.created_at)}</p>
                         <p>最近更新时间: {formatTimestamp(task.updated_at || task.created_at)}</p>
                         {task.error && <p className="text-red-600 dark:text-red-400">错误: {task.error}</p>}

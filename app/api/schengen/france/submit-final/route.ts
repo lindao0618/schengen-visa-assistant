@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { createTask, updateTask } from "@/lib/french-visa-tasks"
+import {
+  getApplicantProfile,
+  getApplicantProfileFileByCandidates,
+  saveApplicantProfileFileFromAbsolutePath,
+} from "@/lib/applicant-profiles"
 import { spawn } from "child_process"
 import path from "path"
 import fs from "fs/promises"
@@ -34,6 +39,7 @@ export async function POST(request: NextRequest) {
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "请先登录" }, { status: 401 })
     }
+    const userId = session.user.id
 
     const formData = await request.formData()
     const files: File[] = []
@@ -43,6 +49,19 @@ export async function POST(request: NextRequest) {
     if (files.length === 0) {
       const one = formData.get("file") as File | null
       if (one) files.push(one)
+    }
+    const applicantProfileId = (formData.get("applicantProfileId") as string | null)?.trim() || ""
+    const applicantProfile = applicantProfileId ? await getApplicantProfile(userId, applicantProfileId) : null
+    if (files.length === 0 && applicantProfileId) {
+      const stored = await getApplicantProfileFileByCandidates(userId, applicantProfileId, ["schengenExcel", "franceExcel"])
+      if (stored) {
+        const content = await fs.readFile(stored.absolutePath)
+        files.push(
+          new File([content], stored.meta.originalName, {
+            type: stored.meta.mimeType || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          })
+        )
+      }
     }
     if (files.length === 0) {
       return NextResponse.json(
@@ -71,7 +90,10 @@ export async function POST(request: NextRequest) {
     const taskIds: string[] = []
     for (const file of files) {
       const fileName = file.name || "submit.xlsx"
-      const task = await createTask(session.user.id, "submit-final", `提交最终表 · ${fileName}`)
+      const task = await createTask(userId, "submit-final", `提交最终表 · ${fileName}`, {
+        applicantProfileId: applicantProfileId || undefined,
+        applicantName: applicantProfile?.name || applicantProfile?.label,
+      })
       taskIds.push(task.task_id)
       const outputId = `fv-submit-${task.task_id}`
       const outputDir = path.join(process.cwd(), "temp", "french-visa-submit-final", outputId)
@@ -111,6 +133,23 @@ export async function POST(request: NextRequest) {
           const data = JSON.parse(stdout.trim() || "{}") as SubmitResult
           if (data.success && data.pdf_file) {
             const download_pdf = `/api/schengen/france/submit-final/download/${outputId}/${encodeURIComponent(data.pdf_file)}`
+            let archivedProfilePdfUrl: string | undefined
+
+            if (applicantProfileId) {
+              try {
+                await saveApplicantProfileFileFromAbsolutePath({
+                  userId,
+                  id: applicantProfileId,
+                  slot: "franceFinalSubmissionPdf",
+                  sourcePath: path.join(outputDir, data.pdf_file),
+                  originalName: data.pdf_file,
+                  mimeType: "application/pdf",
+                })
+                archivedProfilePdfUrl = `/api/applicants/${applicantProfileId}/files/franceFinalSubmissionPdf`
+              } catch (archiveError) {
+                console.error("Failed to archive France final submission PDF to applicant profile", archiveError)
+              }
+            }
             await updateTask(task.task_id, {
               status: "completed",
               progress: 100,
@@ -119,6 +158,7 @@ export async function POST(request: NextRequest) {
                 success: true,
                 message: data.message,
                 download_pdf,
+                archived_profile_pdf_url: archivedProfilePdfUrl,
                 pdf_file: data.pdf_file,
               },
             })

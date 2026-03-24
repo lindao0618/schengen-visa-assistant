@@ -5,6 +5,7 @@ import { createTask, updateTask } from '@/lib/usa-visa-tasks'
 import { spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs/promises'
+import { getApplicantProfile, getApplicantProfileFileByCandidates } from '@/lib/applicant-profiles'
 
 /** 当 Python 未返回 screenshot 时，扫描输出目录查找最新错误截图 */
 async function findLatestAisErrorScreenshot(outputDir: string) {
@@ -150,7 +151,9 @@ export async function POST(request: NextRequest) {
     const password = (formData.get('password') as string) || 'Visa202520252025!'
     const sendActivationEmail = formData.get('send_activation_email') !== 'false'
     const extraEmail = (formData.get('extra_email') as string) || ''
-    const testMode = formData.get('test_mode') !== 'false'  // 默认有头模式便于排查
+    const applicantProfileId = (formData.get('applicantProfileId') as string | null)?.trim() || ''
+    const applicantProfile = applicantProfileId ? await getApplicantProfile(session.user.id, applicantProfileId) : null
+    const testMode = formData.get('test_mode') === 'true'
 
     const excelFiles: File[] = []
     const raw = formData.getAll('excel')
@@ -160,6 +163,19 @@ export async function POST(request: NextRequest) {
     if (excelFiles.length === 0) {
       const one = formData.get('excel') as File | null
       if (one) excelFiles.push(one)
+    }
+    if (excelFiles.length === 0 && applicantProfileId) {
+      const aisExcel = await getApplicantProfileFileByCandidates(session.user.id, applicantProfileId, ['usVisaDs160Excel', 'ds160Excel', 'usVisaAisExcel', 'aisExcel'])
+      const ds160Excel = await getApplicantProfileFileByCandidates(session.user.id, applicantProfileId, ['usVisaDs160Excel', 'ds160Excel'])
+      const chosen = aisExcel || ds160Excel
+      if (chosen) {
+        const content = await fs.readFile(chosen.absolutePath)
+        excelFiles.push(
+          new File([content], chosen.meta.originalName, {
+            type: chosen.meta.mimeType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          })
+        )
+      }
     }
     if (excelFiles.length === 0) {
       return NextResponse.json({ success: false, error: '请上传至少一个 Excel 文件' }, { status: 400 })
@@ -176,7 +192,10 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < excelFiles.length; i++) {
       const file = excelFiles[i]
       const name = file.name || `data_${i + 1}.xlsx`
-      const task = await createTask(session.user.id, 'register-ais', `AIS 注册 · ${name}`)
+      const task = await createTask(session.user.id, 'register-ais', `AIS 注册 · ${name}`, {
+        applicantProfileId: applicantProfileId || undefined,
+        applicantName: applicantProfile?.name || applicantProfile?.label,
+      })
       taskIds.push(task.task_id)
       const outputId = `ais-${task.task_id}`
       const outputDir = path.join(process.cwd(), 'temp', 'ais-register-outputs', outputId)

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Camera, FileSpreadsheet, FileCheck, UserPlus } from "lucide-react"
 import { AuthPromptProvider } from "./contexts/AuthPromptContext"
+import { ApplicantProfileSelector } from "@/components/applicant-profile-selector"
 import { PhotoChecker } from "./components/photo-checker"
 import { DS160Form } from "./components/ds160-form"
 import { SubmitDS160Form } from "./components/submit-ds160-form"
@@ -21,6 +22,7 @@ export default function USAVisaPage() {
         </div>
 
         <div className="w-full mx-auto">
+          <ApplicantProfileSelector />
           <Tabs defaultValue="photo" className="w-full">
             <TabsList className="grid w-full grid-cols-4 h-12 mb-6 bg-gray-100/80 dark:bg-black/50 backdrop-blur-xl p-1 rounded-2xl border border-gray-200/50 dark:border-white/10 shadow-lg">
               <TabsTrigger value="photo" className="flex items-center gap-2">

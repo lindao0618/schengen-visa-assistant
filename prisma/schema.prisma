@@ -28,6 +28,7 @@ model User {
 
   applications  Application[]
   documents     Document[]
+  applicantProfiles ApplicantProfile[]
   usVisaTasks     UsVisaTask[]
   frenchVisaTasks FrenchVisaTask[]
 }
@@ -128,44 +129,90 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+model ApplicantProfile {
+  id                   String   @id
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                 String
+  usVisaAaCode         String?
+  usVisaSurname        String?
+  usVisaBirthYear      String?
+  usVisaPassportNumber String?
+  schengenCountry      String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  files                ApplicantFile[]
+  usVisaTasks          UsVisaTask[]
+  frenchVisaTasks      FrenchVisaTask[]
+
+  @@index([userId])
+  @@index([userId, updatedAt])
+  @@index([userId, name])
+}
+
+model ApplicantFile {
+  id                 String           @id @default(cuid())
+  applicantProfileId String
+  applicantProfile   ApplicantProfile @relation(fields: [applicantProfileId], references: [id], onDelete: Cascade)
+  slot               String
+  originalName       String
+  storedName         String
+  relativePath       String
+  mimeType           String
+  size               Int
+  uploadedAt         DateTime         @default(now())
+
+  @@unique([applicantProfileId, slot])
+  @@index([applicantProfileId])
+}
+
 // 美签任务模型（持久化）
 model UsVisaTask {
-  id        String   @id @default(cuid())
-  taskId    String   @unique // 如 task-xxx
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      String   // check-photo | fill-ds160 | submit-ds160 | register-ais
-  status    String   // pending | running | completed | failed
-  progress  Int      @default(0)
-  message   String   @default("")
-  result    Json?    // { files, aaCode, emailSent, ... }
-  error     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String            @id @default(cuid())
+  taskId              String            @unique // 如 task-xxx
+  userId              String
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicantProfileId  String?
+  applicantProfile    ApplicantProfile? @relation(fields: [applicantProfileId], references: [id], onDelete: SetNull)
+  type                String            // check-photo | fill-ds160 | submit-ds160 | register-ais
+  status              String            // pending | running | completed | failed
+  progress            Int               @default(0)
+  message             String            @default("")
+  result              Json?             // { files, aaCode, emailSent, ... }
+  error               String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
   @@index([userId])
   @@index([userId, createdAt])
   @@index([userId, status])
+  @@index([applicantProfileId])
+  @@index([userId, applicantProfileId, createdAt])
 }
 
 // 法签任务模型（持久化）
 model FrenchVisaTask {
-  id        String   @id @default(cuid())
-  taskId    String   @unique
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      String   // extract | register | create-application | fill-receipt | submit-final
-  status    String   // pending | running | completed | failed
-  progress  Int      @default(0)
-  message   String   @default("")
-  result    Json?    // { download_excel, download_json, download_pdf, ... }
-  error     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String            @id @default(cuid())
+  taskId             String            @unique
+  userId             String
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicantProfileId String?
+  applicantProfile   ApplicantProfile? @relation(fields: [applicantProfileId], references: [id], onDelete: SetNull)
+  type               String            // extract | register | create-application | fill-receipt | submit-final
+  status             String            // pending | running | completed | failed
+  progress           Int               @default(0)
+  message            String            @default("")
+  result             Json?             // { download_excel, download_json, download_pdf, ... }
+  error              String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
   @@index([userId])
   @@index([userId, createdAt])
   @@index([userId, status])
+  @@index([applicantProfileId])
+  @@index([userId, applicantProfileId, createdAt])
 }
 
 // 管理后台设置

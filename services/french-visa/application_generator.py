@@ -793,14 +793,6 @@ def create_new_application(file_path: str, original_filename: str = None, callba
             if callback:
                 callback(94, "✅ JSON文件已保存到临时目录")
             
-            # 保存Excel文件（先保存到临时目录）
-            if callback:
-                callback(95, "正在保存Excel文件...")
-            excel_filename_temp = os.path.join(folder_name, f"tls注册_{original_stem}.xlsx")
-            result_df.to_excel(excel_filename_temp, index=False)
-            if callback:
-                callback(96, "✅ Excel文件已保存到临时目录")
-            
             # 复制文件到输出目录以便下载
             if callback:
                 callback(97, "正在复制文件到输出目录...")
@@ -812,22 +804,13 @@ def create_new_application(file_path: str, original_filename: str = None, callba
             if callback:
                 callback(98, "✅ JSON文件已复制到输出目录")
             
-            excel_filename = os.path.basename(excel_filename_temp)
-            excel_path = output_base / excel_filename
-            if str(excel_filename_temp) != str(excel_path):
-                shutil.copy2(excel_filename_temp, excel_path)
-            if callback:
-                callback(99, "✅ Excel文件已复制到输出目录")
-            
             if callback:
                 callback(100, f"✅ 新申请创建成功！申请参考号: {application_ref}")
             result = {
                 "success": True,
                 "application_ref": application_ref,
                 "json_file": json_filename,
-                "excel_file": excel_filename,
                 "json_path": str(json_path),
-                "excel_path": str(excel_path),
                 "message": f"新申请创建成功，申请参考号: {application_ref}"
             }
             # 在 return 之前先输出结果，避免 finally 中可能的阻塞导致 API 无法收到 JSON

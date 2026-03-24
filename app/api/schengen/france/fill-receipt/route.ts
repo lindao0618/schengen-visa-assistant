@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { createTask, updateTask } from "@/lib/french-visa-tasks"
+import {
+  getApplicantProfile,
+  getApplicantProfileFileByCandidates,
+  saveApplicantProfileFileFromAbsolutePath,
+} from "@/lib/applicant-profiles"
 import { spawn } from "child_process"
 import path from "path"
 import fs from "fs/promises"
@@ -34,6 +39,7 @@ export async function POST(request: NextRequest) {
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "请先登录" }, { status: 401 })
     }
+    const userId = session.user.id
 
     const formData = await request.formData()
     const files: File[] = []
@@ -43,6 +49,19 @@ export async function POST(request: NextRequest) {
     if (files.length === 0) {
       const one = formData.get("file") as File | null
       if (one) files.push(one)
+    }
+    const applicantProfileId = (formData.get("applicantProfileId") as string | null)?.trim() || ""
+    const applicantProfile = applicantProfileId ? await getApplicantProfile(userId, applicantProfileId) : null
+    if (files.length === 0 && applicantProfileId) {
+      const stored = await getApplicantProfileFileByCandidates(userId, applicantProfileId, ["schengenExcel", "franceExcel"])
+      if (stored) {
+        const content = await fs.readFile(stored.absolutePath)
+        files.push(
+          new File([content], stored.meta.originalName, {
+            type: stored.meta.mimeType || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          })
+        )
+      }
     }
     if (files.length === 0) {
       return NextResponse.json(
@@ -63,7 +82,10 @@ export async function POST(request: NextRequest) {
 
     const file = files[0]
     const fileName = file.name || "receipt.xlsx"
-    const task = await createTask(session.user.id, "fill-receipt", `填写回执单 · ${fileName}`)
+    const task = await createTask(userId, "fill-receipt", `填写回执单 · ${fileName}`, {
+      applicantProfileId: applicantProfileId || undefined,
+      applicantName: applicantProfile?.name || applicantProfile?.label,
+    })
     const outputId = `fv-receipt-${task.task_id}`
     const outputDir = path.join(process.cwd(), "temp", "french-visa-fill-receipt", outputId)
     await fs.mkdir(outputDir, { recursive: true })
@@ -109,6 +131,23 @@ export async function POST(request: NextRequest) {
         if (data.success && data.pdf_file) {
           // 使用固定文件名 receipt.pdf 避免中文/特殊字符导致的 URL 编码问题
           const download_pdf = `/api/schengen/france/fill-receipt/download/${outputId}/receipt.pdf`
+          let archivedProfilePdfUrl: string | undefined
+
+          if (applicantProfileId) {
+            try {
+              await saveApplicantProfileFileFromAbsolutePath({
+                userId,
+                id: applicantProfileId,
+                slot: "franceReceiptPdf",
+                sourcePath: path.join(outputDir, data.pdf_file),
+                originalName: data.pdf_file,
+                mimeType: "application/pdf",
+              })
+              archivedProfilePdfUrl = `/api/applicants/${applicantProfileId}/files/franceReceiptPdf`
+            } catch (archiveError) {
+              console.error("Failed to archive France receipt PDF to applicant profile", archiveError)
+            }
+          }
           await updateTask(task.task_id, {
             status: "completed",
             progress: 100,
@@ -117,6 +156,7 @@ export async function POST(request: NextRequest) {
               success: true,
               message: data.message,
               download_pdf,
+              archived_profile_pdf_url: archivedProfilePdfUrl,
               pdf_file: data.pdf_file,
             },
           })

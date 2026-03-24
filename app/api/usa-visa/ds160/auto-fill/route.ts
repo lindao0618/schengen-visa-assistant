@@ -8,6 +8,11 @@ import { spawn } from 'child_process'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import nodemailer from 'nodemailer'
+import {
+  getApplicantProfile,
+  getApplicantProfileFileByCandidates,
+  updateApplicantProfileUsVisaDetails,
+} from '@/lib/applicant-profiles'
 
 const DS160_CC_EMAIL = 'ukvisa20242024@163.com'
 
@@ -45,6 +50,23 @@ async function readApplicantInfo(pythonOutputDir: string): Promise<ApplicantInfo
   } catch {
     return null
   }
+}
+
+async function syncApplicantProfileFromDs160Output(params: {
+  userId: string
+  applicantProfileId?: string
+  aaCode?: string
+  applicantInfo?: ApplicantInfo | null
+}) {
+  const { userId, applicantProfileId, aaCode, applicantInfo } = params
+  if (!applicantProfileId) return
+
+  await updateApplicantProfileUsVisaDetails(userId, applicantProfileId, {
+    aaCode,
+    surname: applicantInfo?.surname,
+    birthDate: applicantInfo?.birth_date,
+    passportNumber: applicantInfo?.passport_number,
+  })
 }
 
 // 邮件发送函数（支持抄送 extraEmail）
@@ -150,6 +172,8 @@ interface Ds160BackgroundParams {
   emailToUse: string
   extraEmail: string
   tempId: string
+  userId: string
+  applicantProfileId?: string
 }
 
 /** 从 stdout/stderr 提取简短错误信息（优先展示 [DS160-ERROR] 结构化错误，其次 Python traceback） */
@@ -218,7 +242,7 @@ async function findLatestErrorScreenshot(pythonServicePath: string, outputPath: 
 }
 
 async function runDs160FillInBackground(taskId: string, params: Ds160BackgroundParams): Promise<void> {
-  const { excelPath, excelFileName, photoPath, tempDir, outputPath, emailToUse, extraEmail, tempId } = params
+  const { excelPath, excelFileName, photoPath, tempDir, outputPath, emailToUse, extraEmail, tempId, userId, applicantProfileId } = params
   const prefix = excelFileName ? `[${excelFileName}] ` : ''
   const pythonServicePath = path.join(process.cwd(), 'services', 'usvisa-runtime', 'ds160-server-package')
   const scriptPath = path.join(pythonServicePath, 'ds160_server.py')
@@ -234,6 +258,7 @@ async function runDs160FillInBackground(taskId: string, params: Ds160BackgroundP
   ]
   const env = {
     ...process.env,
+    HEADLESS: 'true',
     PYTHONUNBUFFERED: '1',
     PYTHONIOENCODING: 'utf-8',
     PYTHONUTF8: '1',
@@ -342,6 +367,14 @@ async function runDs160FillInBackground(taskId: string, params: Ds160BackgroundP
         }
         const excelEmail = await readExcelRecipientEmail(pythonOutputDir)
         const applicantInfo = await readApplicantInfo(pythonOutputDir)
+        if (applicantProfileId) {
+          await syncApplicantProfileFromDs160Output({
+            userId,
+            applicantProfileId,
+            aaCode,
+            applicantInfo,
+          })
+        }
         const toEmail = excelEmail || emailToUse
         if (toEmail) {
           const bodyHtml = buildDs160EmailHtml({ aaCode, files: pdfFiles, applicant: applicantInfo })
@@ -391,11 +424,34 @@ export async function POST(request: NextRequest) {
     }
 
     const formData = await request.formData()
-    const excelFile = formData.get('excel') as File
-    const photoFile = formData.get('photo') as File
-    const email = (formData.get('email') as string) || ''
+    let excelFile = formData.get('excel') as File | null
+    let photoFile = formData.get('photo') as File | null
+    let email = (formData.get('email') as string) || ''
     const extraEmail = (formData.get('extra_email') as string) || ''
+    const applicantProfileId = (formData.get('applicantProfileId') as string | null)?.trim() || ''
     const asyncMode = formData.get('async') === 'true' || formData.get('async') === '1'
+    let profile = null
+
+    if (applicantProfileId) {
+      profile = await getApplicantProfile(session.user.id, applicantProfileId)
+      const ds160Excel = await getApplicantProfileFileByCandidates(session.user.id, applicantProfileId, ['usVisaDs160Excel', 'ds160Excel'])
+      const photo = await getApplicantProfileFileByCandidates(session.user.id, applicantProfileId, ['usVisaPhoto', 'photo'])
+      if (!excelFile && ds160Excel) {
+        const content = await fs.readFile(ds160Excel.absolutePath)
+        excelFile = new File([content], ds160Excel.meta.originalName, {
+          type: ds160Excel.meta.mimeType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        })
+      }
+      if (!photoFile && photo) {
+        const content = await fs.readFile(photo.absolutePath)
+        photoFile = new File([content], photo.meta.originalName, {
+          type: photo.meta.mimeType || 'image/jpeg',
+        })
+      }
+      if (!email && profile?.email) {
+        email = profile.email
+      }
+    }
 
     if (!excelFile || !photoFile) {
       return NextResponse.json({
@@ -422,7 +478,10 @@ export async function POST(request: NextRequest) {
 
     if (asyncMode) {
       const excelFileName = excelFile.name || 'ds160_data.xlsx'
-      const task = await createTask(session.user.id, 'fill-ds160', excelFileName)
+      const task = await createTask(session.user.id, 'fill-ds160', excelFileName, {
+        applicantProfileId: applicantProfileId || undefined,
+        applicantName: profile?.name || profile?.label,
+      })
       await updateTask(task.task_id, { status: 'running', progress: 1, message: `[${excelFileName}] 准备中...` })
       runDs160FillInBackground(task.task_id, {
         excelPath,
@@ -432,7 +491,9 @@ export async function POST(request: NextRequest) {
         outputPath,
         emailToUse,
         extraEmail,
-        tempId
+        tempId,
+        userId: session.user.id,
+        applicantProfileId: applicantProfileId || undefined,
       }).catch((err) => {
         console.error('[DS160] Background task error:', err)
         updateTask(task.task_id, {
@@ -483,6 +544,7 @@ export async function POST(request: NextRequest) {
           stdio: ['pipe', 'pipe', 'pipe'],
           env: {
             ...process.env,
+            HEADLESS: 'true',
             PYTHONIOENCODING: 'utf-8',
             PYTHONUTF8: '1',
             SMTP_USER: process.env.SMTP_USER || 'ukvisa20242024@163.com',
@@ -615,6 +677,14 @@ export async function POST(request: NextRequest) {
 
             const excelEmail = await readExcelRecipientEmail(pythonOutputDir)
             const applicantInfo = await readApplicantInfo(pythonOutputDir)
+            if (applicantProfileId && session.user.id) {
+              await syncApplicantProfileFromDs160Output({
+                userId: session.user.id,
+                applicantProfileId,
+                aaCode,
+                applicantInfo,
+              })
+            }
             const toEmail = excelEmail || emailToUse
             if (toEmail) {
               try {

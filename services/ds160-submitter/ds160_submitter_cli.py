@@ -76,7 +76,7 @@ def submit_ds160(
 ) -> dict:
     output_folder = Path(output_dir)
     output_folder.mkdir(parents=True, exist_ok=True)
-    is_headless = False  # 有头模式便于观察
+    is_headless = True
     # 与 visa-automation-system 一致的浏览器参数
     browser_args = [
         "--disable-web-security",
@@ -326,7 +326,7 @@ if __name__ == "__main__":
     parser.add_argument("passport_number", help="护照号")
     parser.add_argument("--output-dir", "-o", required=True, help="输出目录")
     parser.add_argument("--api-key", "-k", default=None, help="2Captcha API Key (默认从环境变量 CAPTCHA_API_KEY 或 2CAPTCHA_API_KEY 读取)")
-    parser.add_argument("--test-mode", "-t", action="store_true", help="有头模式（可见浏览器）")
+    parser.add_argument("--test-mode", "-t", action="store_true", help="测试模式（仍使用无头，仅增加慢速执行）")
     args = parser.parse_args()
     api_key = args.api_key or os.getenv("CAPTCHA_API_KEY") or os.getenv("2CAPTCHA_API_KEY") or ""
     result = submit_ds160(

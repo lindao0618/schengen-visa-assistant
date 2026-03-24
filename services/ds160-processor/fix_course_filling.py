@@ -18,8 +18,8 @@ def test_course_filling():
         with sync_playwright() as p:
             # 启动浏览器
             browser = p.chromium.launch(
-                headless=False,  # 显示浏览器窗口
-                slow_mo=200  # 慢速操作
+                headless=True,
+                slow_mo=0
             )
             
             page = browser.new_page()

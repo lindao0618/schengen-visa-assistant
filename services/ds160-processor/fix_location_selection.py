@@ -18,8 +18,8 @@ def test_location_selection():
         with sync_playwright() as p:
             # 启动浏览器
             browser = p.chromium.launch(
-                headless=False,  # 显示浏览器窗口，方便调试
-                slow_mo=100  # 慢速操作，便于观察
+                headless=True,
+                slow_mo=0
             )
             
             page = browser.new_page()

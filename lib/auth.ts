@@ -4,6 +4,10 @@ import { verifyUserPassword } from "./users"
 
 const nextAuthSecret = process.env.NEXTAUTH_SECRET
 
+if (!nextAuthSecret) {
+  throw new Error("NEXTAUTH_SECRET is required. Please set it in your environment file using UTF-8 encoding.")
+}
+
 // 扩展NextAuth类型
 declare module "next-auth" {
   interface User {

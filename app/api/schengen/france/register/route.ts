@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { createTask, updateTask } from "@/lib/french-visa-tasks"
+import { getApplicantProfile, getApplicantProfileFileByCandidates } from "@/lib/applicant-profiles"
 import { spawn } from "child_process"
 import path from "path"
 import fs from "fs/promises"
@@ -44,6 +45,19 @@ export async function POST(request: NextRequest) {
       const one = formData.get("file") as File | null
       if (one) files.push(one)
     }
+    const applicantProfileId = (formData.get("applicantProfileId") as string | null)?.trim() || ""
+    const applicantProfile = applicantProfileId ? await getApplicantProfile(session.user.id, applicantProfileId) : null
+    if (files.length === 0 && applicantProfileId) {
+      const stored = await getApplicantProfileFileByCandidates(session.user.id, applicantProfileId, ["schengenExcel", "franceExcel"])
+      if (stored) {
+        const content = await fs.readFile(stored.absolutePath)
+        files.push(
+          new File([content], stored.meta.originalName, {
+            type: stored.meta.mimeType || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          })
+        )
+      }
+    }
     if (files.length === 0) {
       return NextResponse.json(
         { success: false, error: "请上传至少一个 Excel 文件（含邮箱、密码、姓、名等）" },
@@ -75,7 +89,10 @@ export async function POST(request: NextRequest) {
     const taskIds: string[] = []
     for (const file of files) {
       const fileName = file.name || "register.xlsx"
-      const task = await createTask(session.user.id, "register", `账号注册 · ${fileName}`)
+      const task = await createTask(session.user.id, "register", `账号注册 · ${fileName}`, {
+        applicantProfileId: applicantProfileId || undefined,
+        applicantName: applicantProfile?.name || applicantProfile?.label,
+      })
       taskIds.push(task.task_id)
       const outputId = `fv-register-${task.task_id}`
       const outputDir = path.join(process.cwd(), "temp", "french-visa-register", outputId)

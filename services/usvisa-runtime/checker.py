@@ -103,11 +103,13 @@ def check_photo(photo_path) -> Tuple[bool, str, Dict[str, Any]]:
                 with sync_playwright() as p:
                     # 仅用 Chromium，避免 Firefox 未安装时报错
                     browser = p.chromium.launch(
-                        headless=False,  # 有头模式，便于调试
+                        headless=True,
                         args=[
                             '--disable-blink-features=AutomationControlled',
                             '--disable-web-security',
                             '--no-sandbox',
+                            '--headless=new',
+                            '--disable-gpu',
                         ]
                     )
                     
