@@ -2,6 +2,8 @@ import fs from "fs/promises"
 import path from "path"
 import { nanoid } from "nanoid"
 import prisma from "@/lib/db"
+import { normalizeFranceTlsCity } from "@/lib/france-tls-city"
+import { extractFranceTlsCityFromExcelBuffer } from "@/lib/france-tls-city-excel"
 
 export type ApplicantProfileFileSlot =
   | "usVisaPhoto"
@@ -10,6 +12,7 @@ export type ApplicantProfileFileSlot =
   | "usVisaDs160ConfirmationPdf"
   | "schengenPhoto"
   | "schengenExcel"
+  | "franceTlsAccountsJson"
   | "franceApplicationJson"
   | "franceReceiptPdf"
   | "franceFinalSubmissionPdf"
@@ -42,6 +45,7 @@ export interface ApplicantProfile {
   }
   schengen?: {
     country?: string
+    city?: string
   }
   files: Partial<Record<ApplicantProfileFileSlot, ApplicantProfileFileMeta>>
   createdAt: string
@@ -73,6 +77,7 @@ const VALID_SLOTS: ApplicantProfileFileSlot[] = [
   "usVisaDs160ConfirmationPdf",
   "schengenPhoto",
   "schengenExcel",
+  "franceTlsAccountsJson",
   "franceApplicationJson",
   "franceReceiptPdf",
   "franceFinalSubmissionPdf",
@@ -104,6 +109,10 @@ function normalizeAA(value: unknown) {
 function normalizeYear(value: unknown) {
   const normalized = normalizeText(value)
   return normalized || undefined
+}
+
+function normalizeSchengenCity(value: unknown) {
+  return normalizeFranceTlsCity(value)
 }
 
 function extractBirthYear(value: unknown) {
@@ -201,10 +210,39 @@ function toApplicantProfile(profile: ApplicantProfileRecord): ApplicantProfile {
     },
     schengen: {
       country: normalizeText(profile.schengenCountry) || undefined,
+      city: normalizeSchengenCity(profile.schengenVisaCity),
     },
     files: mapFiles(profile.files),
     createdAt: profile.createdAt.toISOString(),
     updatedAt: profile.updatedAt.toISOString(),
+  }
+}
+
+async function hydrateSchengenCityFromStoredExcel(profile: ApplicantProfileRecord) {
+  if (normalizeSchengenCity(profile.schengenVisaCity)) {
+    return profile
+  }
+
+  const excelFile = profile.files.find((file) => file.slot === "schengenExcel" || file.slot === "franceExcel")
+  if (!excelFile?.relativePath) {
+    return profile
+  }
+
+  try {
+    const absolutePath = path.join(process.cwd(), excelFile.relativePath)
+    const buffer = await fs.readFile(absolutePath)
+    const parsedCity = extractFranceTlsCityFromExcelBuffer(buffer)
+    if (!parsedCity) {
+      return profile
+    }
+
+    return prisma.applicantProfile.update({
+      where: { id: profile.id },
+      data: { schengenVisaCity: parsedCity },
+      include: { files: true },
+    })
+  } catch {
+    return profile
   }
 }
 
@@ -231,12 +269,15 @@ export async function listApplicantProfiles(userId: string) {
     include: { files: true },
     orderBy: { updatedAt: "desc" },
   })
-  return profiles.map(toApplicantProfile)
+  const hydratedProfiles = await Promise.all(profiles.map(hydrateSchengenCityFromStoredExcel))
+  return hydratedProfiles.map(toApplicantProfile)
 }
 
 export async function getApplicantProfile(userId: string, id: string) {
   const profile = await findApplicantProfileRecord(userId, id)
-  return profile ? toApplicantProfile(profile) : null
+  if (!profile) return null
+  const hydratedProfile = await hydrateSchengenCityFromStoredExcel(profile)
+  return toApplicantProfile(hydratedProfile)
 }
 
 export async function createApplicantProfile(userId: string, input: ApplicantProfileInput) {
@@ -250,6 +291,7 @@ export async function createApplicantProfile(userId: string, input: ApplicantPro
       usVisaBirthYear: normalizeYear(input.usVisa?.birthYear),
       usVisaPassportNumber: normalizeText(input.usVisa?.passportNumber) || undefined,
       schengenCountry: normalizeText(input.schengen?.country) || undefined,
+      schengenVisaCity: normalizeSchengenCity(input.schengen?.city),
     },
     include: { files: true },
   })
@@ -287,6 +329,10 @@ export async function updateApplicantProfile(userId: string, id: string, input: 
         input.schengen && Object.prototype.hasOwnProperty.call(input.schengen, "country")
           ? normalizeText(input.schengen.country) || null
           : current.schengenCountry,
+      schengenVisaCity:
+        input.schengen && Object.prototype.hasOwnProperty.call(input.schengen, "city")
+          ? normalizeSchengenCity(input.schengen.city) || null
+          : current.schengenVisaCity,
     },
     include: { files: true },
   })
@@ -340,6 +386,32 @@ export async function updateApplicantProfileUsVisaDetails(
       usVisaSurname: nextSurname || null,
       usVisaBirthYear: nextBirthYear || null,
       usVisaPassportNumber: nextPassportNumber || null,
+    },
+    include: { files: true },
+  })
+
+  return toApplicantProfile(profile)
+}
+
+export async function updateApplicantProfileSchengenDetails(
+  userId: string,
+  id: string,
+  details: {
+    country?: string
+    city?: string
+  }
+) {
+  const current = await findApplicantProfileRecord(userId, id)
+  if (!current) return null
+
+  const nextCountry = normalizeText(details.country) || current.schengenCountry || undefined
+  const nextCity = normalizeSchengenCity(details.city) || current.schengenVisaCity || undefined
+
+  const profile = await prisma.applicantProfile.update({
+    where: { id: current.id },
+    data: {
+      schengenCountry: nextCountry || null,
+      schengenVisaCity: nextCity || null,
     },
     include: { files: true },
   })

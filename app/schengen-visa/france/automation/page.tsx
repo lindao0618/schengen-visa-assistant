@@ -29,6 +29,7 @@ import { AuthPromptProvider, useAuthPrompt } from "@/app/usa-visa/contexts/AuthP
 import { FranceTaskList } from "./FranceTaskList"
 import { ApplicantProfileSelector } from "@/components/applicant-profile-selector"
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
+import { getFranceTlsCityLabel, normalizeFranceTlsCity } from "@/lib/france-tls-city"
 
 const MANUAL_OPTION = "__manual__"
 
@@ -36,7 +37,11 @@ interface ApplicantProfileOption {
   id: string
   label: string
   name?: string
-  files?: Record<string, { originalName?: string }>
+  schengen?: {
+    country?: string
+    city?: string
+  }
+  files?: Record<string, { originalName?: string; uploadedAt?: string }>
 }
 
 interface FranceApplicantGroup {
@@ -56,6 +61,22 @@ function createFranceGroup(applicantProfileId = ""): FranceApplicantGroup {
 function getProfileFranceExcel(profile: ApplicantProfileOption | undefined) {
   if (!profile?.files) return null
   return profile.files.schengenExcel || profile.files.franceExcel || null
+}
+
+function getProfileFranceApplicationJson(profile: ApplicantProfileOption | undefined) {
+  if (!profile?.files) return null
+  return profile.files.franceApplicationJson || null
+}
+
+function getProfileFranceTlsCity(profile: ApplicantProfileOption | undefined) {
+  return normalizeFranceTlsCity(profile?.schengen?.city)
+}
+
+function formatUploadedAt(uploadedAt?: string) {
+  if (!uploadedAt) return ""
+  const d = new Date(uploadedAt)
+  if (Number.isNaN(d.getTime())) return ""
+  return d.toLocaleString("zh-CN", { hour12: false })
 }
 
 function FranceAutomationContent() {
@@ -105,24 +126,46 @@ function FranceAutomationContent() {
         </div>
 
         <Tabs defaultValue="extract" className="w-full">
-          <TabsList className="mb-6 grid h-12 w-full grid-cols-4 rounded-2xl border border-gray-200/50 bg-gray-100/80 p-1 shadow-lg backdrop-blur-xl dark:border-white/10 dark:bg-black/50">
-            <TabsTrigger value="extract" className="flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              提取+注册
-            </TabsTrigger>
-            <TabsTrigger value="create-app" className="flex items-center gap-2">
-              <FilePlus className="h-4 w-4" />
-              生成新申请
-            </TabsTrigger>
-            <TabsTrigger value="fill-receipt" className="flex items-center gap-2">
-              <ClipboardList className="h-4 w-4" />
-              填写回执单
-            </TabsTrigger>
-            <TabsTrigger value="submit-final" className="flex items-center gap-2">
-              <Send className="h-4 w-4" />
-              提交最终表
-            </TabsTrigger>
-          </TabsList>
+          <div className="mb-6 flex flex-col gap-4">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                FV 表（France-visas）
+              </p>
+              <TabsList className="grid h-12 w-full grid-cols-2 rounded-2xl border border-gray-200/50 bg-gray-100/80 p-1 shadow-lg backdrop-blur-xl sm:grid-cols-4 dark:border-white/10 dark:bg-black/50">
+                <TabsTrigger value="extract" className="flex items-center justify-center gap-2">
+                  <FileText className="h-4 w-4 shrink-0" />
+                  <span className="truncate">提取+注册</span>
+                </TabsTrigger>
+                <TabsTrigger value="create-app" className="flex items-center justify-center gap-2">
+                  <FilePlus className="h-4 w-4 shrink-0" />
+                  <span className="truncate">生成新申请</span>
+                </TabsTrigger>
+                <TabsTrigger value="fill-receipt" className="flex items-center justify-center gap-2">
+                  <ClipboardList className="h-4 w-4 shrink-0" />
+                  <span className="truncate">填写回执单</span>
+                </TabsTrigger>
+                <TabsTrigger value="submit-final" className="flex items-center justify-center gap-2">
+                  <Send className="h-4 w-4 shrink-0" />
+                  <span className="truncate">提交最终表</span>
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                TLS 表
+              </p>
+              <TabsList className="grid h-12 w-full grid-cols-2 rounded-2xl border border-gray-200/50 bg-gray-100/80 p-1 shadow-lg backdrop-blur-xl dark:border-white/10 dark:bg-black/50">
+                <TabsTrigger value="tls-register" className="flex items-center justify-center gap-2">
+                  <UserPlus className="h-4 w-4 shrink-0" />
+                  <span className="truncate">TLS 账户注册</span>
+                </TabsTrigger>
+                <TabsTrigger value="tls-apply" className="flex items-center justify-center gap-2">
+                  <Send className="h-4 w-4 shrink-0" />
+                  <span className="truncate">TLS 填表提交</span>
+                </TabsTrigger>
+              </TabsList>
+            </div>
+          </div>
 
           <TabsContent value="extract">
             <StepCard
@@ -175,6 +218,34 @@ function FranceAutomationContent() {
             />
             <div className="mt-6">
               <FranceTaskList filterTaskTypes={["fill-receipt"]} title="填写回执单任务" pollInterval={2000} autoRefresh />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="tls-register">
+            <TlsRegisterCard
+              showLoginPrompt={showLoginPrompt}
+              locationDefault=""
+              activeApplicantId={activeApplicant?.id}
+              activeApplicantName={activeApplicantName}
+              profiles={profiles}
+              canUseApplicantProfile={hasSchengenProfileExcel}
+            />
+            <div className="mt-6">
+              <FranceTaskList filterTaskTypes={["tls-register"]} title="TLS 账户注册任务" pollInterval={2000} autoRefresh />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="tls-apply">
+            <TlsApplyCard
+              showLoginPrompt={showLoginPrompt}
+              locationDefault=""
+              activeApplicantId={activeApplicant?.id}
+              activeApplicantName={activeApplicantName}
+              profiles={profiles}
+              canUseApplicantProfile={hasSchengenProfileExcel}
+            />
+            <div className="mt-6">
+              <FranceTaskList filterTaskTypes={["tls-apply"]} title="TLS 填表提交任务" pollInterval={2000} autoRefresh />
             </div>
           </TabsContent>
 
@@ -502,6 +573,370 @@ function StepCard({
               {result.success && (result.task_id || (result.task_ids && result.task_ids.length > 0) || result.message) && (
                 <p className="mt-2 text-sm text-muted-foreground">请在下方任务列表查看进度和下载链接。</p>
               )}
+            </AlertDescription>
+          </Alert>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function TlsRegisterCard({
+  showLoginPrompt,
+  locationDefault,
+  activeApplicantId,
+  activeApplicantName,
+  profiles,
+  canUseApplicantProfile,
+}: {
+  showLoginPrompt: () => void
+  locationDefault: string
+  activeApplicantId?: string
+  activeApplicantName?: string
+  profiles: ApplicantProfileOption[]
+  canUseApplicantProfile: boolean
+}) {
+  const [location, setLocation] = useState<string>(locationDefault)
+  const [applicantProfileId, setApplicantProfileId] = useState<string>(activeApplicantId || "")
+  const [excelFile, setExcelFile] = useState<File | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<{ success: boolean; message?: string; error?: string; task_id?: string; task_ids?: string[] } | null>(null)
+
+  useEffect(() => {
+    if (activeApplicantId) setApplicantProfileId(activeApplicantId)
+  }, [activeApplicantId])
+
+  const selectedProfile = useMemo(
+    () => (applicantProfileId ? profiles.find((p) => p.id === applicantProfileId) : undefined),
+    [applicantProfileId, profiles],
+  )
+  const selectedProfileExcel = getProfileFranceExcel(selectedProfile)
+  const selectedHasSchengenExcel = Boolean(selectedProfileExcel)
+  const selectedProfileCity = getProfileFranceTlsCity(selectedProfile) || ""
+  const resolvedLocation = selectedProfileCity || location
+  const selectedProfileCityLabel = getFranceTlsCityLabel(selectedProfileCity)
+  const autoExcelLabel = selectedProfileExcel?.originalName || "schengenExcel"
+  const autoExcelUploadedAt = formatUploadedAt(selectedProfileExcel?.uploadedAt)
+
+  useEffect(() => {
+    if (selectedProfileCity) {
+      setLocation(selectedProfileCity)
+    }
+  }, [selectedProfileCity])
+
+  const handleSubmit = async () => {
+    if (!excelFile && !applicantProfileId.trim()) {
+      setResult({ success: false, error: "请上传 Excel，或选择申请人档案自动匹配" })
+      return
+    }
+    if (!excelFile && !selectedHasSchengenExcel) {
+      setResult({ success: false, error: "所选档案没有申根 Excel，请先在「申请人」页上传申根表，或手动上传 Excel。" })
+      return
+    }
+    setLoading(true)
+    setResult(null)
+    try {
+      const formData = new FormData()
+      if (excelFile) formData.append("excel", excelFile)
+      if (applicantProfileId.trim()) formData.append("applicantProfileId", applicantProfileId.trim())
+      formData.append("location", resolvedLocation)
+
+      const res = await fetch("/api/schengen/france/tls-register", { method: "POST", body: formData, credentials: "include" })
+      if (res.status === 401) {
+        showLoginPrompt()
+        throw new Error("AUTH_REQUIRED")
+      }
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        setResult({ success: false, error: data.error || data.message || "TLS 注册失败" })
+        return
+      }
+      setResult({ success: true, message: data.message, task_id: data.task_id, task_ids: data.task_ids })
+    } catch (e) {
+      if ((e as Error)?.message === "AUTH_REQUIRED") return
+      setResult({ success: false, error: e instanceof Error ? e.message : "TLS 注册失败" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden rounded-2xl border border-gray-200/50 bg-gradient-to-b from-white to-gray-50 shadow-2xl backdrop-blur-md dark:border-gray-800/50 dark:from-gray-900 dark:to-black">
+      <CardHeader className="border-b border-gray-100 dark:border-gray-800/50">
+        <CardTitle>TLS 账户注册</CardTitle>
+        <CardDescription>
+          默认只用 Excel：可直接上传 Excel，或自动使用申请人档案里的申根 Excel，并自动生成 TLS 注册所需 accounts JSON。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="pt-6 space-y-5">
+        {canUseApplicantProfile && activeApplicantId && (
+          <Alert className="border-blue-200/50 bg-blue-50/30 dark:border-blue-900/40 dark:bg-blue-950/20">
+            <AlertDescription className="text-sm">
+              当前顶部已选档案「{activeApplicantName || "申请人"}」。不上传文件时会自动使用该档案的申根 Excel 生成注册账号数据。
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {selectedProfileCity && (
+          <Alert className="border-emerald-200/50 bg-emerald-50/40 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+            <AlertDescription className="text-sm">
+              已从申请人档案自动匹配 TLS 递签城市：{selectedProfileCity} - {selectedProfileCityLabel || selectedProfileCity}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <div className="space-y-2" hidden={Boolean(selectedProfileCity)}>
+          <Label htmlFor="tls-location">TLS 地点（location）</Label>
+          <Select value={location} onValueChange={setLocation}>
+            <SelectTrigger id="tls-location">
+              <SelectValue placeholder="选择 location" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="LON">LON - 伦敦</SelectItem>
+              <SelectItem value="MNC">MNC - 曼彻斯特</SelectItem>
+              <SelectItem value="EDI">EDI - 爱丁堡</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="tls-register-profile">申请人档案（自动匹配来源）</Label>
+          {profiles.length === 0 ? (
+            <p id="tls-register-profile" className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+              暂无申请人档案，可先手动上传 Excel。
+            </p>
+          ) : (
+            <Select value={applicantProfileId || undefined} onValueChange={setApplicantProfileId}>
+              <SelectTrigger id="tls-register-profile">
+                <SelectValue placeholder="选择申请人档案（可选）" />
+              </SelectTrigger>
+              <SelectContent>
+                {profiles.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.name || item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="tls-excel">Excel（可选，上传后自动转 JSON）</Label>
+          <input id="tls-excel" type="file" accept=".xlsx,.xls" onChange={(e) => setExcelFile(e.target.files?.[0] || null)} className="block w-full text-sm" />
+          {excelFile && <p className="text-xs text-muted-foreground">已手动选择：{excelFile.name}（将自动生成 accounts JSON）</p>}
+          {!excelFile && applicantProfileId && (
+            <p className="text-xs text-muted-foreground">
+              自动匹配：
+              {selectedProfileExcel
+                ? ` 将使用档案 Excel ${autoExcelLabel}${autoExcelUploadedAt ? `（更新于 ${autoExcelUploadedAt}）` : ""}`
+                : " 当前档案没有申根 Excel，请先上传后再试。"}
+            </p>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <Button
+            onClick={handleSubmit}
+            disabled={loading || (!excelFile && !applicantProfileId.trim())}
+            className="h-10 min-w-[180px] gap-2"
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            <span>{loading ? "处理中..." : "开始 TLS 注册"}</span>
+          </Button>
+        </div>
+
+        {result && (
+          <Alert variant={result.success ? "default" : "destructive"}>
+            {result.success ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+            <AlertDescription>
+              {result.success ? result.message : result.error}
+            </AlertDescription>
+          </Alert>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function TlsApplyCard({
+  showLoginPrompt,
+  locationDefault,
+  activeApplicantId,
+  activeApplicantName,
+  profiles,
+  canUseApplicantProfile,
+}: {
+  showLoginPrompt: () => void
+  locationDefault: string
+  activeApplicantId?: string
+  activeApplicantName?: string
+  profiles: ApplicantProfileOption[]
+  canUseApplicantProfile: boolean
+}) {
+  const [location, setLocation] = useState<string>(locationDefault)
+  const [applicantProfileId, setApplicantProfileId] = useState<string>(activeApplicantId || "")
+  const [applicantsFile, setApplicantsFile] = useState<File | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<{ success: boolean; message?: string; error?: string; task_id?: string; task_ids?: string[] } | null>(null)
+
+  useEffect(() => {
+    if (activeApplicantId) setApplicantProfileId(activeApplicantId)
+  }, [activeApplicantId])
+
+  const selectedProfile = useMemo(
+    () => (applicantProfileId ? profiles.find((p) => p.id === applicantProfileId) : undefined),
+    [applicantProfileId, profiles],
+  )
+  const selectedHasSchengenExcel = Boolean(selectedProfile && getProfileFranceExcel(selectedProfile))
+  const selectedProfileCity = getProfileFranceTlsCity(selectedProfile) || ""
+  const resolvedLocation = selectedProfileCity || location
+  const selectedProfileCityLabel = getFranceTlsCityLabel(selectedProfileCity)
+  const selectedAutoApplicantsJson = getProfileFranceApplicationJson(selectedProfile)
+  const autoApplicantsLabel = selectedAutoApplicantsJson?.originalName || "franceApplicationJson"
+  const autoApplicantsUploadedAt = formatUploadedAt(selectedAutoApplicantsJson?.uploadedAt)
+
+  useEffect(() => {
+    if (selectedProfileCity) {
+      setLocation(selectedProfileCity)
+    }
+  }, [selectedProfileCity])
+
+  const handleSubmit = async () => {
+    if (!applicantProfileId.trim()) {
+      setResult({ success: false, error: "请选择申请人档案" })
+      return
+    }
+    if (!selectedHasSchengenExcel) {
+      setResult({ success: false, error: "所选档案没有申根 Excel，请先在「申请人」页为该档案上传，或换一个有申根表的档案。" })
+      return
+    }
+    if (!resolvedLocation) {
+      setResult({ success: false, error: "请先在申请人档案里补上 TLS 递签城市，或在这里手动选择城市" })
+      return
+    }
+    setLoading(true)
+    setResult(null)
+    try {
+      const formData = new FormData()
+      if (applicantsFile) formData.append("applicants", applicantsFile)
+      formData.append("location", resolvedLocation)
+      formData.append("applicantProfileId", applicantProfileId.trim())
+
+      const res = await fetch("/api/schengen/france/tls-apply", { method: "POST", body: formData, credentials: "include" })
+      if (res.status === 401) {
+        showLoginPrompt()
+        throw new Error("AUTH_REQUIRED")
+      }
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        setResult({ success: false, error: data.error || data.message || "TLS 填表失败" })
+        return
+      }
+      setResult({ success: true, message: data.message, task_id: data.task_id, task_ids: data.task_ids })
+    } catch (e) {
+      if ((e as Error)?.message === "AUTH_REQUIRED") return
+      setResult({ success: false, error: e instanceof Error ? e.message : "TLS 填表失败" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden rounded-2xl border border-gray-200/50 bg-gradient-to-b from-white to-gray-50 shadow-2xl backdrop-blur-md dark:border-gray-800/50 dark:from-gray-900 dark:to-black">
+      <CardHeader className="border-b border-gray-100 dark:border-gray-800/50">
+        <CardTitle>TLS 填表提交</CardTitle>
+        <CardDescription>
+          与填写回执单相同：TLS 登录邮箱、密码从所选档案的<strong className="font-medium text-foreground">申根 Excel</strong>自动读取（更新档案 Excel
+          后即更新，无需手填）。applicants 可手动上传；不上传时自动使用「生成新申请」已存档 JSON。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="pt-6 space-y-5">
+        {canUseApplicantProfile && activeApplicantId && (
+          <Alert className="border-blue-200/50 bg-blue-50/30 dark:border-blue-900/40 dark:bg-blue-950/20">
+            <AlertDescription className="text-sm">
+              当前顶部已选档案「{activeApplicantName || "申请人"}」含申根 Excel。你可在此选择同一档案或其他档案；账号信息均从对应档案的 Excel 解析。
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {selectedProfileCity && (
+          <Alert className="border-emerald-200/50 bg-emerald-50/40 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+            <AlertDescription className="text-sm">
+              已从申请人档案自动匹配 TLS 递签城市：{selectedProfileCity} - {selectedProfileCityLabel || selectedProfileCity}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <div className="space-y-2" hidden={Boolean(selectedProfileCity)}>
+          <Label htmlFor="tls-apply-location">TLS 地点（location）</Label>
+          <Select value={location} onValueChange={setLocation}>
+            <SelectTrigger id="tls-apply-location">
+              <SelectValue placeholder="选择 location" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="LON">LON - 伦敦</SelectItem>
+              <SelectItem value="MNC">MNC - 曼彻斯特</SelectItem>
+              <SelectItem value="EDI">EDI - 爱丁堡</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="tls-apply-profile">申请人档案（用于读取 Excel 中的邮箱/密码）</Label>
+          {profiles.length === 0 ? (
+            <p id="tls-apply-profile" className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+              暂无申请人档案，请先在「申请人」页创建并上传申根 Excel。
+            </p>
+          ) : (
+            <Select value={applicantProfileId || undefined} onValueChange={setApplicantProfileId}>
+              <SelectTrigger id="tls-apply-profile">
+                <SelectValue placeholder="选择申请人档案" />
+              </SelectTrigger>
+              <SelectContent>
+                {profiles.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.name || item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {applicantProfileId && !selectedHasSchengenExcel && (
+            <p className="text-sm text-amber-700 dark:text-amber-400">该档案尚未上传申根 Excel。</p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="tls-apply-applicants">applicants 数组 json（可选，留空则自动使用档案里的生成新申请 JSON）</Label>
+          <input id="tls-apply-applicants" type="file" accept=".json" onChange={(e) => setApplicantsFile(e.target.files?.[0] || null)} className="block w-full text-sm" />
+          {!applicantsFile && applicantProfileId && (
+            <p className="text-xs text-muted-foreground">
+              自动匹配：
+              {selectedAutoApplicantsJson
+                ? ` 将使用档案文件 ${autoApplicantsLabel}${autoApplicantsUploadedAt ? `（更新于 ${autoApplicantsUploadedAt}）` : ""}`
+                : " 当前档案还没有生成新申请 JSON，请先执行「生成新申请」或手动上传 applicants 文件。"}
+            </p>
+          )}
+          {applicantsFile && <p className="text-xs text-muted-foreground">已手动选择：{applicantsFile.name}（本次优先使用手动文件）</p>}
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <Button
+            onClick={handleSubmit}
+            disabled={loading || !applicantProfileId.trim() || !selectedHasSchengenExcel}
+            className="h-10 min-w-[180px] gap-2"
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            <span>{loading ? "处理中..." : "开始 TLS 填表"}</span>
+          </Button>
+        </div>
+
+        {result && (
+          <Alert variant={result.success ? "default" : "destructive"}>
+            {result.success ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+            <AlertDescription>
+              {result.success ? result.message : result.error}
             </AlertDescription>
           </Alert>
         )}

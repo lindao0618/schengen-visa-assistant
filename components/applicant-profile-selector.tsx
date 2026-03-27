@@ -16,7 +16,10 @@ export interface ApplicantProfileSummary {
     birthYear?: string
     passportNumber?: string
   }
-  schengen?: { country?: string }
+  schengen?: {
+    country?: string
+    city?: string
+  }
   files?: Record<string, unknown>
 }
 
@@ -99,6 +102,7 @@ export function ApplicantProfileSelector() {
           {activeProfile.usVisa?.birthYear && <span>出生年份: {activeProfile.usVisa.birthYear}</span>}
           {activeProfile.usVisa?.passportNumber && <span>护照号: {activeProfile.usVisa.passportNumber}</span>}
           {activeProfile.schengen?.country && <span>申根国家: {activeProfile.schengen.country}</span>}
+          {activeProfile.schengen?.city && <span>TLS 递签城市: {activeProfile.schengen.city}</span>}
         </div>
       )}
     </Card>

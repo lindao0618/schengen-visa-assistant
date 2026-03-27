@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { createTask, updateTask } from "@/lib/french-visa-tasks"
-import { getApplicantProfile, getApplicantProfileFileByCandidates } from "@/lib/applicant-profiles"
+import {
+  getApplicantProfile,
+  getApplicantProfileFileByCandidates,
+  saveApplicantProfileFileFromAbsolutePath,
+} from "@/lib/applicant-profiles"
 import { spawn } from "child_process"
 import path from "path"
 import fs from "fs/promises"
@@ -74,6 +78,7 @@ export async function POST(request: NextRequest) {
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "请先登录" }, { status: 401 })
     }
+    const userId = session.user.id
 
     const formData = await request.formData()
     const files: File[] = []
@@ -86,10 +91,10 @@ export async function POST(request: NextRequest) {
     }
 
     const applicantProfileId = (formData.get("applicantProfileId") as string | null)?.trim() || ""
-    const applicantProfile = applicantProfileId ? await getApplicantProfile(session.user.id, applicantProfileId) : null
+    const applicantProfile = applicantProfileId ? await getApplicantProfile(userId, applicantProfileId) : null
 
     if (files.length === 0 && applicantProfileId) {
-      const stored = await getApplicantProfileFileByCandidates(session.user.id, applicantProfileId, ["schengenExcel", "franceExcel"])
+      const stored = await getApplicantProfileFileByCandidates(userId, applicantProfileId, ["schengenExcel", "franceExcel"])
       if (stored) {
         const content = await fs.readFile(stored.absolutePath)
         files.push(
@@ -113,7 +118,7 @@ export async function POST(request: NextRequest) {
     }
 
     const task = await createTask(
-      session.user.id,
+      userId,
       "extract-register",
       `提取+注册 · ${files.length} 个文件`,
       {
@@ -167,6 +172,22 @@ export async function POST(request: NextRequest) {
         const downloadJson = extractJsonName
           ? `/api/schengen/france/extract-register/download/${outputId}/${encodeURIComponent(extractJsonName)}`
           : undefined
+        let archivedProfileAccountsUrl: string | undefined
+        if (extractJsonName && applicantProfileId) {
+          try {
+            await saveApplicantProfileFileFromAbsolutePath({
+              userId,
+              id: applicantProfileId,
+              slot: "franceTlsAccountsJson",
+              sourcePath: path.join(outputDir, extractJsonName),
+              originalName: extractJsonName,
+              mimeType: "application/json",
+            })
+            archivedProfileAccountsUrl = `/api/applicants/${applicantProfileId}/files/franceTlsAccountsJson`
+          } catch (archiveError) {
+            console.error("Failed to archive extracted TLS accounts JSON to applicant profile", archiveError)
+          }
+        }
 
         await updateTask(task.task_id, {
           status: "running",
@@ -177,6 +198,7 @@ export async function POST(request: NextRequest) {
             stage: "extract",
             download_excel: downloadExcel,
             download_json: downloadJson,
+            archived_profile_accounts_url: archivedProfileAccountsUrl,
             extract_message: extractData.message,
           },
         })
@@ -205,6 +227,7 @@ export async function POST(request: NextRequest) {
               stage: "register",
               download_excel: downloadExcel,
               download_json: downloadJson,
+              archived_profile_accounts_url: archivedProfileAccountsUrl,
               download_log: downloadLog,
               message: typeof registerData?.message === "string" ? registerData.message : "提取完成，但注册失败",
               total: registerData?.total,
@@ -226,6 +249,7 @@ export async function POST(request: NextRequest) {
             message: typeof registerData.message === "string" ? registerData.message : "提取+注册完成",
             download_excel: downloadExcel,
             download_json: downloadJson,
+            archived_profile_accounts_url: archivedProfileAccountsUrl,
             download_log: downloadLog,
             total: registerData.total,
             success_count: registerData.success_count,

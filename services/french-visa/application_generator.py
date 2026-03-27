@@ -7,6 +7,7 @@ import sys
 import time
 import json
 import re
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Callable, Dict, Any
 
@@ -757,6 +758,19 @@ def create_new_application(file_path: str, original_filename: str = None, callba
             except Exception:
                 dob_parsed = pd.to_datetime(dob_raw, errors="coerce")
             date_of_birth_iso = dob_parsed.strftime('%Y-%m-%d') if not pd.isnull(dob_parsed) else ""
+
+            # 预计出行时间计算规则：
+            # 出发时间 = 当天日期晚后 + 21 天
+            # 到达时间 = 与出发时间相同
+            # 返回时间 = 在出发时间基础上 + 7 天
+            today_date = datetime.now().date()
+            departure_date = today_date + timedelta(days=21)
+            arrival_date = departure_date
+            return_date = departure_date + timedelta(days=7)
+            departure_date_iso = departure_date.strftime('%Y-%m-%d')
+            arrival_date_iso = arrival_date.strftime('%Y-%m-%d')
+            return_date_iso = return_date.strftime('%Y-%m-%d')
+
             visa_json = [{
                 "id": 1,
                 "personalInfo": {
@@ -774,9 +788,9 @@ def create_new_application(file_path: str, original_filename: str = None, callba
                 "travelInfo": {
                     "visaType": "Short stay (<90 days) - Tourism",
                     "reason": "Tourism / Private visit",
-                    "departureDate": "2026-03-07",
-                    "arrivalDate": "2026-03-07",
-                    "returnDate": "2026-03-15",
+                    "departureDate": departure_date_iso,
+                    "arrivalDate": arrival_date_iso,
+                    "returnDate": return_date_iso,
                     "frenchOverseas": False
                 },
                 "visaHistory": {
@@ -787,7 +801,15 @@ def create_new_application(file_path: str, original_filename: str = None, callba
             # 保存JSON文件（先保存到临时目录）
             if callback:
                 callback(93, "正在保存JSON文件...")
-            json_filename_temp = os.path.join(folder_name, f"tls注册_{original_stem}.json")
+            family_name_raw = str(df['姓氏（Family name）'].iloc[0]).strip()
+            first_name_raw = str(df['名字（First name）'].iloc[0]).strip()
+            applicant_name = f"{family_name_raw}_{first_name_raw}".strip("_")
+            applicant_name_safe = re.sub(r"[^0-9A-Za-z_\-]+", "_", applicant_name).strip("_")
+            if not applicant_name_safe:
+                applicant_name_safe = re.sub(r"[^0-9A-Za-z_\-]+", "_", original_stem).strip("_") or "applicant"
+            generated_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            tls_json_filename = f"tls_apply_{applicant_name_safe}_{generated_ts}.json"
+            json_filename_temp = os.path.join(folder_name, tls_json_filename)
             with open(json_filename_temp, 'w', encoding='utf-8') as f_json:
                 json.dump(visa_json, f_json, ensure_ascii=False, indent=2)
             if callback:

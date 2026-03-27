@@ -13,7 +13,10 @@ export interface ActiveApplicantProfile {
     birthYear?: string
     passportNumber?: string
   }
-  schengen?: { country?: string }
+  schengen?: {
+    country?: string
+    city?: string
+  }
   files?: Record<string, { originalName: string }>
 
   // Legacy fields preserved for old flows that still read them.

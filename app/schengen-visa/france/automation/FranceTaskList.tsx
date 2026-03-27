@@ -65,6 +65,8 @@ const TYPE_LABELS: Record<string, string> = {
   "create-application": "生成新申请",
   "fill-receipt": "填写回执单",
   "submit-final": "提交最终表",
+  "tls-register": "TLS 账户注册",
+  "tls-apply": "TLS 提交申请",
 }
 
 interface FranceTaskListProps {
@@ -328,10 +330,18 @@ function FranceResultSummary({ result }: { result: Record<string, unknown> }) {
   const download_json = result.download_json as string | undefined
   const download_pdf = result.download_pdf as string | undefined
   const download_log = result.download_log as string | undefined
+  const download_artifacts = Array.isArray(result.download_artifacts)
+    ? (result.download_artifacts as Array<Record<string, unknown>>).filter(
+        (item) => typeof item?.url === "string" && typeof item?.label === "string",
+      )
+        .filter((item) => item.url !== download_log)
+    : []
   const msg = result.message as string | undefined
   const success = result.success as boolean | undefined
 
-  if (!success && !download_excel && !download_json && !download_pdf && !download_log) return null
+  if (!success && !download_excel && !download_json && !download_pdf && !download_log && download_artifacts.length === 0) {
+    return null
+  }
 
   return (
     <div className="text-xs space-y-2">
@@ -373,6 +383,18 @@ function FranceResultSummary({ result }: { result: Record<string, unknown> }) {
             </a>
           </Button>
         )}
+        {download_artifacts.map((item) => {
+          const url = item.url as string
+          const label = item.label as string
+          return (
+            <Button key={`${label}-${url}`} variant="outline" size="sm" className="h-7 gap-1.5 text-xs" asChild>
+              <a href={url} download target="_blank" rel="noopener noreferrer">
+                <Download className="h-3.5 w-3.5" />
+                {label}
+              </a>
+            </Button>
+          )
+        })}
       </div>
     </div>
   )

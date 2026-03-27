@@ -67,6 +67,7 @@
     "framer-motion": "latest",
     "input-otp": "1.4.1",
     "lucide-react": "^0.454.0",
+    "mammoth": "^1.12.0",
     "nanoid": "^5.1.0",
     "next": "14.2.16",
     "next-auth": "^4.24.11",

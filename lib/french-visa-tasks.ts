@@ -5,7 +5,15 @@ import * as path from "path"
 import { ensureTempCleanup } from "@/lib/temp-cleanup"
 
 export type TaskStatus = "pending" | "running" | "completed" | "failed"
-export type TaskType = "extract" | "extract-register" | "register" | "create-application" | "fill-receipt" | "submit-final"
+export type TaskType =
+  | "extract"
+  | "extract-register"
+  | "register"
+  | "create-application"
+  | "fill-receipt"
+  | "submit-final"
+  | "tls-register"
+  | "tls-apply"
 
 export interface TaskMeta {
   applicantProfileId?: string

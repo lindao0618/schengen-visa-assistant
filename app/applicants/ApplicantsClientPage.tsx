@@ -4,9 +4,12 @@ import { type ChangeEvent, type ReactNode, useEffect, useMemo, useState } from "
 import { ApplicantProfileSelector, ACTIVE_APPLICANT_PROFILE_KEY, ApplicantProfileSummary } from "@/components/applicant-profile-selector"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { FRANCE_TLS_CITY_OPTIONS, getFranceTlsCityLabel } from "@/lib/france-tls-city"
+import { read, utils } from "xlsx"
 
 type ApplicantProfileDetail = ApplicantProfileSummary & {
   usVisa?: {
@@ -15,7 +18,10 @@ type ApplicantProfileDetail = ApplicantProfileSummary & {
     birthYear?: string
     passportNumber?: string
   }
-  schengen?: { country?: string }
+  schengen?: {
+    country?: string
+    city?: string
+  }
   files?: Record<string, { originalName: string; uploadedAt: string }>
 }
 
@@ -25,6 +31,21 @@ type EditableApplicant = {
   usVisaBirthYear: string
   usVisaPassportNumber: string
   schengenCountry: string
+  schengenVisaCity: string
+}
+
+type PreviewKind = "pdf" | "image" | "excel" | "word" | "text" | "unknown"
+
+type PreviewState = {
+  open: boolean
+  loading: boolean
+  title: string
+  kind: PreviewKind
+  objectUrl: string
+  textContent: string
+  htmlContent: string
+  tableRows: string[][]
+  error: string
 }
 
 const emptyForm: EditableApplicant = {
@@ -33,6 +54,30 @@ const emptyForm: EditableApplicant = {
   usVisaBirthYear: "",
   usVisaPassportNumber: "",
   schengenCountry: "france",
+  schengenVisaCity: "",
+}
+
+const emptyPreview: PreviewState = {
+  open: false,
+  loading: false,
+  title: "",
+  kind: "unknown",
+  objectUrl: "",
+  textContent: "",
+  htmlContent: "",
+  tableRows: [],
+  error: "",
+}
+
+async function readJsonSafely<T>(response: Response) {
+  const text = await response.text()
+  if (!text) return null as T | null
+
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error("服务端返回了无法解析的响应，请刷新页面后重试")
+  }
 }
 
 const usVisaUploadedSlots = [
@@ -51,6 +96,7 @@ const schengenUploadedSlots = [
 ] as const
 
 const schengenSubmissionSlots = [
+  { key: "franceTlsAccountsJson", label: "TLS 注册 accounts JSON", accept: ".json,application/json" },
   { key: "franceApplicationJson", label: "法国新申请 JSON", accept: ".json,application/json" },
   { key: "franceReceiptPdf", label: "法国回执单 PDF", accept: ".pdf,application/pdf" },
   { key: "franceFinalSubmissionPdf", label: "法国最终表 PDF", accept: ".pdf,application/pdf" },
@@ -62,6 +108,8 @@ export default function ApplicantsClientPage() {
   const [form, setForm] = useState<EditableApplicant>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState("")
+  const [materialCategory, setMaterialCategory] = useState<"usVisa" | "schengen">("usVisa")
+  const [preview, setPreview] = useState<PreviewState>(emptyPreview)
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedId) ?? null,
@@ -70,10 +118,13 @@ export default function ApplicantsClientPage() {
 
   const loadProfiles = async () => {
     const res = await fetch("/api/applicants", { cache: "no-store" })
-    if (!res.ok) return
+    const data = await readJsonSafely<{ profiles?: ApplicantProfileDetail[]; error?: string }>(res)
+    if (!res.ok) {
+      setMessage(data?.error || "加载申请人档案失败")
+      return
+    }
 
-    const data = await res.json()
-    const nextProfiles = (data.profiles || []) as ApplicantProfileDetail[]
+    const nextProfiles = (data?.profiles || []) as ApplicantProfileDetail[]
     setProfiles(nextProfiles)
 
     const savedId = window.localStorage.getItem(ACTIVE_APPLICANT_PROFILE_KEY) || ""
@@ -100,6 +151,7 @@ export default function ApplicantsClientPage() {
       usVisaBirthYear: selectedProfile.usVisa?.birthYear || "",
       usVisaPassportNumber: selectedProfile.usVisa?.passportNumber || "",
       schengenCountry: selectedProfile.schengen?.country || "france",
+      schengenVisaCity: selectedProfile.schengen?.city || "",
     })
   }, [selectedProfile])
 
@@ -115,7 +167,10 @@ export default function ApplicantsClientPage() {
           birthYear: form.usVisaBirthYear.trim(),
           passportNumber: form.usVisaPassportNumber.trim(),
         },
-        schengen: { country: form.schengenCountry },
+        schengen: {
+          country: form.schengenCountry,
+          city: form.schengenVisaCity.trim(),
+        },
       }
 
       if (!payload.name) {
@@ -128,8 +183,9 @@ export default function ApplicantsClientPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || "创建失败")
+        const data = await readJsonSafely<{ profile?: ApplicantProfileDetail; error?: string }>(res)
+        if (!res.ok) throw new Error(data?.error || "创建失败")
+        if (!data?.profile?.id) throw new Error("创建后未返回申请人档案 ID")
 
         await loadProfiles()
         window.localStorage.setItem(ACTIVE_APPLICANT_PROFILE_KEY, data.profile.id)
@@ -143,8 +199,8 @@ export default function ApplicantsClientPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "保存失败")
+      const data = await readJsonSafely<{ profile?: ApplicantProfileDetail; error?: string }>(res)
+      if (!res.ok) throw new Error(data?.error || "保存失败")
 
       await loadProfiles()
       setMessage("申请人档案已更新")
@@ -168,8 +224,8 @@ export default function ApplicantsClientPage() {
     setMessage("")
     try {
       const res = await fetch(`/api/applicants/${selectedId}`, { method: "DELETE" })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "删除失败")
+      const data = await readJsonSafely<{ success?: boolean; error?: string }>(res)
+      if (!res.ok) throw new Error(data?.error || "删除失败")
 
       await loadProfiles()
       setSelectedId("")
@@ -196,16 +252,32 @@ export default function ApplicantsClientPage() {
         method: "POST",
         body: formData,
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "上传失败")
+      const data = await readJsonSafely<{
+        profile?: ApplicantProfileDetail
+        parsedUsVisaDetails?: {
+          surname?: string
+          birthYear?: string
+          passportNumber?: string
+        }
+        parsedSchengenDetails?: {
+          city?: string
+        }
+        error?: string
+      }>(res)
+      if (!res.ok) throw new Error(data?.error || "上传失败")
 
       await loadProfiles()
 
-      const parsed = data.parsedUsVisaDetails as
+      const parsed = data?.parsedUsVisaDetails as
         | {
             surname?: string
             birthYear?: string
             passportNumber?: string
+          }
+        | undefined
+      const parsedSchengen = data?.parsedSchengenDetails as
+        | {
+            city?: string
           }
         | undefined
 
@@ -213,6 +285,7 @@ export default function ApplicantsClientPage() {
         parsed?.surname ? "姓" : "",
         parsed?.birthYear ? "出生年份" : "",
         parsed?.passportNumber ? "护照号" : "",
+        parsedSchengen?.city ? `TLS 递签城市（${getFranceTlsCityLabel(parsedSchengen.city) || parsedSchengen.city}）` : "",
       ].filter(Boolean)
 
       setMessage(parsedFields.length > 0 ? `资料已上传，并自动识别${parsedFields.join("、")}` : "资料已上传")
@@ -221,6 +294,97 @@ export default function ApplicantsClientPage() {
     } finally {
       setSaving(false)
       event.target.value = ""
+    }
+  }
+
+  const closePreview = () => {
+    setPreview((prev) => {
+      if (prev.objectUrl) URL.revokeObjectURL(prev.objectUrl)
+      return emptyPreview
+    })
+  }
+
+  const openPreview = async (slot: string, meta: { originalName: string; uploadedAt: string }) => {
+    if (!selectedId) return
+    setPreview({
+      ...emptyPreview,
+      open: true,
+      loading: true,
+      title: meta.originalName || slot,
+    })
+    try {
+      const res = await fetch(`/api/applicants/${selectedId}/files/${slot}`, { credentials: "include" })
+      if (!res.ok) throw new Error("文件读取失败")
+      const blob = await res.blob()
+      const filename = (meta.originalName || slot).toLowerCase()
+      const mime = (blob.type || "").toLowerCase()
+      const objectUrl = URL.createObjectURL(blob)
+
+      if (mime.includes("pdf") || filename.endsWith(".pdf")) {
+        setPreview((prev) => ({ ...prev, loading: false, kind: "pdf", objectUrl }))
+        return
+      }
+      if (mime.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(filename)) {
+        setPreview((prev) => ({ ...prev, loading: false, kind: "image", objectUrl }))
+        return
+      }
+      if (/\.(xlsx|xls)$/.test(filename) || mime.includes("spreadsheet") || mime.includes("excel")) {
+        const ab = await blob.arrayBuffer()
+        const wb = read(ab, { type: "array" })
+        const sheetName = wb.SheetNames[0]
+        const sheet = sheetName ? wb.Sheets[sheetName] : undefined
+        const rows = sheet
+          ? (utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" }) as unknown[][])
+              .slice(0, 80)
+              .map((row) => (row as unknown[]).slice(0, 20).map((cell) => String(cell ?? "")))
+          : []
+        URL.revokeObjectURL(objectUrl)
+        setPreview((prev) => ({ ...prev, loading: false, kind: "excel", tableRows: rows }))
+        return
+      }
+      if (/\.(docx?|rtf)$/.test(filename) || mime.includes("word") || mime.includes("officedocument.wordprocessingml")) {
+        const ab = await blob.arrayBuffer()
+        try {
+          const mammoth = (await import("mammoth")) as unknown as {
+            convertToHtml: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>
+            extractRawText: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>
+          }
+          const html = await mammoth.convertToHtml({ arrayBuffer: ab })
+          URL.revokeObjectURL(objectUrl)
+          setPreview((prev) => ({ ...prev, loading: false, kind: "word", htmlContent: html.value || "" }))
+          return
+        } catch {
+          const mammoth = (await import("mammoth")) as unknown as {
+            extractRawText: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>
+          }
+          const text = await mammoth.extractRawText({ arrayBuffer: ab })
+          URL.revokeObjectURL(objectUrl)
+          setPreview((prev) => ({ ...prev, loading: false, kind: "text", textContent: text.value || "" }))
+          return
+        }
+      }
+
+      if (mime.includes("json") || mime.startsWith("text/") || /\.(json|txt|csv|md)$/i.test(filename)) {
+        const text = await blob.text()
+        URL.revokeObjectURL(objectUrl)
+        setPreview((prev) => ({ ...prev, loading: false, kind: "text", textContent: text }))
+        return
+      }
+
+      setPreview((prev) => ({
+        ...prev,
+        loading: false,
+        kind: "unknown",
+        objectUrl,
+        error: "该格式暂不支持内嵌预览，可点击下载查看。",
+      }))
+    } catch (error) {
+      setPreview((prev) => ({
+        ...prev,
+        loading: false,
+        kind: "unknown",
+        error: error instanceof Error ? error.message : "预览失败",
+      }))
     }
   }
 
@@ -274,6 +438,31 @@ export default function ApplicantsClientPage() {
                 </div>
               </SectionCard>
 
+              <SectionCard title="材料分类" description="通过下拉快速切换查看和维护美签/申根档案。">
+                <div className="max-w-sm space-y-2">
+                  <Label>分类</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={materialCategory === "usVisa" ? "default" : "outline"}
+                      onClick={() => setMaterialCategory("usVisa")}
+                      className="w-full"
+                    >
+                      美签
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={materialCategory === "schengen" ? "default" : "outline"}
+                      onClick={() => setMaterialCategory("schengen")}
+                      className="w-full"
+                    >
+                      申根
+                    </Button>
+                  </div>
+                </div>
+              </SectionCard>
+
+              {materialCategory === "usVisa" && (
               <SectionCard title="美签" description="美签档案现在明确区分信息内容、上传材料、递签材料。">
                 <Subsection
                   title="信息内容"
@@ -315,6 +504,7 @@ export default function ApplicantsClientPage() {
                     selectedProfile={selectedProfile}
                     slots={usVisaUploadedSlots}
                     onUpload={uploadFiles}
+                    onPreview={openPreview}
                   />
                 </Subsection>
 
@@ -327,13 +517,16 @@ export default function ApplicantsClientPage() {
                     selectedProfile={selectedProfile}
                     slots={usVisaSubmissionSlots}
                     onUpload={uploadFiles}
+                    onPreview={openPreview}
                     emptyMessage="当前还没有递签材料。DS-160 提交成功后会自动归档到这里。"
                   />
                 </Subsection>
               </SectionCard>
+              )}
 
+              {materialCategory === "schengen" && (
               <SectionCard title="申根" description="申根也先按同样的结构搭好，后面你告诉我哪些属于递签材料，我继续往这里归类。">
-                <Subsection title="信息内容" description="当前先保留申根国家，后面法签如果还要沉淀字段，可以继续加在这里。">
+                <Subsection title="信息内容" description="当前保留申根国家和 TLS 递签城市。上传申根 Excel 后会自动识别递签城市，也可以在这里手动修正。">
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label>申根国家</Label>
@@ -349,6 +542,30 @@ export default function ApplicantsClientPage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="space-y-2">
+                      <Label>TLS 递签城市</Label>
+                      <Select
+                        value={form.schengenVisaCity || "__unset__"}
+                        onValueChange={(value) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            schengenVisaCity: value === "__unset__" ? "" : value,
+                          }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="上传申根 Excel 后会自动识别" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__unset__">未设置</SelectItem>
+                          {FRANCE_TLS_CITY_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.value} - {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </Subsection>
 
@@ -358,6 +575,7 @@ export default function ApplicantsClientPage() {
                     selectedProfile={selectedProfile}
                     slots={schengenUploadedSlots}
                     onUpload={uploadFiles}
+                    onPreview={openPreview}
                   />
                 </Subsection>
 
@@ -370,10 +588,12 @@ export default function ApplicantsClientPage() {
                     selectedProfile={selectedProfile}
                     slots={schengenSubmissionSlots}
                     onUpload={uploadFiles}
+                    onPreview={openPreview}
                     emptyMessage="当前还没有申根递签材料，后面可以继续往这里加。"
                   />
                 </Subsection>
               </SectionCard>
+              )}
 
               <div className="flex flex-col gap-3 md:flex-row md:items-center">
                 <Button onClick={saveProfile} disabled={saving}>
@@ -385,6 +605,57 @@ export default function ApplicantsClientPage() {
           </Card>
         </div>
       </div>
+
+      <Dialog open={preview.open} onOpenChange={(open) => (!open ? closePreview() : null)}>
+        <DialogContent className="max-w-6xl">
+          <DialogHeader>
+            <DialogTitle>文件预览 · {preview.title}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[75vh] overflow-auto rounded-md border p-2">
+            {preview.loading && <div className="p-4 text-sm text-gray-500">正在加载预览...</div>}
+            {!preview.loading && preview.error && (
+              <div className="p-4 text-sm text-amber-700">
+                {preview.error}
+                {preview.objectUrl && (
+                  <a className="ml-2 text-blue-600 hover:underline" href={preview.objectUrl} target="_blank" rel="noreferrer">
+                    下载文件
+                  </a>
+                )}
+              </div>
+            )}
+            {!preview.loading && !preview.error && preview.kind === "pdf" && preview.objectUrl && (
+              <iframe src={preview.objectUrl} className="h-[70vh] w-full" />
+            )}
+            {!preview.loading && !preview.error && preview.kind === "image" && preview.objectUrl && (
+              <img src={preview.objectUrl} alt={preview.title} className="mx-auto max-h-[70vh] max-w-full object-contain" />
+            )}
+            {!preview.loading && !preview.error && preview.kind === "excel" && (
+              <div className="overflow-auto">
+                <table className="min-w-full border-collapse text-xs">
+                  <tbody>
+                    {preview.tableRows.map((row, rIdx) => (
+                      <tr key={`r-${rIdx}`}>
+                        {row.map((cell, cIdx) => (
+                          <td key={`c-${rIdx}-${cIdx}`} className="border px-2 py-1 align-top">
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {preview.tableRows.length === 0 && <div className="p-4 text-sm text-gray-500">Excel 内容为空。</div>}
+              </div>
+            )}
+            {!preview.loading && !preview.error && preview.kind === "word" && (
+              <div className="prose max-w-none p-3" dangerouslySetInnerHTML={{ __html: preview.htmlContent || "<p>暂无可预览内容</p>" }} />
+            )}
+            {!preview.loading && !preview.error && preview.kind === "text" && (
+              <pre className="whitespace-pre-wrap break-words p-3 text-xs">{preview.textContent || "暂无可预览内容"}</pre>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -434,12 +705,14 @@ function UploadGrid({
   selectedProfile,
   slots,
   onUpload,
+  onPreview,
   emptyMessage = "当前还没有材料。",
 }: {
   selectedId: string
   selectedProfile: ApplicantProfileDetail | null
   slots: readonly { key: string; label: string; accept: string }[]
   onUpload: (event: ChangeEvent<HTMLInputElement>, slot: string) => Promise<void>
+  onPreview: (slot: string, meta: { originalName: string; uploadedAt: string }) => Promise<void>
   emptyMessage?: string
 }) {
   if (!selectedId) {
@@ -461,14 +734,19 @@ function UploadGrid({
             {meta && (
               <div className="mt-2 space-y-1 text-xs text-gray-500">
                 <div>{meta.originalName}</div>
-                <a
-                  className="text-blue-600 hover:underline"
-                  href={`/api/applicants/${selectedId}/files/${slot.key}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  查看或下载
-                </a>
+                <div className="flex items-center gap-3">
+                  <button type="button" className="text-blue-600 hover:underline" onClick={() => void onPreview(slot.key, meta)}>
+                    预览
+                  </button>
+                  <a
+                    className="text-blue-600 hover:underline"
+                    href={`/api/applicants/${selectedId}/files/${slot.key}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    下载
+                  </a>
+                </div>
               </div>
             )}
           </div>

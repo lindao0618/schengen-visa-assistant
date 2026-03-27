@@ -25,5 +25,6 @@ CAPTCHA_API_KEY = (
     or os.environ.get("2CAPTCHA_API_KEY")
     or ""
 )
+CAPSOLVER_API_KEY = os.environ.get("CAPSOLVER_API_KEY", "")
 CHROMEDRIVER_PATH = os.environ.get("CHROMEDRIVER_PATH", "")
 SELENIUM_HEADLESS = os.environ.get("SELENIUM_HEADLESS", "true").lower() != "false"

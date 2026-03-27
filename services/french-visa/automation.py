@@ -44,6 +44,7 @@ class FrenchVisaAutomation:
         self.driver = None
         self.captcha_counter = 0
         self.api_key = config.CAPTCHA_API_KEY
+        self.capsolver_key = config.CAPSOLVER_API_KEY
         self._output_dir = config.get_output_dir(output_dir)
         self._screenshot_dir = config.get_screenshot_dir(output_dir)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -313,13 +314,67 @@ class FrenchVisaAutomation:
 
     def solve_captcha(self, image_path: str) -> Optional[str]:
         try:
-            if not self.api_key:
-                self._log("❌ 验证码API Key未配置，请设置 CAPTCHA_API_KEY")
-                return None
             if not os.path.exists(image_path):
                 self._log(f"❌ 验证码图片不存在: {image_path}")
                 return None
 
+            # 优先使用 Capsolver
+            if self.capsolver_key:
+                return self._solve_captcha_capsolver(image_path)
+
+            # 回退到 2Captcha
+            if self.api_key:
+                return self._solve_captcha_2captcha(image_path)
+
+            self._log("❌ 验证码API Key未配置，请设置 CAPSOLVER_API_KEY 或 CAPTCHA_API_KEY")
+            return None
+        except Exception as e:
+            self._log(f"❌ 验证码识别出错: {str(e)[:100]}")
+            return None
+
+    def _solve_captcha_capsolver(self, image_path: str) -> Optional[str]:
+        """使用 Capsolver ImageToTextTask 识别图片验证码"""
+        import base64
+        try:
+            with open(image_path, 'rb') as f:
+                img_b64 = base64.b64encode(f.read()).decode()
+            self._log(f"正在调用 Capsolver API（Key: {self.capsolver_key[:10]}...）")
+            cr = requests.post(
+                'https://api.capsolver.com/createTask',
+                json={
+                    "clientKey": self.capsolver_key,
+                    "task": {"type": "ImageToTextTask", "body": img_b64},
+                },
+                timeout=30,
+            ).json()
+            if cr.get("errorId") != 0:
+                self._log(f"❌ Capsolver createTask 错误: {cr.get('errorDescription', cr)}")
+                return None
+            tid = cr["taskId"]
+            self._log(f"✅ 验证码已提交 taskId={tid}，等待结果...")
+            for _ in range(20):
+                time.sleep(3)
+                rr = requests.post(
+                    'https://api.capsolver.com/getTaskResult',
+                    json={"clientKey": self.capsolver_key, "taskId": tid},
+                    timeout=30,
+                ).json()
+                if rr.get("errorId") != 0:
+                    self._log(f"❌ Capsolver 识别失败: {rr.get('errorDescription')}")
+                    return None
+                if rr.get("status") == "ready":
+                    code = rr.get("solution", {}).get("text", "")
+                    self._log(f"✅ 验证码识别成功: {code}")
+                    return code
+            self._log("❌ Capsolver 识别超时")
+            return None
+        except Exception as e:
+            self._log(f"❌ Capsolver 异常: {str(e)[:100]}")
+            return None
+
+    def _solve_captcha_2captcha(self, image_path: str) -> Optional[str]:
+        """使用 2Captcha 识别图片验证码（备用）"""
+        try:
             self._log(f"正在调用2Captcha API（Key: {self.api_key[:10]}...）")
             with open(image_path, 'rb') as f:
                 response = requests.post(
@@ -339,7 +394,7 @@ class FrenchVisaAutomation:
             if not captcha_id:
                 return None
             self._log(f"✅ 验证码已提交 ID: {captcha_id}，等待结果...")
-            for attempt in range(10):
+            for _ in range(10):
                 time.sleep(5)
                 try:
                     r = requests.get(
@@ -361,13 +416,13 @@ class FrenchVisaAutomation:
             self._log("❌ 验证码识别超时")
             return None
         except Exception as e:
-            self._log(f"❌ 验证码识别出错: {str(e)[:100]}")
+            self._log(f"❌ 2Captcha 异常: {str(e)[:100]}")
             return None
 
     def handle_captcha(self) -> bool:
         try:
-            if not self.api_key:
-                self._log("❌ 请设置 CAPTCHA_API_KEY")
+            if not self.capsolver_key and not self.api_key:
+                self._log("❌ 请设置 CAPSOLVER_API_KEY 或 CAPTCHA_API_KEY")
                 return False
             self._log("正在查找验证码图片...")
             time.sleep(2)
@@ -403,7 +458,8 @@ class FrenchVisaAutomation:
             if not os.path.exists(captcha_filename) or os.path.getsize(captcha_filename) == 0:
                 self._log("❌ 验证码截图失败")
                 return False
-            self._log("正在调用2captcha API识别验证码...")
+            provider = "Capsolver" if self.capsolver_key else "2Captcha"
+            self._log(f"正在调用 {provider} API 识别验证码...")
             captcha_code = self.solve_captcha(captcha_filename)
             try:
                 os.remove(captcha_filename)
