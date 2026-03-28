@@ -3,14 +3,15 @@ import path from "path"
 import fs from "fs/promises"
 import { getMaterialTaskOutputDir } from "@/lib/material-tasks"
 
-function contentDisposition(safeName: string): string {
+function contentDisposition(safeName: string, inline = false): string {
+  const dispositionType = inline ? "inline" : "attachment"
   const asciiSafe = /^[\x20-\x7E]*$/.test(safeName)
   if (asciiSafe) {
-    return `attachment; filename="${safeName}"`
+    return `${dispositionType}; filename="${safeName}"`
   }
   const encoded = encodeURIComponent(safeName)
   const fallback = "download" + path.extname(safeName)
-  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`
+  return `${dispositionType}; filename="${fallback}"; filename*=UTF-8''${encoded}`
 }
 
 const MIME: Record<string, string> = {
@@ -19,7 +20,7 @@ const MIME: Record<string, string> = {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ taskId: string; filename: string }> }
 ) {
   try {
@@ -40,10 +41,11 @@ export async function GET(
     const buf = await fs.readFile(filePath)
     const ext = path.extname(safeName).slice(1).toLowerCase()
     const contentType = MIME[ext] || "application/octet-stream"
+    const inline = request.nextUrl.searchParams.get("inline") === "1"
     return new NextResponse(buf, {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": contentDisposition(safeName),
+        "Content-Disposition": contentDisposition(safeName, inline),
       },
     })
   } catch (e) {

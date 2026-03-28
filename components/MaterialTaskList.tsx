@@ -8,10 +8,11 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
-import { Loader2, CheckCircle2, XCircle, Clock, ListTodo, RefreshCw, Search, Download, Maximize2, ExternalLink } from "lucide-react"
+import { Loader2, CheckCircle2, XCircle, Clock, ListTodo, RefreshCw, Search, Download, Maximize2, ExternalLink, Trash2, Eye } from "lucide-react"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -39,6 +40,8 @@ export interface MaterialTask {
   status: "pending" | "running" | "completed" | "failed"
   progress: number
   message: string
+  applicantProfileId?: string
+  applicantName?: string
   created_at: number
   updated_at?: number
   result?: Record<string, unknown>
@@ -74,6 +77,7 @@ export function MaterialTaskList({
 }: MaterialTaskListProps) {
   const [tasks, setTasks] = useState<MaterialTask[]>([])
   const [loading, setLoading] = useState(false)
+  const [clearingFailed, setClearingFailed] = useState(false)
   const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "failed" | "running">("all")
   const [searchKeyword, setSearchKeyword] = useState("")
   const taskIdsKey = useMemo(() => taskIds.join(","), [taskIds])
@@ -143,6 +147,38 @@ export function MaterialTaskList({
     return sorted
   }, [tasks, statusFilter, searchKeyword])
 
+  const failedTaskIds = useMemo(
+    () => tasks.filter((task) => task.status === "failed").map((task) => task.task_id),
+    [tasks]
+  )
+
+  const clearFailedTasks = useCallback(async () => {
+    if (!failedTaskIds.length || clearingFailed) return
+    if (!window.confirm(`确认清理 ${failedTaskIds.length} 条失败任务吗？`)) return
+
+    setClearingFailed(true)
+    try {
+      const res = await fetch("/api/material-tasks", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_ids: failedTaskIds }),
+      })
+
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(data.error || "清理失败任务失败")
+      }
+
+      setTasks((prev) => prev.filter((task) => task.status !== "failed"))
+      await fetchTasks()
+    } catch (error) {
+      console.error("Clear failed material tasks failed:", error)
+      window.alert(error instanceof Error ? error.message : "清理失败任务失败")
+    } finally {
+      setClearingFailed(false)
+    }
+  }, [clearingFailed, failedTaskIds, fetchTasks])
+
   useEffect(() => {
     fetchTasks()
     if (!autoRefresh) return
@@ -157,10 +193,24 @@ export function MaterialTaskList({
           <ListTodo className="h-5 w-5" />
           {title}
         </CardTitle>
+        <div className="flex items-center gap-2">
+          {failedTaskIds.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearFailedTasks}
+              disabled={clearingFailed}
+              className="gap-1"
+            >
+              <Trash2 className={`h-4 w-4 ${clearingFailed ? "animate-pulse" : ""}`} />
+              {clearingFailed ? "清理中" : `清理失败任务 (${failedTaskIds.length})`}
+            </Button>
+          )}
         <Button variant="ghost" size="sm" onClick={fetchTasks} disabled={loading} className="gap-1">
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           刷新
         </Button>
+        </div>
       </CardHeader>
       <CardContent className="pt-0 space-y-3">
         <div className="flex flex-col sm:flex-row gap-2">
@@ -212,6 +262,9 @@ export function MaterialTaskList({
                   <StatusBadge status={task.status} />
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">{task.message}</p>
+                {task.applicantName && (
+                  <p className="text-xs text-blue-600 dark:text-blue-300">申请人: {task.applicantName}</p>
+                )}
                 <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
                   <span>创建时间: {formatTimestamp(task.created_at)}</span>
                   <span>最近更新时间: {formatTimestamp(task.updated_at || task.created_at)}</span>
@@ -287,6 +340,100 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
+function PreviewPdfButton({ href, label = "预览 PDF" }: { href: string; label?: string }) {
+  const previewHref = href.includes("?") ? `${href}&inline=1` : `${href}?inline=1`
+  const viewerHref = `${previewHref}#view=FitH&zoom=page-width&pagemode=none`
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
+          <Eye className="h-3.5 w-3.5" />
+          {label}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="flex h-[92vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="border-b px-6 py-4">
+          <DialogTitle>{label}</DialogTitle>
+          <DialogDescription>
+            榛樿鎸夐〉瀹介瑙堬紝濡傛灉鎯崇湅寰楁洿鑸掓湇锛屽彲浠ョ洿鎺ュ湪鏂扮獥鍙ｆ墦寮€鎴栦笅杞藉悗鏌ョ湅銆?
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex items-center justify-end gap-2 border-b bg-muted/30 px-6 py-3">
+          <Button variant="outline" size="sm" className="gap-1.5" asChild>
+            <a href={previewHref} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="h-4 w-4" />
+              鏂扮獥鍙ｆ墦寮€
+            </a>
+          </Button>
+          <Button variant="outline" size="sm" className="gap-1.5" asChild>
+            <a href={href} download target="_blank" rel="noopener noreferrer">
+              <Download className="h-4 w-4" />
+              涓嬭浇 PDF
+            </a>
+          </Button>
+        </div>
+        <iframe
+          src={viewerHref}
+          title={label}
+          className="min-h-0 flex-1 bg-white"
+          allow="fullscreen"
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function CleanPreviewPdfButton({
+  href,
+  label = "\u9884\u89c8 PDF",
+}: {
+  href: string
+  label?: string
+}) {
+  const previewHref = href.includes("?") ? `${href}&inline=1` : `${href}?inline=1`
+  const viewerHref = `${previewHref}#view=FitH&zoom=page-width&pagemode=none`
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
+          <Eye className="h-3.5 w-3.5" />
+          {label}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="flex h-[92vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="border-b px-6 py-4">
+          <DialogTitle>{label}</DialogTitle>
+          <DialogDescription>
+            {"\u9ed8\u8ba4\u6309\u9875\u5bbd\u9884\u89c8\uff0c\u5982\u679c\u60f3\u770b\u5f97\u66f4\u8212\u670d\uff0c\u53ef\u4ee5\u76f4\u63a5\u5728\u65b0\u7a97\u53e3\u6253\u5f00\u6216\u4e0b\u8f7d\u540e\u67e5\u770b\u3002"}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex items-center justify-end gap-2 border-b bg-muted/30 px-6 py-3">
+          <Button variant="outline" size="sm" className="gap-1.5" asChild>
+            <a href={previewHref} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="h-4 w-4" />
+              {"\u65b0\u7a97\u53e3\u6253\u5f00"}
+            </a>
+          </Button>
+          <Button variant="outline" size="sm" className="gap-1.5" asChild>
+            <a href={href} download target="_blank" rel="noopener noreferrer">
+              <Download className="h-4 w-4" />
+              {"\u4e0b\u8f7d PDF"}
+            </a>
+          </Button>
+        </div>
+        <iframe
+          src={viewerHref}
+          title={label}
+          className="min-h-0 flex-1 bg-white"
+          allow="fullscreen"
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function MaterialResultSummary({
   result,
   taskType,
@@ -301,6 +448,10 @@ function MaterialResultSummary({
   const download_pdf_english = result.download_pdf_english as string | undefined
   const word_download_url = result.word_download_url as string | undefined
   const analysis_result = result.analysis_result as Record<string, unknown> | undefined
+  const archivedToApplicantProfile = Boolean(result.archivedToApplicantProfile)
+  const archiveNote = archivedToApplicantProfile ? (
+    <p className="mt-2 text-xs text-blue-600 dark:text-blue-300">已自动归档到当前申请人档案</p>
+  ) : null
 
   if (taskType === "material-review") {
     const aiObj = analysis_result?.ai_analysis
@@ -356,13 +507,15 @@ function MaterialResultSummary({
 
   if (taskType === "itinerary" && download_pdf) {
     return (
-      <div className="text-xs">
+      <div className="text-xs flex flex-wrap gap-2">
         <Button variant="default" size="sm" className="h-7 gap-1.5 text-xs" asChild>
           <a href={download_pdf} download target="_blank" rel="noopener noreferrer">
             <Download className="h-3.5 w-3.5" />
             下载 PDF
           </a>
         </Button>
+        <CleanPreviewPdfButton href={download_pdf} />
+        <div className="basis-full">{archiveNote}</div>
       </div>
     )
   }
@@ -377,13 +530,17 @@ function MaterialResultSummary({
     return (
       <div className="text-xs flex flex-wrap gap-2">
         {links.map(({ href, label }) => (
-          <Button key={label} variant="default" size="sm" className="h-7 gap-1.5 text-xs" asChild>
-            <a href={href} download target="_blank" rel="noopener noreferrer">
-              <Download className="h-3.5 w-3.5" />
-              {label}
-            </a>
-          </Button>
+          <div key={label} className="flex flex-wrap gap-2">
+            <Button variant="default" size="sm" className="h-7 gap-1.5 text-xs" asChild>
+              <a href={href} download target="_blank" rel="noopener noreferrer">
+                <Download className="h-3.5 w-3.5" />
+                {label}
+              </a>
+            </Button>
+            {label.startsWith("PDF") && <CleanPreviewPdfButton href={href} label={`预览 ${label}`} />}
+          </div>
         ))}
+        <div className="basis-full">{archiveNote}</div>
       </div>
     )
   }

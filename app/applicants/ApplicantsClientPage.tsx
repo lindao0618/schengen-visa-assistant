@@ -1,5 +1,7 @@
 "use client"
 
+/* eslint-disable @next/next/no-img-element */
+
 import { type ChangeEvent, type ReactNode, useEffect, useMemo, useState } from "react"
 import { ApplicantProfileSelector, ACTIVE_APPLICANT_PROFILE_KEY, ApplicantProfileSummary } from "@/components/applicant-profile-selector"
 import { Button } from "@/components/ui/button"
@@ -100,6 +102,14 @@ const schengenSubmissionSlots = [
   { key: "franceApplicationJson", label: "法国新申请 JSON", accept: ".json,application/json" },
   { key: "franceReceiptPdf", label: "法国回执单 PDF", accept: ".pdf,application/pdf" },
   { key: "franceFinalSubmissionPdf", label: "法国最终表 PDF", accept: ".pdf,application/pdf" },
+] as const
+
+const schengenMaterialDocumentSlots = [
+  { key: "schengenItineraryPdf", label: "行程单 PDF", accept: ".pdf,application/pdf" },
+  { key: "schengenExplanationLetterCnPdf", label: "解释信 PDF（中文）", accept: ".pdf,application/pdf" },
+  { key: "schengenExplanationLetterEnPdf", label: "解释信 PDF（英文）", accept: ".pdf,application/pdf" },
+  { key: "schengenHotelReservation", label: "酒店预订单材料", accept: ".pdf,.doc,.docx,image/*" },
+  { key: "schengenFlightReservation", label: "机票/车票预订单材料", accept: ".pdf,.doc,.docx,image/*" },
 ] as const
 
 export default function ApplicantsClientPage() {
@@ -590,6 +600,20 @@ export default function ApplicantsClientPage() {
                     onUpload={uploadFiles}
                     onPreview={openPreview}
                     emptyMessage="当前还没有申根递签材料，后面可以继续往这里加。"
+                  />
+                </Subsection>
+
+                <Subsection
+                  title="材料文档"
+                  description="行程单、解释信以及后续的酒店、机票材料都会集中放在这里。行程单和解释信生成成功后会自动归档到当前申请人。"
+                >
+                  <UploadGrid
+                    selectedId={selectedId}
+                    selectedProfile={selectedProfile}
+                    slots={schengenMaterialDocumentSlots}
+                    onUpload={uploadFiles}
+                    onPreview={openPreview}
+                    emptyMessage="行程单、解释信、酒店、机票等材料文档会在这里集中管理。"
                   />
                 </Subsection>
               </SectionCard>

@@ -10,6 +10,7 @@ import { extractFranceVisaCredentialsFromExcelBuffer } from "@/lib/france-visa-e
 import { createTask, updateTask } from "@/lib/french-visa-tasks"
 import { extractFranceTlsCityFromExcelBuffer } from "@/lib/france-tls-city-excel"
 import { normalizeFranceTlsCity } from "@/lib/france-tls-city"
+import { advanceFranceCase, setFranceCaseException } from "@/lib/france-cases"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -32,6 +33,14 @@ function getCaptchaConfig() {
     process.env.CAPTCHA_API_KEY ||
     ""
 
+  // Pass both keys when set so tls_apply.py can fallback if Capsolver API fails (e.g. connection reset).
+  if (capsolverApiKey && twocaptchaApiKey) {
+    return {
+      captcha_provider: "capsolver",
+      capsolver_api_key: capsolverApiKey,
+      twocaptcha_api_key: twocaptchaApiKey,
+    }
+  }
   if (capsolverApiKey) {
     return { captcha_provider: "capsolver", capsolver_api_key: capsolverApiKey, twocaptcha_api_key: "" }
   }
@@ -57,7 +66,8 @@ function getUcConfig() {
   const ucChromeVersionRaw = process.env.TLS_UC_CHROME_VERSION || ""
   const ucChromeVersion = ucChromeVersionRaw ? Number.parseInt(ucChromeVersionRaw, 10) : undefined
   const proxy = process.env.TLS_PROXY || process.env.HTTPS_PROXY || process.env.HTTP_PROXY || ""
-  return { uc_chromedriver_path: ucChromedriverPath, uc_chrome_version: ucChromeVersion, proxy: proxy.trim() }
+  const headless = process.env.TLS_HEADLESS === "true"
+  return { uc_chromedriver_path: ucChromedriverPath, uc_chrome_version: ucChromeVersion, proxy: proxy.trim(), headless }
 }
 
 function normalizeLocation(location: unknown) {
@@ -84,8 +94,11 @@ function refineApplyFailureDetail(rawDetail: string) {
   ) {
     return "TLS 登录失败：请检查档案中提取出的邮箱/密码是否正确，或账号是否被锁定。"
   }
+  if (text.includes("10054") || text.includes("connectionreset") || text.includes("connection aborted")) {
+    return "访问验证码服务商（Capsolver）网络被中断：可在 .env.local 同时配置 TWOCAPTCHA_API_KEY 作为备用，或检查代理/防火墙后重试。"
+  }
   if (text.includes("captcha") || text.includes("cloudflare") || text.includes("turnstile")) {
-    return "验证码/Cloudflare 验证未通过：请确认 Capsolver 配置与余额，或稍后重试。"
+    return "验证码/Cloudflare 验证未通过：请确认 Capsolver 配置与余额，可同时配置 2Captcha 作为备用，或稍后重试。"
   }
   return rawDetail
 }
@@ -250,7 +263,7 @@ export async function POST(request: NextRequest) {
       capsolver_api_key: captchaConfig.capsolver_api_key,
       twocaptcha_api_key: captchaConfig.twocaptcha_api_key,
       browser_channel: "chrome",
-      headless: false,
+      headless: ucConfig.headless,
       slow_mo_ms: 80,
       navigation_timeout_ms: 60000,
       post_navigation_wait_ms: 1500,
@@ -277,6 +290,17 @@ export async function POST(request: NextRequest) {
         success: true,
         captcha: { provider: captchaConfig.captcha_provider, ...captchaDiag },
       },
+    })
+
+    await advanceFranceCase({
+      userId,
+      applicantProfileId,
+      mainStatus: "TLS_PROCESSING",
+      subStatus: "PENDING_SUBMISSION",
+      clearException: true,
+      reason: "Started TLS apply flow",
+    }).catch((error) => {
+      console.error("Failed to advance France case before tls-apply", error)
     })
 
     void (async () => {
@@ -354,6 +378,16 @@ export async function POST(request: NextRequest) {
             download_artifacts: debugDownloads,
           },
         })
+        await setFranceCaseException({
+          userId,
+          applicantProfileId,
+          mainStatus: "TLS_PROCESSING",
+          subStatus: "PENDING_SUBMISSION",
+          exceptionCode: "FV_FILL_FAILED",
+          reason: normalizedFailureDetail,
+        }).catch((error) => {
+          console.error("Failed to set France case exception after tls-apply failure", error)
+        })
         return
       }
 
@@ -367,6 +401,16 @@ export async function POST(request: NextRequest) {
           download_log: stderrDownload || stdoutDownload,
           download_artifacts: debugDownloads,
         },
+      })
+      await advanceFranceCase({
+        userId,
+        applicantProfileId,
+        mainStatus: "TLS_PROCESSING",
+        subStatus: "PENDING_SUBMISSION",
+        clearException: true,
+        reason: "TLS apply flow completed",
+      }).catch((error) => {
+        console.error("Failed to advance France case after tls-apply success", error)
       })
     })()
 

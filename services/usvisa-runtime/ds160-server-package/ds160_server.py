@@ -17,6 +17,7 @@ from email.mime.application import MIMEApplication
 from email.mime.text import MIMEText
 import unicodedata
 import re
+import base64
 
 # 设置输出编码为UTF-8
 import io
@@ -906,20 +907,47 @@ def process_excel_data(excel_path, country_dict=None):
         raise
 
 class DS160Filler:
-    def __init__(self, api_key):
+    def __init__(self, api_key, capsolver_key=None):
         self.api_key = api_key
+        self.capsolver_key = capsolver_key or os.environ.get("CAPSOLVER_API_KEY", "").strip() or os.environ.get("CAPSOLVER_KEY", "").strip()
 
     def solve_captcha(self, image_path):
-        """Recognize CAPTCHA using 2Captcha API. 含 SSL 错误重试（解决 SSLEOFError/UNEXPECTED_EOF）"""
-        if not self.api_key:
-            print("Error: 2CAPTCHA_API_KEY environment variable not set")
-            return None
+        """识别验证码：优先 2Captcha（美签历史行为），失败再试 Capsolver。"""
         if not os.path.exists(image_path):
             print(f"Error: CAPTCHA image file does not exist: {image_path}")
             return None
 
-        # 代理设置：默认禁用系统代理；若配置了 CAPTCHA_PROXY 则用其访问 2captcha（如通过 VPN 代理）
-        proxy_url = os.environ.get("CAPTCHA_PROXY", "").strip()
+        if self.api_key:
+            result = self._solve_captcha_2captcha(image_path)
+            if result:
+                return result
+            if self.capsolver_key:
+                print("Warning: 2Captcha failed, trying Capsolver...")
+
+        if self.capsolver_key:
+            result = self._solve_captcha_capsolver(image_path)
+            if result:
+                return result
+            if self.api_key:
+                print("Warning: Capsolver failed after 2Captcha was already attempted.")
+            else:
+                print("Error: Capsolver failed and no 2Captcha key configured")
+            return None
+
+        if not self.api_key:
+            print("Error: CAPTCHA API key not set (CAPTCHA_API_KEY/2CAPTCHA_API_KEY or CAPSOLVER_API_KEY)")
+        return None
+
+    def _solve_captcha_2captcha(self, image_path):
+        """使用 2Captcha 识别图片验证码（DS-160 登录页）。"""
+        if not self.api_key:
+            return None
+        # 代理设置：优先 CAPTCHA_PROXY，其次 TLS_PROXY/HTTPS_PROXY
+        proxy_url = (
+            os.environ.get("CAPTCHA_PROXY", "").strip()
+            or os.environ.get("TLS_PROXY", "").strip()
+            or os.environ.get("HTTPS_PROXY", "").strip()
+        )
         if proxy_url:
             proxies = {"http": proxy_url, "https": proxy_url}
         else:
@@ -975,7 +1003,7 @@ class DS160Filler:
                 _get_logger().warning(f"[2captcha] 获取结果 SSL/连接错误 (尝试 {attempt + 1}/10): {e}")
                 if attempt < 9:
                     time.sleep(2)
-                continue
+                    continue
             if result.status_code != 200:
                 continue
 
@@ -990,6 +1018,84 @@ class DS160Filler:
 
         print("CAPTCHA recognition timeout")
         return None
+
+    def _solve_captcha_capsolver(self, image_path):
+        """使用 Capsolver ImageToTextTask 识别图片验证码"""
+        proxy_url = (
+            os.environ.get("CAPTCHA_PROXY", "").strip()
+            or os.environ.get("TLS_PROXY", "").strip()
+            or os.environ.get("HTTPS_PROXY", "").strip()
+        )
+        proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else {"http": None, "https": None}
+        try:
+            with open(image_path, 'rb') as f:
+                img_b64 = base64.b64encode(f.read()).decode()
+            print(f"Using Capsolver API ({self.capsolver_key[:10]}...)")
+            for task_attempt in range(3):
+                create_resp = requests.post(
+                    'https://api.capsolver.com/createTask',
+                    json={
+                        "clientKey": self.capsolver_key,
+                        "task": {
+                            "type": "ImageToTextTask",
+                            "body": img_b64,
+                        },
+                    },
+                    timeout=30,
+                    proxies=proxies,
+                )
+                create_data = create_resp.json()
+                if create_data.get("errorId") != 0:
+                    print(f"Error: Capsolver createTask failed: {create_data.get('errorDescription', create_data)}")
+                    if task_attempt < 2:
+                        time.sleep(1)
+                        continue
+                    return None
+
+                task_id = create_data.get("taskId")
+                if not task_id:
+                    print("Error: Capsolver did not return taskId")
+                    if task_attempt < 2:
+                        time.sleep(1)
+                        continue
+                    return None
+
+                should_retry_task = False
+                for attempt in range(12):
+                    time.sleep(1)
+                    result_resp = requests.post(
+                        'https://api.capsolver.com/getTaskResult',
+                        json={"clientKey": self.capsolver_key, "taskId": task_id},
+                        timeout=30,
+                        proxies=proxies,
+                    )
+                    result_data = result_resp.json()
+                    if result_data.get("errorId") != 0:
+                        description = str(result_data.get("errorDescription", result_data))
+                        if "expired" in description.lower() or "invalid" in description.lower():
+                            print(f"Warning: Capsolver task expired/invalid, retrying with a new task ({task_attempt + 1}/3)")
+                            should_retry_task = True
+                            break
+                        print(f"Error: Capsolver getTaskResult failed: {description}")
+                        return None
+                    if result_data.get("status") == "ready":
+                        code = result_data.get("solution", {}).get("text", "")
+                        if code:
+                            return code
+                        print("Error: Capsolver returned empty captcha text")
+                        return None
+                    print(f"Waiting for Capsolver result... Attempt {attempt + 1}/12")
+
+                if not should_retry_task:
+                    print(f"Warning: Capsolver task {task_attempt + 1}/3 timed out, creating a new task...")
+                if task_attempt < 2:
+                    time.sleep(1)
+                    continue
+            print("Capsolver recognition timeout")
+            return None
+        except Exception as e:
+            print(f"Error: Capsolver exception: {e}")
+            return None
 
     def run(self, personal_info, photo_file, user_email, country_dict=None, debug=False):
         """Run automated form filling program"""
@@ -1080,6 +1186,36 @@ class DS160Filler:
             
             # Enable additional capabilities for headed mode
             page = browser_context.new_page()
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            email_folder_name = user_email.replace('@', '_').replace('.', '_').replace('+', '_')
+            new_folder_path = os.path.join(current_dir, email_folder_name)
+            os.makedirs(new_folder_path, exist_ok=True)
+            for existing_name in os.listdir(new_folder_path):
+                if (
+                    existing_name.startswith("guide_")
+                    and existing_name.lower().endswith(".png")
+                ) or (
+                    existing_name.startswith("DS160_Review_")
+                    and existing_name.lower().endswith(".pdf")
+                ) or existing_name in {"recipient_email.txt", "applicant_info.json"}:
+                    try:
+                        os.remove(os.path.join(new_folder_path, existing_name))
+                    except Exception:
+                        pass
+            guide_capture_index = 1
+
+            def capture_guide_page(label):
+                nonlocal guide_capture_index
+                safe_label = re.sub(r'[^A-Za-z0-9]+', '_', str(label or '').strip()).strip('_') or 'page'
+                screenshot_name = f"guide_{guide_capture_index:02d}_{safe_label}.png"
+                screenshot_path = os.path.join(new_folder_path, screenshot_name)
+                try:
+                    page.wait_for_timeout(300)
+                    page.screenshot(path=screenshot_path, full_page=True)
+                    print(f"[GUIDE] Saved page screenshot: {screenshot_name}")
+                    guide_capture_index += 1
+                except Exception as capture_err:
+                    print(f"[WARN] Failed to save guide screenshot {screenshot_name}: {capture_err}", file=sys.stderr)
             
             try:
                 # Enable JavaScript console logging if in debug mode
@@ -1189,6 +1325,7 @@ class DS160Filler:
                 screenshot_path = f"{aa_code}.png"
                 page.screenshot(path=screenshot_path)
                 print(f"Saved screenshot: {screenshot_path}")
+                capture_guide_page("location")
                 
                 # Click Continue 进入 Personal 1：延长等待避免 postback 未完成，使用 expect_navigation 正确等待跳转
                 _step_log("step=Location_Continue 等待 2 秒后点击 Continue...")
@@ -1275,6 +1412,7 @@ class DS160Filler:
                 page.wait_for_timeout(200)
                 page.fill("#ctl00_SiteContentPlaceHolder_FormView1_tbxAPP_POB_ST_PROVINCE", personal_info['birth_province'])
                 page.fill("#ctl00_SiteContentPlaceHolder_FormView1_tbxAPP_POB_CITY", personal_info['birth_city'])
+                capture_guide_page("personal_1")
                 _step_log("step=Personal1_Done Personal 1 填写完成")
 
                 # 点击"Next: Personal 2"按钮（与原 ds160-processor 一致：click + 等待 + goto）
@@ -1324,6 +1462,7 @@ class DS160Filler:
                     page.click(tax_id_selector)
                     page.wait_for_timeout(200)
 
+                capture_guide_page("personal_2")
                 _step_log("step=Personal2_Done Personal2 填写完成")
                 # 点击"Next: Travel"按钮
                 _progress(20, "旅行信息...")
@@ -1429,6 +1568,7 @@ class DS160Filler:
                     page.fill("#ctl00_SiteContentPlaceHolder_FormView1_tbxWhoIsPayingZip", personal_info['trip_payer_zip'])
                     page.fill("#ctl00_SiteContentPlaceHolder_FormView1_tbxWhoIsPayingPhone", personal_info['trip_payer_phone'])
                     page.fill("#ctl00_SiteContentPlaceHolder_FormView1_tbxWhoIsPayingEmail", personal_info['trip_payer_email'])
+                capture_guide_page("travel")
                 
                 # 点击"Next: Travel Companions"按钮，进入下一页
                 _step_log("step=TravelCompanions_Goto 点击 Next 进入 Travel Companions...")
@@ -1464,6 +1604,7 @@ class DS160Filler:
                 # 关键：点击 No 会触发 postback，必须等 CEAC 响应完成后再点 Next，否则易出现 Application Error
                 _step_log("step=TravelCompanions 等待 postback 完成（5 秒）...")
                 page.wait_for_timeout(5000)
+                capture_guide_page("travel_companions")
                 _step_log("step=TravelCompanions_Next 点击 Next: Previous U.S. Travel")
                 try:
                     with page.expect_navigation(timeout=25000, wait_until="domcontentloaded"):
@@ -1563,24 +1704,25 @@ class DS160Filler:
                         page.evaluate("document.querySelector('[id$=rblPREV_US_TRAVEL_IND_1], [id$=rblPrevUSVisit_1]')?.click()")
                     page.wait_for_timeout(500)
                 
-                # 是否有美国驾照（支持 Yes/No/是/有）
-                dl_raw = str(personal_info.get('has_us_drivers_license', '') or 'No').strip().upper()
-                is_dl_yes = dl_raw in ('YES', 'Y', '1') or str(personal_info.get('has_us_drivers_license', '')).strip() in ('是', '有')
-                if is_dl_yes:
-                    page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblPREV_US_DRIVER_LIC_IND_0")
-                    page.wait_for_timeout(500)  # 等待驾照号、州输入框出现
-                    page.fill("#ctl00_SiteContentPlaceHolder_FormView1_dtlUS_DRIVER_LICENSE_ctl00_tbxUS_DRIVER_LICENSE", personal_info.get('us_drivers_license_number', '') or '')
-                    page.wait_for_timeout(200)
-                    state_code = personal_info.get('us_drivers_license_state', '') or ''
-                    if state_code:
-                        try:
-                            page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_dtlUS_DRIVER_LICENSE_ctl00_ddlUS_DRIVER_LICENSE_STATE", value=state_code)
-                        except Exception:
-                            page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_dtlUS_DRIVER_LICENSE_ctl00_ddlUS_DRIVER_LICENSE_STATE", label=state_code)
-                    page.wait_for_timeout(200)
-                else:
-                    page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblPREV_US_DRIVER_LIC_IND_1")
-                    page.wait_for_timeout(200)
+                # 是否有美国驾照（仅在曾入境美国时才会显示此题）
+                if is_prev_yes:
+                    dl_raw = str(personal_info.get('has_us_drivers_license', '') or 'No').strip().upper()
+                    is_dl_yes = dl_raw in ('YES', 'Y', '1') or str(personal_info.get('has_us_drivers_license', '')).strip() in ('是', '有')
+                    if is_dl_yes:
+                        page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblPREV_US_DRIVER_LIC_IND_0")
+                        page.wait_for_timeout(500)  # 等待驾照号、州输入框出现
+                        page.fill("#ctl00_SiteContentPlaceHolder_FormView1_dtlUS_DRIVER_LICENSE_ctl00_tbxUS_DRIVER_LICENSE", personal_info.get('us_drivers_license_number', '') or '')
+                        page.wait_for_timeout(200)
+                        state_code = personal_info.get('us_drivers_license_state', '') or ''
+                        if state_code:
+                            try:
+                                page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_dtlUS_DRIVER_LICENSE_ctl00_ddlUS_DRIVER_LICENSE_STATE", value=state_code)
+                            except Exception:
+                                page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_dtlUS_DRIVER_LICENSE_ctl00_ddlUS_DRIVER_LICENSE_STATE", label=state_code)
+                        page.wait_for_timeout(200)
+                    else:
+                        page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblPREV_US_DRIVER_LIC_IND_1")
+                        page.wait_for_timeout(200)
                 
                 # 选择是否持有美国签证（支持 Yes/No/是/有 等）
                 has_visa_raw = str(personal_info.get('has_us_visa', '') or 'No').strip().upper()
@@ -1815,6 +1957,7 @@ class DS160Filler:
                     page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblIV_PETITION_IND_1")
                     page.wait_for_timeout(200)
                 
+                capture_guide_page("previous_us_travel")
                 # 点击"Next: Address & Phone"按钮
                 with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
                     page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
@@ -1880,6 +2023,7 @@ class DS160Filler:
 
                 # 选择是否添加更多社交媒体账号
                 page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblAddSocial_1")
+                capture_guide_page("address_phone")
                 # 点击"Next: Passport"按钮
                 with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
                     page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
@@ -1940,6 +2084,7 @@ class DS160Filler:
                 _ppt_ensure_filled()
                 page.wait_for_timeout(200)
                 _ppt_ensure_filled()
+                capture_guide_page("passport")
                 with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
                     page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
                 page.wait_for_selector("#ctl00_SiteContentPlaceHolder_FormView1_cbxUS_POC_NAME_NA", state="visible", timeout=15000)
@@ -1992,6 +2137,7 @@ class DS160Filler:
                 _contact_fill("#ctl00_SiteContentPlaceHolder_FormView1_tbxUS_POC_ADDR_POSTAL_CD", "hotel_zip")
                 _contact_fill("#ctl00_SiteContentPlaceHolder_FormView1_tbxUS_POC_HOME_TEL", "hotel_phone")
                 _contact_fill("#ctl00_SiteContentPlaceHolder_FormView1_tbxUS_POC_EMAIL_ADDR", "hotel_email")
+                capture_guide_page("us_contact")
                 # 点击"Next: Family"按钮
                 with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
                     page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
@@ -2097,6 +2243,7 @@ class DS160Filler:
                     _fill_text("#ctl00_SiteContentPlaceHolder_FormView1_tbxMOTHER_GIVEN_NAME", mother_given_val)
                 if _is_valid_yyyy(mother_year_val):
                     _fill_text("#ctl00_SiteContentPlaceHolder_FormView1_tbxMothersDOBYear", mother_year_val)
+                capture_guide_page("family")
                 # 点击"Next: Work/Education/Training"按钮
                 # 用 expect_navigation 包裹，确保等待全页面 POST 导航完成后再操作
                 with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
@@ -2138,6 +2285,7 @@ class DS160Filler:
                 # 填写职责描述
                 page.fill("#ctl00_SiteContentPlaceHolder_FormView1_tbxDescribeDuties", personal_info['Briefly describe your duties'])
                 page.wait_for_timeout(100)  # 等待页面响应
+                capture_guide_page("work_education")
                 
                 # 点击"Next: Work/Education: Previous"按钮
                 with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
@@ -2161,32 +2309,29 @@ class DS160Filler:
                             }""")
                         except Exception as click_err:
                             _get_logger().warning(f"[Employer] 鐐瑰嚮 Previously Employed=Yes 澶辫触: {click_err}")
-                    # 直接定位 Employer Name 标签（lblEmployerName），label 通常先于 input 渲染，定位更快
-                    sel_prev = "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_lblEmployerName"
-                    sel_prev = "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_lblEmployerName"
+                    # 等待 UpdatePanel 异步加载完成（雇主输入框出现）
                     sel_prev_input = "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerName"
-                    for _ in range(8):
+                    sel_prev = "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_lblEmployerName"
+                    # 先等输入框（更直接，10秒）；如仍超时则再点一次 Yes 再等 8 秒
+                    try:
+                        page.wait_for_selector(sel_prev_input, state="visible", timeout=10000)
+                    except Exception:
+                        _get_logger().warning("[Employer] 首次等待雇主字段超时，重新点击 Yes 再等 8 秒...")
                         try:
-                            if page.locator(sel_prev).first.is_visible(timeout=80):
-                                break
+                            page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblPreviouslyEmployed_0")
                         except Exception:
                             pass
-                        page.wait_for_timeout(40)
-                    try:
-                        page.locator(sel_prev).first.wait_for(state="visible", timeout=200)
-                    except Exception:
-                        page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblPreviouslyEmployed_0")
                         try:
-                            page.locator(sel_prev).first.wait_for(state="visible", timeout=400)
+                            page.wait_for_selector(sel_prev_input, state="visible", timeout=8000)
                         except Exception as we:
-                            _get_logger().warning(f"[Employer] 等待雇主字段超时: {we}")
+                            _get_logger().warning(f"[Employer] 二次等待仍超时: {we}")
                             try:
                                 with open(f"employer_debug_{int(time.time())}.html", "w", encoding="utf-8") as f:
                                     f.write(page.content())
                                 _get_logger().info("[Employer] 已保存 employer_debug_*.html 便于排查")
                             except Exception:
                                 pass
-                    page.wait_for_timeout(20)
+                    page.wait_for_timeout(200)
 
                     # 使用 evaluate 直接查找并填写，规避 Playwright 选择器/visibility 问题
                     def _prev_eval(id_part, val):
@@ -2357,10 +2502,20 @@ class DS160Filler:
                             page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolToDay", value=format_day(edu_end[2]))
                         except Exception:
                             pass
+                capture_guide_page("work_education_previous")
                 # 点击"Next: Work/Education: Additional"按钮
-                with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
-                    page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
-                page.wait_for_selector("#ctl00_SiteContentPlaceHolder_FormView1_rblCLAN_TRIBE_IND_1", state="visible", timeout=15000)
+                try:
+                    with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
+                        page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
+                except Exception:
+                    # CEAC 验证失败时不会跳转，捕获后继续等目标元素
+                    pass
+                try:
+                    page.wait_for_selector("#ctl00_SiteContentPlaceHolder_FormView1_rblCLAN_TRIBE_IND_1", state="visible", timeout=15000)
+                except Exception:
+                    # 检查是否因验证错误停留在原页面
+                    err_text = page.locator(".error, .ErrorLabel, span[style*='color:Red']").first.inner_text() if page.locator(".error, .ErrorLabel, span[style*='color:Red']").count() > 0 else ""
+                    raise RuntimeError(f"WorkEducationPrev → Additional 页面跳转失败，CEAC 可能有验证错误: {err_text or '未知'}")
                 _step_log("step=WorkEducationAdd_Enter 进入 Work/Education: Additional 页面")
                 print("成功进入Work/Education: Additional页面")
                 _progress(45, "进入Work/Education: Additional页面...")
@@ -2470,6 +2625,7 @@ class DS160Filler:
                 page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblMILITARY_SERVICE_IND_1")
                 # 点击"No"选项 - 是否属于任何叛乱组织
                 page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblINSURGENT_ORG_IND_1")
+                capture_guide_page("work_education_additional")
 
                 # 点击"Next: Security and Background"按钮
                 _progress(48, "准备进入安全与背景...")
@@ -2545,6 +2701,7 @@ class DS160Filler:
                     _check_radio_no("rblDisorder")
                     _check_radio_no("rblDruguser")
                     page.wait_for_timeout(500)
+                capture_guide_page("security_part_1")
 
                 # 点击"Next: Security/Background Part 2"按钮（CEAC postback 较慢，需等待导航完成）
                 with page.expect_navigation(timeout=45000, wait_until="domcontentloaded"):
@@ -2568,6 +2725,7 @@ class DS160Filler:
                 page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblAssistedSevereTrafficking_1")
                 # 点击"No"选项 - 是否参与过人口贩卖相关活动
                 page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblHumanTraffickingRelated_1")
+                capture_guide_page("security_part_2")
                 # 点击"Next: Security/Background Part 3"按钮
                 with page.expect_navigation(timeout=45000, wait_until="domcontentloaded"):
                     page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
@@ -2601,6 +2759,7 @@ class DS160Filler:
                 page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblPopulationControls_1")
                 # 点击"No"选项 - 是否参与过器官移植相关活动
                 page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblTransplant_1")
+                capture_guide_page("security_part_3")
 
 
                 # 点击"Next: Security/Background Part 4"按钮
@@ -2617,6 +2776,7 @@ class DS160Filler:
                 page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblFailToAttend_1")      # failed to attend hearing
                 page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblVisaViolation_1")     # unlawfully present/overstayed
                 page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblDeport_1")            # 被驱逐出境
+                capture_guide_page("security_part_4")
                 # 点击"Next: Security/Background Part 5"按钮
                 with page.expect_navigation(timeout=45000, wait_until="domcontentloaded"):
                     page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
@@ -2639,6 +2799,7 @@ class DS160Filler:
                     page.wait_for_timeout(200)
                 except Exception:
                     pass
+                capture_guide_page("security_part_5")
                 # 点击"Next: PHOTO"按钮
                 with page.expect_navigation(timeout=45000, wait_until="domcontentloaded"):
                     page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
@@ -2667,6 +2828,7 @@ class DS160Filler:
                 page.click("#ctl00_cphButtons_btnContinue")
                 page.wait_for_timeout(1000)  # 等待页面响应
                 print("成功上传照片并进入下一页")
+                capture_guide_page("photo")
                 # 点击"Next: REVIEW"按钮
                 with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
                     page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
@@ -2674,6 +2836,7 @@ class DS160Filler:
                 _step_log("step=Review_Enter 进入 REVIEW 页面")
                 print("成功进入REVIEW页面")
                 _progress(62, "进入REVIEW页面，准备下载PDF...")
+                capture_guide_page("review")
                 # 处理点击"REVIEW"按钮后弹出的"离开此页吗？"确认弹窗
                 # 等待弹窗出现并点击"离开"按钮（按钮文本为"离开"）
                 try:
@@ -2696,20 +2859,6 @@ class DS160Filler:
                     ("https://ceac.state.gov/GenNIV/General/review/review_reviewsecurity.aspx?node=ReviewSecurity", "DS160_Review_Security.pdf"),
                     ("https://ceac.state.gov/GenNIV/General/review/review_reviewlocation.aspx?node=ReviewLocation", "DS160_Review_Location.pdf")
                 ]
-
-                # 获取当前目录
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-                
-                # 使用用户邮箱创建文件夹名（移除@符号和特殊字符）
-                email_folder_name = user_email.replace('@', '_').replace('.', '_').replace('+', '_')
-                
-                # 在当前目录下创建以邮箱命名的文件夹
-                new_folder_path = os.path.join(current_dir, email_folder_name)
-                if not os.path.exists(new_folder_path):
-                    os.makedirs(new_folder_path)
-                    print(f"[SUCCESS] 创建文件夹成功: {new_folder_path}")
-                else:
-                    print(f"[INFO] 文件夹已存在: {new_folder_path}")
 
                 # 将 Excel 个人邮箱写入 recipient_email.txt，供 Node 路由发邮件时使用
                 excel_personal_email = (personal_info.get('Personal Email Address') or '').strip()
@@ -2842,6 +2991,7 @@ def main():
     parser.add_argument('user_email', help='User email for folder naming and notifications')
     parser.add_argument('--country_map', help='Path to country mapping file', default='country_map.xlsx')
     parser.add_argument('--api_key', help='2Captcha API key', default=DEFAULT_API_KEY)
+    parser.add_argument('--capsolver_api_key', help='Capsolver API key', default=os.environ.get("CAPSOLVER_API_KEY", "") or os.environ.get("CAPSOLVER_KEY", ""))
     parser.add_argument('--debug', action='store_true', help='Enable debug mode with extra logging')
     parser.add_argument('--timing', action='store_true', help='记录各阶段耗时到 ds160_timing_*.txt，用于进度条优化')
     
@@ -2893,7 +3043,7 @@ def main():
         _progress(3, "开始执行自动填表...")
         
         # Initialize form filler
-        filler = DS160Filler(args.api_key)
+        filler = DS160Filler(args.api_key, args.capsolver_api_key)
         
         # Process the first applicant
         print(f"Starting DS-160 form filling for: {personal_info_list[0].get('surname')} {personal_info_list[0].get('given_name')}")

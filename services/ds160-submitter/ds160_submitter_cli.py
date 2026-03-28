@@ -27,17 +27,28 @@ CAPTCHA_ERRORS = {
     "CAPCHA_NOT_READY": "验证码识别中...",
 }
 
+def _get_captcha_proxies() -> dict:
+    proxy = (
+        os.environ.get("CAPTCHA_PROXY", "").strip()
+        or os.environ.get("TLS_PROXY", "").strip()
+        or os.environ.get("HTTPS_PROXY", "").strip()
+    )
+    if proxy:
+        return {"http": proxy, "https": proxy}
+    return {"http": None, "https": None}
+
+
 def solve_captcha(api_key: str, image_path: str):
     """返回 (识别结果, 错误信息)，成功时错误信息为 None"""
     if not api_key or not api_key.strip():
         return None, "未配置 2Captcha API Key，请在 .env 中设置 CAPTCHA_API_KEY 或 2CAPTCHA_API_KEY"
     if not os.path.exists(image_path):
         return None, "验证码图片文件不存在"
-    no_proxy = {"http": None, "https": None}
+    proxies = _get_captcha_proxies()
     try:
         with open(image_path, 'rb') as f:
             r = requests.post('https://2captcha.com/in.php', files={'file': f},
-                data={'key': api_key, 'json': 1, 'regsense': 1}, timeout=30, proxies=no_proxy)
+                data={'key': api_key, 'json': 1, 'regsense': 1}, timeout=30, proxies=proxies)
         if r.status_code != 200:
             return None, f"2Captcha 请求失败 (HTTP {r.status_code})"
         data = r.json()
@@ -49,7 +60,7 @@ def solve_captcha(api_key: str, image_path: str):
             return None, "2Captcha 未返回任务 ID"
         for i in range(30):
             time.sleep(2)
-            res = requests.get(f'https://2captcha.com/res.php?key={api_key}&action=get&id={captcha_id}&json=1', timeout=30, proxies=no_proxy)
+            res = requests.get(f'https://2captcha.com/res.php?key={api_key}&action=get&id={captcha_id}&json=1', timeout=30, proxies=proxies)
             if res.status_code != 200:
                 continue
             d = res.json()

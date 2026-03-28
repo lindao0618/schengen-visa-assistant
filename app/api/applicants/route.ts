@@ -1,21 +1,38 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 
-import { authOptions } from "@/lib/auth"
 import { handleApplicantProfileApiError } from "@/lib/applicant-profile-api-error"
-import { createApplicantProfile, listApplicantProfiles } from "@/lib/applicant-profiles"
+import { authOptions } from "@/lib/auth"
+import { listApplicantCrmData } from "@/lib/applicant-crm"
+import { createApplicantProfile } from "@/lib/applicant-profiles"
 
 export const dynamic = "force-dynamic"
 
-export async function GET() {
+function getMultiValues(searchParams: URLSearchParams, key: string) {
+  return searchParams
+    .getAll(key)
+    .flatMap((item) => item.split(","))
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: "未登录" }, { status: 401 })
     }
 
-    const profiles = await listApplicantProfiles(session.user.id)
-    return NextResponse.json({ profiles })
+    const { searchParams } = new URL(request.url)
+    const data = await listApplicantCrmData(session.user.id, session.user.role, {
+      keyword: searchParams.get("keyword")?.trim() || "",
+      visaTypes: getMultiValues(searchParams, "visaTypes"),
+      statuses: getMultiValues(searchParams, "statuses"),
+      regions: getMultiValues(searchParams, "regions"),
+      priorities: getMultiValues(searchParams, "priorities"),
+    })
+
+    return NextResponse.json(data)
   } catch (error) {
     return handleApplicantProfileApiError(error)
   }
@@ -28,7 +45,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "未登录" }, { status: 401 })
     }
 
-    const body = await request.json()
+    const body = await request.json().catch(() => ({}))
     const profile = await createApplicantProfile(session.user.id, body ?? {})
     return NextResponse.json({ profile }, { status: 201 })
   } catch (error) {

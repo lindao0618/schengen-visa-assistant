@@ -24,12 +24,16 @@ import {
   Trash2,
   UserRound,
   FileSpreadsheet,
+  RefreshCw,
+  Wallet,
 } from "lucide-react"
 import { AuthPromptProvider, useAuthPrompt } from "@/app/usa-visa/contexts/AuthPromptContext"
 import { FranceTaskList } from "./FranceTaskList"
 import { ApplicantProfileSelector } from "@/components/applicant-profile-selector"
+import { FranceCaseProgressCard } from "@/components/france-case-progress-card"
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
 import { getFranceTlsCityLabel, normalizeFranceTlsCity } from "@/lib/france-tls-city"
+import { FranceQuickStartCard } from "./FranceQuickStartCard"
 
 const MANUAL_OPTION = "__manual__"
 
@@ -79,6 +83,84 @@ function formatUploadedAt(uploadedAt?: string) {
   return d.toLocaleString("zh-CN", { hour12: false })
 }
 
+interface CaptchaBalanceInfo {
+  configured: boolean
+  balance: number | null
+  error: string | null
+}
+interface CaptchaBalance {
+  capsolver: CaptchaBalanceInfo
+  twocaptcha: CaptchaBalanceInfo
+}
+
+function CaptchaBalanceCard() {
+  const [data, setData] = useState<CaptchaBalance | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const fetchBalance = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch("/api/captcha-balance", { cache: "no-store" })
+      if (res.ok) setData(await res.json())
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { void fetchBalance() }, [])
+
+  const renderItem = (label: string, info: CaptchaBalanceInfo | undefined) => {
+    if (!info) return null
+    if (!info.configured) return (
+      <div className="flex items-center gap-2 text-xs text-gray-400">
+        <span className="font-medium">{label}</span>
+        <span>未配置</span>
+      </div>
+    )
+    if (info.error) return (
+      <div className="flex items-center gap-2 text-xs text-red-500">
+        <span className="font-medium">{label}</span>
+        <AlertCircle className="h-3.5 w-3.5" />
+        <span>查询失败: {info.error}</span>
+      </div>
+    )
+    const low = info.balance !== null && info.balance < 1
+    return (
+      <div className={`flex items-center gap-2 text-xs ${low ? "text-orange-500" : "text-green-600 dark:text-green-400"}`}>
+        <span className="font-medium text-gray-700 dark:text-gray-300">{label}</span>
+        <Wallet className="h-3.5 w-3.5" />
+        <span className="font-semibold">${info.balance?.toFixed(2)}</span>
+        {low && <span className="text-orange-500">（余额不足，请充值）</span>}
+      </div>
+    )
+  }
+
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-gray-200 bg-white/80 px-4 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+      <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-400">
+        <Wallet className="h-4 w-4" />
+        验证码余额
+      </div>
+      {loading ? (
+        <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+      ) : data ? (
+        <div className="flex flex-wrap gap-4">
+          {renderItem("Capsolver", data.capsolver)}
+          {renderItem("2Captcha", data.twocaptcha)}
+        </div>
+      ) : (
+        <span className="text-xs text-gray-400">查询失败</span>
+      )}
+      <Button variant="ghost" size="sm" className="ml-auto h-7 gap-1 text-xs" onClick={fetchBalance} disabled={loading}>
+        <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+        刷新
+      </Button>
+    </div>
+  )
+}
+
 function FranceAutomationContent() {
   const { showLoginPrompt } = useAuthPrompt()
   const activeApplicant = useActiveApplicantProfile()
@@ -105,6 +187,11 @@ function FranceAutomationContent() {
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-black">
       <div className="container mx-auto px-4 py-8">
         <ApplicantProfileSelector />
+        <CaptchaBalanceCard />
+        <div className="mb-6">
+          <FranceCaseProgressCard applicantProfileId={activeApplicant?.id} applicantName={activeApplicantName} />
+        </div>
+        <FranceQuickStartCard />
 
         <div className="mb-6 flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>

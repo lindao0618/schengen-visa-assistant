@@ -3,9 +3,9 @@ import { getServerSession } from "next-auth"
 
 import { handleApplicantProfileApiError } from "@/lib/applicant-profile-api-error"
 import { authOptions } from "@/lib/auth"
+import { getApplicantCrmDetail } from "@/lib/applicant-crm"
 import {
   deleteApplicantProfile,
-  getApplicantProfile,
   updateApplicantProfile,
 } from "@/lib/applicant-profiles"
 
@@ -18,11 +18,17 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: "未登录" }, { status: 401 })
     }
 
-    const profile = await getApplicantProfile(session.user.id, params.id)
-    if (!profile) {
+    const detail = await getApplicantCrmDetail(session.user.id, session.user.role, params.id)
+    if (!detail) {
       return NextResponse.json({ error: "申请人档案不存在" }, { status: 404 })
     }
-    return NextResponse.json({ profile })
+
+    return NextResponse.json({
+      profile: detail.profile,
+      cases: detail.cases,
+      activeCaseId: detail.activeCaseId,
+      availableAssignees: detail.availableAssignees,
+    })
   } catch (error) {
     return handleApplicantProfileApiError(error)
   }
@@ -35,11 +41,12 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: "未登录" }, { status: 401 })
     }
 
-    const body = await request.json()
-    const profile = await updateApplicantProfile(session.user.id, params.id, body ?? {})
+    const body = await request.json().catch(() => ({}))
+    const profile = await updateApplicantProfile(session.user.id, params.id, body ?? {}, session.user.role)
     if (!profile) {
       return NextResponse.json({ error: "申请人档案不存在" }, { status: 404 })
     }
+
     return NextResponse.json({ profile })
   } catch (error) {
     return handleApplicantProfileApiError(error)
@@ -53,10 +60,11 @@ export async function DELETE(_request: NextRequest, { params }: { params: { id: 
       return NextResponse.json({ error: "未登录" }, { status: 401 })
     }
 
-    const deleted = await deleteApplicantProfile(session.user.id, params.id)
+    const deleted = await deleteApplicantProfile(session.user.id, params.id, session.user.role)
     if (!deleted) {
       return NextResponse.json({ error: "申请人档案不存在" }, { status: 404 })
     }
+
     return NextResponse.json({ success: true })
   } catch (error) {
     return handleApplicantProfileApiError(error)

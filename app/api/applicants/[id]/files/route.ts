@@ -45,7 +45,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: "没有可上传的文件" }, { status: 400 })
     }
 
-    let profile = await saveApplicantProfileFiles(session.user.id, params.id, entries)
+    let profile = await saveApplicantProfileFiles(session.user.id, params.id, entries, session.user.role)
     if (!profile) {
       return NextResponse.json({ error: "申请人档案不存在" }, { status: 404 })
     }
@@ -66,7 +66,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       | undefined
 
     if (excelEntry) {
-      const parsed = extractUsVisaApplicantDetailsFromExcelBuffer(Buffer.from(await excelEntry.file.arrayBuffer()))
+      const parsed = extractUsVisaApplicantDetailsFromExcelBuffer(
+        Buffer.from(await excelEntry.file.arrayBuffer()),
+      )
       if (parsed.surname || parsed.birthYear || parsed.passportNumber) {
         const updatedProfile = await updateApplicantProfileUsVisaDetails(session.user.id, params.id, parsed)
         if (updatedProfile) {
@@ -77,7 +79,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     if (schengenExcelEntry) {
-      const city = extractFranceTlsCityFromExcelBuffer(Buffer.from(await schengenExcelEntry.file.arrayBuffer()))
+      const city = extractFranceTlsCityFromExcelBuffer(
+        Buffer.from(await schengenExcelEntry.file.arrayBuffer()),
+      )
       if (city) {
         const updatedProfile = await updateApplicantProfileSchengenDetails(session.user.id, params.id, { city })
         if (updatedProfile) {

@@ -4,8 +4,12 @@
  */
 const { spawn } = require("child_process");
 const path = require("path");
+const { loadEnvConfig } = require("@next/env");
 
-const cwd = path.join(__dirname, "..", "explanation_letter_generator");
+const projectRoot = path.join(__dirname, "..");
+loadEnvConfig(projectRoot);
+
+const cwd = path.join(projectRoot, "explanation_letter_generator");
 const isWin = process.platform === "win32";
 const pythonCmd = isWin ? "python" : "python3";
 

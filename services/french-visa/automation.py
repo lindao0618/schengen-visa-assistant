@@ -318,11 +318,16 @@ class FrenchVisaAutomation:
                 self._log(f"❌ 验证码图片不存在: {image_path}")
                 return None
 
-            # 优先使用 Capsolver
+            # 优先使用 Capsolver，失败后自动回退到 2Captcha
             if self.capsolver_key:
-                return self._solve_captcha_capsolver(image_path)
+                result = self._solve_captcha_capsolver(image_path)
+                if result is not None:
+                    return result
+                if self.api_key:
+                    self._log("⚠️ Capsolver 失败，自动切换到 2Captcha 备用...")
+                    return self._solve_captcha_2captcha(image_path)
+                return None
 
-            # 回退到 2Captcha
             if self.api_key:
                 return self._solve_captcha_2captcha(image_path)
 
@@ -332,9 +337,21 @@ class FrenchVisaAutomation:
             self._log(f"❌ 验证码识别出错: {str(e)[:100]}")
             return None
 
+    def _get_requests_proxies(self) -> dict:
+        proxy = (
+            os.environ.get("TLS_PROXY")
+            or os.environ.get("HTTPS_PROXY")
+            or os.environ.get("HTTP_PROXY")
+            or ""
+        ).strip()
+        if proxy:
+            return {"http": proxy, "https": proxy}
+        return {}
+
     def _solve_captcha_capsolver(self, image_path: str) -> Optional[str]:
         """使用 Capsolver ImageToTextTask 识别图片验证码"""
         import base64
+        proxies = self._get_requests_proxies()
         try:
             with open(image_path, 'rb') as f:
                 img_b64 = base64.b64encode(f.read()).decode()
@@ -346,6 +363,7 @@ class FrenchVisaAutomation:
                     "task": {"type": "ImageToTextTask", "body": img_b64},
                 },
                 timeout=30,
+                proxies=proxies or None,
             ).json()
             if cr.get("errorId") != 0:
                 self._log(f"❌ Capsolver createTask 错误: {cr.get('errorDescription', cr)}")
@@ -358,6 +376,7 @@ class FrenchVisaAutomation:
                     'https://api.capsolver.com/getTaskResult',
                     json={"clientKey": self.capsolver_key, "taskId": tid},
                     timeout=30,
+                    proxies=proxies or None,
                 ).json()
                 if rr.get("errorId") != 0:
                     self._log(f"❌ Capsolver 识别失败: {rr.get('errorDescription')}")
@@ -369,11 +388,12 @@ class FrenchVisaAutomation:
             self._log("❌ Capsolver 识别超时")
             return None
         except Exception as e:
-            self._log(f"❌ Capsolver 异常: {str(e)[:100]}")
+            self._log(f"❌ Capsolver 异常: {str(e)[:200]}")
             return None
 
     def _solve_captcha_2captcha(self, image_path: str) -> Optional[str]:
         """使用 2Captcha 识别图片验证码（备用）"""
+        proxies = self._get_requests_proxies()
         try:
             self._log(f"正在调用2Captcha API（Key: {self.api_key[:10]}...）")
             with open(image_path, 'rb') as f:
@@ -381,7 +401,8 @@ class FrenchVisaAutomation:
                     'https://2captcha.com/in.php',
                     files={'file': f},
                     data={'key': self.api_key, 'json': 1, 'regsense': 1},
-                    timeout=30
+                    timeout=30,
+                    proxies=proxies or None,
                 )
             if response.status_code != 200:
                 self._log(f"❌ 2Captcha 请求失败: {response.status_code}")
@@ -399,7 +420,8 @@ class FrenchVisaAutomation:
                 try:
                     r = requests.get(
                         f'https://2captcha.com/res.php?key={self.api_key}&action=get&id={captcha_id}&json=1',
-                        timeout=30
+                        timeout=30,
+                        proxies=proxies or None,
                     )
                     if r.status_code != 200:
                         continue

@@ -12,6 +12,11 @@ export type ApplicantProfileFileSlot =
   | "usVisaDs160ConfirmationPdf"
   | "schengenPhoto"
   | "schengenExcel"
+  | "schengenItineraryPdf"
+  | "schengenExplanationLetterCnPdf"
+  | "schengenExplanationLetterEnPdf"
+  | "schengenHotelReservation"
+  | "schengenFlightReservation"
   | "franceTlsAccountsJson"
   | "franceApplicationJson"
   | "franceReceiptPdf"
@@ -37,6 +42,12 @@ export interface ApplicantProfile {
   userId: string
   label: string
   name?: string
+  phone?: string
+  email?: string
+  wechat?: string
+  passportNumber?: string
+  passportLast4?: string
+  note?: string
   usVisa?: {
     aaCode?: string
     surname?: string
@@ -55,9 +66,6 @@ export interface ApplicantProfile {
   fullName?: string
   surname?: string
   givenName?: string
-  email?: string
-  phone?: string
-  passportNumber?: string
   birthYear?: string
   birthDate?: string
   visaCountry?: string
@@ -77,6 +85,11 @@ const VALID_SLOTS: ApplicantProfileFileSlot[] = [
   "usVisaDs160ConfirmationPdf",
   "schengenPhoto",
   "schengenExcel",
+  "schengenItineraryPdf",
+  "schengenExplanationLetterCnPdf",
+  "schengenExplanationLetterEnPdf",
+  "schengenHotelReservation",
+  "schengenFlightReservation",
   "franceTlsAccountsJson",
   "franceApplicationJson",
   "franceReceiptPdf",
@@ -90,6 +103,12 @@ const VALID_SLOTS: ApplicantProfileFileSlot[] = [
 
 function normalizeText(value: unknown) {
   return typeof value === "string" ? value.trim() : ""
+}
+
+function derivePassportLast4(value: unknown) {
+  const normalized = normalizeText(value)
+  if (!normalized) return undefined
+  return normalized.slice(-4)
 }
 
 function normalizeName(input: ApplicantProfileInput) {
@@ -196,12 +215,19 @@ function mapFiles(
 
 function toApplicantProfile(profile: ApplicantProfileRecord): ApplicantProfile {
   const name = normalizeText(profile.name) || "未命名申请人"
+  const passportNumber = normalizeText(profile.passportNumber) || normalizeText(profile.usVisaPassportNumber) || undefined
 
   return {
     id: profile.id,
     userId: profile.userId,
     label: name,
     name,
+    phone: normalizeText(profile.phone) || undefined,
+    email: normalizeText(profile.email) || undefined,
+    wechat: normalizeText(profile.wechat) || undefined,
+    passportNumber,
+    passportLast4: normalizeText(profile.passportLast4) || derivePassportLast4(passportNumber),
+    note: normalizeText(profile.note) || undefined,
     usVisa: {
       aaCode: normalizeAA(profile.usVisaAaCode),
       surname: normalizeText(profile.usVisaSurname) || undefined,
@@ -250,9 +276,47 @@ async function ensureStorageRoot() {
   await fs.mkdir(STORAGE_ROOT, { recursive: true })
 }
 
-async function findApplicantProfileRecord(userId: string, id: string) {
+async function resolveIsAdmin(userId: string, role?: string) {
+  if (role === "admin") return true
+  if (role) return false
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  })
+  return user?.role === "admin"
+}
+
+function buildApplicantAccessWhere(userId: string, isAdmin: boolean) {
+  if (isAdmin) return {}
+  return {
+    OR: [
+      { userId },
+      {
+        visaCases: {
+          some: {
+            assignedToUserId: userId,
+          },
+        },
+      },
+    ],
+  }
+}
+
+async function findApplicantProfileRecord(userId: string, id: string, role?: string) {
+  const isAdmin = await resolveIsAdmin(userId, role)
   return prisma.applicantProfile.findFirst({
-    where: { id, userId },
+    where: {
+      id,
+      ...buildApplicantAccessWhere(userId, isAdmin),
+    },
+    include: { files: true },
+  })
+}
+
+async function findApplicantProfileRecordForDelete(userId: string, id: string, role?: string) {
+  const isAdmin = await resolveIsAdmin(userId, role)
+  return prisma.applicantProfile.findFirst({
+    where: isAdmin ? { id } : { id, userId },
     include: { files: true },
   })
 }
@@ -263,9 +327,10 @@ export function isApplicantProfileFileSlot(value: string): value is ApplicantPro
   return VALID_SLOTS.includes(value as ApplicantProfileFileSlot)
 }
 
-export async function listApplicantProfiles(userId: string) {
+export async function listApplicantProfiles(userId: string, role?: string) {
+  const isAdmin = await resolveIsAdmin(userId, role)
   const profiles = await prisma.applicantProfile.findMany({
-    where: { userId },
+    where: buildApplicantAccessWhere(userId, isAdmin),
     include: { files: true },
     orderBy: { updatedAt: "desc" },
   })
@@ -273,8 +338,8 @@ export async function listApplicantProfiles(userId: string) {
   return hydratedProfiles.map(toApplicantProfile)
 }
 
-export async function getApplicantProfile(userId: string, id: string) {
-  const profile = await findApplicantProfileRecord(userId, id)
+export async function getApplicantProfile(userId: string, id: string, role?: string) {
+  const profile = await findApplicantProfileRecord(userId, id, role)
   if (!profile) return null
   const hydratedProfile = await hydrateSchengenCityFromStoredExcel(profile)
   return toApplicantProfile(hydratedProfile)
@@ -282,11 +347,21 @@ export async function getApplicantProfile(userId: string, id: string) {
 
 export async function createApplicantProfile(userId: string, input: ApplicantProfileInput) {
   const name = normalizeName(input)
+  const passportNumber =
+    normalizeText(input.passportNumber) ||
+    normalizeText(input.usVisa?.passportNumber) ||
+    undefined
   const profile = await prisma.applicantProfile.create({
     data: {
       id: nanoid(12),
       userId,
       name,
+      phone: normalizeText(input.phone) || undefined,
+      email: normalizeText(input.email) || undefined,
+      wechat: normalizeText(input.wechat) || undefined,
+      passportNumber: passportNumber || undefined,
+      passportLast4: derivePassportLast4(passportNumber) || undefined,
+      note: normalizeText(input.note) || undefined,
       usVisaSurname: normalizeText(input.usVisa?.surname) || undefined,
       usVisaBirthYear: normalizeYear(input.usVisa?.birthYear),
       usVisaPassportNumber: normalizeText(input.usVisa?.passportNumber) || undefined,
@@ -298,8 +373,8 @@ export async function createApplicantProfile(userId: string, input: ApplicantPro
   return toApplicantProfile(profile)
 }
 
-export async function updateApplicantProfile(userId: string, id: string, input: ApplicantProfileInput) {
-  const current = await findApplicantProfileRecord(userId, id)
+export async function updateApplicantProfile(userId: string, id: string, input: ApplicantProfileInput, role?: string) {
+  const current = await findApplicantProfileRecord(userId, id, role)
   if (!current) return null
 
   const nextName = normalizeName({
@@ -308,10 +383,46 @@ export async function updateApplicantProfile(userId: string, id: string, input: 
     name: normalizeText(input.name) || normalizeText(input.label) || current.name,
   })
 
+  const nextPassportNumber =
+    normalizeText(input.passportNumber) ||
+    (Object.prototype.hasOwnProperty.call(input, "passportNumber") ? "" : normalizeText(current.passportNumber)) ||
+    (
+      input.usVisa && Object.prototype.hasOwnProperty.call(input.usVisa, "passportNumber")
+        ? normalizeText(input.usVisa.passportNumber)
+        : normalizeText(current.usVisaPassportNumber)
+    ) ||
+    undefined
+
   const profile = await prisma.applicantProfile.update({
     where: { id: current.id },
     data: {
       name: nextName,
+      phone:
+        Object.prototype.hasOwnProperty.call(input, "phone")
+          ? normalizeText(input.phone) || null
+          : current.phone,
+      email:
+        Object.prototype.hasOwnProperty.call(input, "email")
+          ? normalizeText(input.email) || null
+          : current.email,
+      wechat:
+        Object.prototype.hasOwnProperty.call(input, "wechat")
+          ? normalizeText(input.wechat) || null
+          : current.wechat,
+      passportNumber:
+        Object.prototype.hasOwnProperty.call(input, "passportNumber") ||
+        (input.usVisa && Object.prototype.hasOwnProperty.call(input.usVisa, "passportNumber"))
+          ? nextPassportNumber || null
+          : current.passportNumber,
+      passportLast4:
+        Object.prototype.hasOwnProperty.call(input, "passportNumber") ||
+        (input.usVisa && Object.prototype.hasOwnProperty.call(input.usVisa, "passportNumber"))
+          ? derivePassportLast4(nextPassportNumber) || null
+          : current.passportLast4,
+      note:
+        Object.prototype.hasOwnProperty.call(input, "note")
+          ? normalizeText(input.note) || null
+          : current.note,
       usVisaAaCode: current.usVisaAaCode,
       usVisaSurname:
         input.usVisa && Object.prototype.hasOwnProperty.call(input.usVisa, "surname")
@@ -386,6 +497,8 @@ export async function updateApplicantProfileUsVisaDetails(
       usVisaSurname: nextSurname || null,
       usVisaBirthYear: nextBirthYear || null,
       usVisaPassportNumber: nextPassportNumber || null,
+      passportNumber: normalizeText(current.passportNumber) || nextPassportNumber || null,
+      passportLast4: derivePassportLast4(normalizeText(current.passportNumber) || nextPassportNumber) || null,
     },
     include: { files: true },
   })
@@ -419,8 +532,8 @@ export async function updateApplicantProfileSchengenDetails(
   return toApplicantProfile(profile)
 }
 
-export async function deleteApplicantProfile(userId: string, id: string) {
-  const current = await findApplicantProfileRecord(userId, id)
+export async function deleteApplicantProfile(userId: string, id: string, role?: string) {
+  const current = await findApplicantProfileRecordForDelete(userId, id, role)
   if (!current) return false
 
   await prisma.applicantProfile.delete({
@@ -435,9 +548,10 @@ export async function deleteApplicantProfile(userId: string, id: string) {
 export async function saveApplicantProfileFiles(
   userId: string,
   id: string,
-  entries: Array<{ slot: ApplicantProfileFileSlot; file: File }>
+  entries: Array<{ slot: ApplicantProfileFileSlot; file: File }>,
+  role?: string
 ) {
-  const current = await findApplicantProfileRecord(userId, id)
+  const current = await findApplicantProfileRecord(userId, id, role)
   if (!current) return null
 
   await ensureStorageRoot()
@@ -480,9 +594,10 @@ export async function saveApplicantProfileFileFromAbsolutePath(params: {
   sourcePath: string
   originalName?: string
   mimeType?: string
+  role?: string
 }) {
-  const { userId, id, slot, sourcePath, originalName, mimeType } = params
-  const current = await findApplicantProfileRecord(userId, id)
+  const { userId, id, slot, sourcePath, originalName, mimeType, role } = params
+  const current = await findApplicantProfileRecord(userId, id, role)
   if (!current) return null
 
   await ensureStorageRoot()
@@ -518,8 +633,8 @@ export async function saveApplicantProfileFileFromAbsolutePath(params: {
   return profile ? toApplicantProfile(profile) : null
 }
 
-export async function getApplicantProfileFile(userId: string, id: string, slot: ApplicantProfileFileSlot) {
-  const profile = await findApplicantProfileRecord(userId, id)
+export async function getApplicantProfileFile(userId: string, id: string, slot: ApplicantProfileFileSlot, role?: string) {
+  const profile = await findApplicantProfileRecord(userId, id, role)
   if (!profile) return null
 
   const meta = profile.files.find((file) => file.slot === slot)
@@ -544,10 +659,11 @@ export async function getApplicantProfileFile(userId: string, id: string, slot: 
 export async function getApplicantProfileFileByCandidates(
   userId: string,
   id: string,
-  slots: ApplicantProfileFileSlot[]
+  slots: ApplicantProfileFileSlot[],
+  role?: string
 ) {
   for (const slot of slots) {
-    const file = await getApplicantProfileFile(userId, id, slot)
+    const file = await getApplicantProfileFile(userId, id, slot, role)
     if (file) return file
   }
   return null

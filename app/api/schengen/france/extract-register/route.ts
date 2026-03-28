@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
+import { spawn } from "child_process"
+import fs from "fs/promises"
+import path from "path"
+
 import { authOptions } from "@/lib/auth"
-import { createTask, updateTask } from "@/lib/french-visa-tasks"
 import {
   getApplicantProfile,
   getApplicantProfileFileByCandidates,
   saveApplicantProfileFileFromAbsolutePath,
 } from "@/lib/applicant-profiles"
-import { spawn } from "child_process"
-import path from "path"
-import fs from "fs/promises"
+import { advanceFranceCase, setFranceCaseException } from "@/lib/france-cases"
+import { createTask, updateTask } from "@/lib/french-visa-tasks"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -20,18 +22,22 @@ function flushRegisterProgress(
   taskId: string,
   chunk: string,
   progressBuffer: { current: string },
-  prefix: string
+  prefix: string,
 ) {
   progressBuffer.current += chunk
   const lines = progressBuffer.current.split(/\r?\n/)
   progressBuffer.current = lines.pop() ?? ""
   for (const line of lines) {
-    const m = line.match(/^PROGRESS:(\d+):(.+)$/)
-    if (!m) continue
-    const pct = parseInt(m[1], 10)
-    const msg = m[2].trim()
-    const mappedProgress = Math.min(99, 55 + Math.round((pct / 100) * 44))
-    void updateTask(taskId, { status: "running", progress: mappedProgress, message: prefix + `注册：${msg}` })
+    const match = line.match(/^PROGRESS:(\d+):(.+)$/)
+    if (!match) continue
+    const progress = Number.parseInt(match[1], 10)
+    const message = match[2].trim()
+    const mappedProgress = Math.min(99, 55 + Math.round((progress / 100) * 44))
+    void updateTask(taskId, {
+      status: "running",
+      progress: mappedProgress,
+      message: prefix + `注册：${message}`,
+    })
   }
 }
 
@@ -39,7 +45,7 @@ function spawnJsonProcess(
   command: string,
   args: string[],
   cwd: string,
-  onStderr?: (chunk: string) => void
+  onStderr?: (chunk: string) => void,
 ) {
   return new Promise<{ code: number | null; data: JsonObject | null; stdout: string }>((resolve, reject) => {
     const proc = spawn(command, args, {
@@ -48,13 +54,13 @@ function spawnJsonProcess(
     })
     let stdout = ""
     let stderr = ""
-    proc.stdout?.on("data", (d: Buffer) => {
-      stdout += d.toString()
+    proc.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString()
     })
-    proc.stderr?.on("data", (d: Buffer) => {
-      const chunk = d.toString()
-      stderr += chunk
-      onStderr?.(chunk)
+    proc.stderr?.on("data", (chunk: Buffer) => {
+      const text = chunk.toString()
+      stderr += text
+      onStderr?.(text)
     })
     proc.on("close", (code) => {
       try {
@@ -68,7 +74,7 @@ function spawnJsonProcess(
         reject(new Error(stderr.trim() || `退出码 ${code}`))
       }
     })
-    proc.on("error", (err) => reject(err))
+    proc.on("error", (error) => reject(error))
   })
 }
 
@@ -78,16 +84,20 @@ export async function POST(request: NextRequest) {
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "请先登录" }, { status: 401 })
     }
-    const userId = session.user.id
 
+    const userId = session.user.id
     const formData = await request.formData()
     const files: File[] = []
     for (const file of formData.getAll("file")) {
-      if (file && typeof file === "object" && "arrayBuffer" in file) files.push(file as File)
+      if (file && typeof file === "object" && "arrayBuffer" in file) {
+        files.push(file as File)
+      }
     }
     if (files.length === 0) {
-      const one = formData.get("file") as File | null
-      if (one) files.push(one)
+      const single = formData.get("file")
+      if (single && typeof single === "object" && "arrayBuffer" in single) {
+        files.push(single as File)
+      }
     }
 
     const applicantProfileId = (formData.get("applicantProfileId") as string | null)?.trim() || ""
@@ -100,13 +110,16 @@ export async function POST(request: NextRequest) {
         files.push(
           new File([content], stored.meta.originalName, {
             type: stored.meta.mimeType || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          })
+          }),
         )
       }
     }
 
     if (files.length === 0) {
-      return NextResponse.json({ success: false, error: "请上传至少一个 Excel 文件（含 FV 注册表）" }, { status: 400 })
+      return NextResponse.json(
+        { success: false, error: "请至少上传一个包含 FV 注册信息的 Excel 文件" },
+        { status: 400 },
+      )
     }
 
     const extractScriptPath = path.join(process.cwd(), "services", "french-visa", "extract_cli.py")
@@ -114,40 +127,61 @@ export async function POST(request: NextRequest) {
     try {
       await Promise.all([fs.access(extractScriptPath), fs.access(registerScriptPath)])
     } catch {
-      return NextResponse.json({ success: false, error: "法签提取或注册服务未找到，请确认 services/french-visa 已部署" }, { status: 500 })
+      return NextResponse.json({ success: false, error: "法签提取或注册服务未找到，请检查 services/french-visa" }, { status: 500 })
     }
 
-    const task = await createTask(
-      userId,
-      "extract-register",
-      `提取+注册 · ${files.length} 个文件`,
-      {
-        applicantProfileId: applicantProfileId || undefined,
-        applicantName: applicantProfile?.name || applicantProfile?.label,
-      }
-    )
+    const task = await createTask(userId, "extract-register", `提取+注册 · ${files.length} 个文件`, {
+      applicantProfileId: applicantProfileId || undefined,
+      applicantName: applicantProfile?.name || applicantProfile?.label,
+    })
 
     const outputId = `fv-extract-register-${task.task_id}`
     const outputDir = path.join(process.cwd(), "temp", "french-visa-extract-register", outputId)
     await fs.mkdir(outputDir, { recursive: true })
 
     const inputPaths: string[] = []
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index]
       const base = (file.name || "data").replace(/[^a-zA-Z0-9._-]/g, "_").replace(/\.(xlsx|xls)$/i, "") || "data"
       const ext = /\.xls$/i.test(file.name || "") ? "xls" : "xlsx"
-      const safeName = `${base}_${i + 1}.${ext}`
+      const safeName = `${base}_${index + 1}.${ext}`
       const inputPath = path.join(outputDir, safeName)
       await fs.writeFile(inputPath, Buffer.from(await file.arrayBuffer()))
       inputPaths.push(inputPath)
     }
 
-    await updateTask(task.task_id, { status: "running", progress: 5, message: "准备开始提取+注册..." })
+    await updateTask(task.task_id, {
+      status: "running",
+      progress: 5,
+      message: "准备开始提取+注册...",
+    })
+
+    if (applicantProfileId) {
+      await advanceFranceCase({
+        userId,
+        applicantProfileId,
+        mainStatus: "TLS_PROCESSING",
+        subStatus: "TLS_REGISTERING",
+        clearException: true,
+        reason: "Started France extract+register flow",
+      }).catch((error) => {
+        console.error("Failed to advance France case before extract-register", error)
+      })
+    }
 
     void (async () => {
       try {
-        await updateTask(task.task_id, { status: "running", progress: 12, message: "正在提取注册信息..." })
-        const extractRun = await spawnJsonProcess("python", ["-u", extractScriptPath, ...inputPaths, "--output-dir", outputDir], process.cwd())
+        await updateTask(task.task_id, {
+          status: "running",
+          progress: 12,
+          message: "正在提取注册信息...",
+        })
+
+        const extractRun = await spawnJsonProcess(
+          "python",
+          ["-u", extractScriptPath, ...inputPaths, "--output-dir", outputDir],
+          process.cwd(),
+        )
         const extractData = extractRun.data
 
         if (!extractData?.success || typeof extractData.output_file !== "string") {
@@ -162,6 +196,19 @@ export async function POST(request: NextRequest) {
               error: typeof extractData?.error === "string" ? extractData.error : undefined,
             },
           })
+
+          if (applicantProfileId) {
+            await setFranceCaseException({
+              userId,
+              applicantProfileId,
+              mainStatus: "TLS_PROCESSING",
+              subStatus: "TLS_REGISTERING",
+              exceptionCode: "TLS_REGISTER_FAILED",
+              reason: "France extract step failed",
+            }).catch((error) => {
+              console.error("Failed to set France case exception after extract-register extract failure", error)
+            })
+          }
           return
         }
 
@@ -172,6 +219,7 @@ export async function POST(request: NextRequest) {
         const downloadJson = extractJsonName
           ? `/api/schengen/france/extract-register/download/${outputId}/${encodeURIComponent(extractJsonName)}`
           : undefined
+
         let archivedProfileAccountsUrl: string | undefined
         if (extractJsonName && applicantProfileId) {
           try {
@@ -208,7 +256,7 @@ export async function POST(request: NextRequest) {
           "python",
           ["-u", registerScriptPath, extractedExcelPath, "--output-dir", outputDir],
           process.cwd(),
-          (chunk) => flushRegisterProgress(task.task_id, chunk, progressBuffer, "")
+          (chunk) => flushRegisterProgress(task.task_id, chunk, progressBuffer, ""),
         )
         const registerData = registerRun.data
         const logFile = typeof registerData?.log_file === "string" ? registerData.log_file : undefined
@@ -236,6 +284,19 @@ export async function POST(request: NextRequest) {
               results: registerData?.results,
             },
           })
+
+          if (applicantProfileId) {
+            await setFranceCaseException({
+              userId,
+              applicantProfileId,
+              mainStatus: "TLS_PROCESSING",
+              subStatus: "TLS_REGISTERING",
+              exceptionCode: "TLS_REGISTER_FAILED",
+              reason: typeof registerData?.error === "string" ? registerData.error : "France register step failed",
+            }).catch((error) => {
+              console.error("Failed to set France case exception after extract-register register failure", error)
+            })
+          }
           return
         }
 
@@ -257,6 +318,19 @@ export async function POST(request: NextRequest) {
             results: registerData.results,
           },
         })
+
+        if (applicantProfileId) {
+          await advanceFranceCase({
+            userId,
+            applicantProfileId,
+            mainStatus: "TLS_PROCESSING",
+            subStatus: "SLOT_HUNTING",
+            clearException: true,
+            reason: "France extract+register completed",
+          }).catch((error) => {
+            console.error("Failed to advance France case after extract-register success", error)
+          })
+        }
       } catch (error) {
         await updateTask(task.task_id, {
           status: "failed",
@@ -264,6 +338,19 @@ export async function POST(request: NextRequest) {
           message: "提取+注册失败",
           error: error instanceof Error ? error.message : "未知错误",
         })
+
+        if (applicantProfileId) {
+          await setFranceCaseException({
+            userId,
+            applicantProfileId,
+            mainStatus: "TLS_PROCESSING",
+            subStatus: "TLS_REGISTERING",
+            exceptionCode: "TLS_REGISTER_FAILED",
+            reason: error instanceof Error ? error.message : "France extract+register failed",
+          }).catch((caseError) => {
+            console.error("Failed to set France case exception after extract-register exception", caseError)
+          })
+        }
       }
     })()
 
@@ -274,6 +361,9 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error("法签提取+注册错误:", error)
-    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : "未知错误" }, { status: 500 })
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : "未知错误" },
+      { status: 500 },
+    )
   }
 }

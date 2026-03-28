@@ -241,6 +241,94 @@ async function findLatestErrorScreenshot(pythonServicePath: string, outputPath: 
   }
 }
 
+interface DownloadableArtifact {
+  filename: string
+  path: string
+  size: number
+  downloadUrl: string
+}
+
+async function collectCopiedArtifacts(params: {
+  sourceDir: string
+  outputPath: string
+  tempDir: string
+  predicate: (filename: string) => boolean
+}): Promise<DownloadableArtifact[]> {
+  const { sourceDir, outputPath, tempDir, predicate } = params
+  const artifacts: DownloadableArtifact[] = []
+  const files = await fs.readdir(sourceDir)
+
+  for (const file of files) {
+    if (!predicate(file)) continue
+    const sourcePath = path.join(sourceDir, file)
+    const targetPath = path.join(outputPath, file)
+    await fs.copyFile(sourcePath, targetPath)
+    const stats = await fs.stat(targetPath)
+    artifacts.push({
+      filename: file,
+      path: targetPath,
+      size: stats.size,
+      downloadUrl: `/api/usa-visa/ds160/download/${path.basename(tempDir)}/${file}`,
+    })
+  }
+
+  return artifacts.sort((a, b) => a.filename.localeCompare(b.filename, undefined, { numeric: true }))
+}
+
+async function collectGuideScreenshots(pythonOutputDir: string, outputPath: string, tempDir: string) {
+  try {
+    return await collectCopiedArtifacts({
+      sourceDir: pythonOutputDir,
+      outputPath,
+      tempDir,
+      predicate: (filename) => /^guide_\d+_.+\.png$/i.test(filename),
+    })
+  } catch {
+    return []
+  }
+}
+
+async function buildGuideScreenshotBundle(outputPath: string, tempDir: string, filenames: string[]) {
+  if (!filenames.length) return null
+
+  const bundleName = 'ds160-guide-screenshots.zip'
+  const bundlePath = path.join(outputPath, bundleName)
+  const zipScript = [
+    'import sys, os, zipfile',
+    'zip_path = sys.argv[1]',
+    'base_dir = sys.argv[2]',
+    'files = sys.argv[3:]',
+    'with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:',
+    '    for name in files:',
+    '        full = os.path.join(base_dir, name)',
+    '        if os.path.isfile(full):',
+    '            zf.write(full, arcname=name)',
+  ].join('; ')
+
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn('python', ['-c', zipScript, bundlePath, outputPath, ...filenames], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stderr = ''
+    proc.stderr?.on('data', (d: Buffer) => {
+      stderr += d.toString()
+    })
+    proc.on('close', (code) => {
+      if (code === 0) resolve()
+      else reject(new Error(stderr || `zip failed with code ${code}`))
+    })
+    proc.on('error', reject)
+  })
+
+  const stats = await fs.stat(bundlePath)
+  return {
+    filename: bundleName,
+    path: bundlePath,
+    size: stats.size,
+    downloadUrl: `/api/usa-visa/ds160/download/${path.basename(tempDir)}/${bundleName}`,
+  }
+}
+
 async function runDs160FillInBackground(taskId: string, params: Ds160BackgroundParams): Promise<void> {
   const { excelPath, excelFileName, photoPath, tempDir, outputPath, emailToUse, extraEmail, tempId, userId, applicantProfileId } = params
   const prefix = excelFileName ? `[${excelFileName}] ` : ''
@@ -248,11 +336,13 @@ async function runDs160FillInBackground(taskId: string, params: Ds160BackgroundP
   const scriptPath = path.join(pythonServicePath, 'ds160_server.py')
   const countryMapPath = path.join(pythonServicePath, 'country_map.xlsx')
   const captchaKey = process.env.CAPTCHA_API_KEY || process.env['2CAPTCHA_API_KEY'] || ''
+  const capsolverKey = process.env.CAPSOLVER_API_KEY || process.env.CAPSOLVER_KEY || ''
   const scriptArgs = [
     '-u',  // 无缓冲输出，确保 PROGRESS 行实时到达 Node
     scriptPath, excelPath, photoPath, emailToUse,
     '--country_map', countryMapPath,
     ...(captchaKey ? ['--api_key', captchaKey] : []),
+    ...(capsolverKey ? ['--capsolver_api_key', capsolverKey] : []),
     '--debug',
     ...(process.env.DS160_TIMING === '1' ? ['--timing'] : [])
   ]
@@ -320,50 +410,63 @@ async function runDs160FillInBackground(taskId: string, params: Ds160BackgroundP
         const emailFolderName = emailToUse.replace('@', '_').replace(/\./g, '_').replace(/\+/g, '_')
         const pythonOutputDir = path.join(pythonServicePath, emailFolderName)
         let pdfFiles: Array<{ filename: string; path: string; size: number; downloadUrl: string }> = []
+        let guideScreenshots: Array<{ filename: string; path: string; size: number; downloadUrl: string }> = []
         let pdfPathsForEmail: string[] = []
+
         try {
-          const resultFiles = await fs.readdir(pythonOutputDir)
-          for (const file of resultFiles) {
-            if (file.endsWith('.pdf')) {
-              const sourcePath = path.join(pythonOutputDir, file)
-              const targetPath = path.join(outputPath, file)
-              await fs.copyFile(sourcePath, targetPath)
-              const stats = await fs.stat(targetPath)
-              pdfFiles.push({
-                filename: file,
-                path: targetPath,
-                size: stats.size,
-                downloadUrl: `/api/usa-visa/ds160/download/${path.basename(tempDir)}/${file}`
-              })
-              pdfPathsForEmail.push(targetPath)
-            }
-          }
+          pdfFiles = await collectCopiedArtifacts({
+            sourceDir: pythonOutputDir,
+            outputPath,
+            tempDir,
+            predicate: (file) => file.endsWith('.pdf'),
+          })
+          guideScreenshots = await collectGuideScreenshots(pythonOutputDir, outputPath, tempDir)
+          pdfPathsForEmail = pdfFiles.map((file) => file.path)
         } catch {
           const resultFiles = await fs.readdir(outputPath).catch(() => [])
           for (const file of resultFiles) {
-            if (file.endsWith('.pdf')) {
-              const filePath = path.join(outputPath, file)
-              const stats = await fs.stat(filePath)
-              pdfFiles.push({
-                filename: file,
-                path: filePath,
-                size: stats.size,
-                downloadUrl: `/api/usa-visa/ds160/download/${path.basename(tempDir)}/${file}`
-              })
-              pdfPathsForEmail.push(filePath)
-            }
+            if (!file.endsWith('.pdf')) continue
+            const filePath = path.join(outputPath, file)
+            const stats = await fs.stat(filePath)
+            pdfFiles.push({
+              filename: file,
+              path: filePath,
+              size: stats.size,
+              downloadUrl: `/api/usa-visa/ds160/download/${path.basename(tempDir)}/${file}`,
+            })
+            pdfPathsForEmail.push(filePath)
           }
+          guideScreenshots = resultFiles
+            .filter((file) => /^guide_\d+_.+\.png$/i.test(file))
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+            .map((file) => ({
+              filename: file,
+              path: path.join(outputPath, file),
+              size: 0,
+              downloadUrl: `/api/usa-visa/ds160/download/${path.basename(tempDir)}/${file}`,
+            }))
         }
+
         if (pdfFiles.length === 0) {
           await updateTask(taskId, { status: 'failed', progress: 0, message: '未找到 PDF 文件', error: 'DS160表格生成失败' })
           reject(new Error('No PDF files'))
           return
         }
+
+        const screenshotBundle = await buildGuideScreenshotBundle(
+          outputPath,
+          tempDir,
+          guideScreenshots.map((file) => file.filename),
+        ).catch(() => null)
+
         let aaCode = ''
         const lines = stdout.split('\n')
         for (const line of lines) {
           const m = line.match(/AA[A-Z0-9]{8}/)
-          if (m) { aaCode = m[0]; break }
+          if (m) {
+            aaCode = m[0]
+            break
+          }
         }
         const excelEmail = await readExcelRecipientEmail(pythonOutputDir)
         const applicantInfo = await readApplicantInfo(pythonOutputDir)
@@ -378,15 +481,29 @@ async function runDs160FillInBackground(taskId: string, params: Ds160BackgroundP
         const toEmail = excelEmail || emailToUse
         if (toEmail) {
           const bodyHtml = buildDs160EmailHtml({ aaCode, files: pdfFiles, applicant: applicantInfo })
-          // 主收件人：Excel 个人邮箱；抄送：ukvisa20242024@163.com
-          await sendEmailWithAttachments(toEmail, `DS-160 填表完成${aaCode ? ` | AA码: ${aaCode}` : ''}`, bodyHtml, pdfPathsForEmail, DS160_CC_EMAIL)
+          await sendEmailWithAttachments(
+            toEmail,
+            `DS-160 填表完成${aaCode ? ` | AA码: ${aaCode}` : ''}`,
+            bodyHtml,
+            pdfPathsForEmail,
+            DS160_CC_EMAIL,
+          )
         }
         const emailMsg = toEmail ? `结果已发送至 ${toEmail}` : '（未配置邮箱）'
         await updateTask(taskId, {
           status: 'completed',
           progress: 100,
           message: `${prefix}DS-160 填表完成，${emailMsg}`,
-          result: { success: true, files: pdfFiles, aaCode, emailSent: !!toEmail, emailTo: toEmail || undefined, sourceFile: excelFileName }
+          result: {
+            success: true,
+            files: pdfFiles,
+            guideScreenshots,
+            guideScreenshotsZip: screenshotBundle || undefined,
+            aaCode,
+            emailSent: !!toEmail,
+            emailTo: toEmail || undefined,
+            sourceFile: excelFileName,
+          }
         })
         resolve()
       } catch (e) {
@@ -519,6 +636,7 @@ export async function POST(request: NextRequest) {
     console.log('用户邮箱:', emailToUse)
       
     const captchaKey = process.env.CAPTCHA_API_KEY || process.env['2CAPTCHA_API_KEY'] || ''
+    const capsolverKey = process.env.CAPSOLVER_API_KEY || process.env.CAPSOLVER_KEY || ''
     const scriptArgs = [
       scriptPath,
       excelPath,
@@ -526,6 +644,7 @@ export async function POST(request: NextRequest) {
       emailToUse,
       '--country_map', countryMapPath,
       ...(captchaKey ? ['--api_key', captchaKey] : []),
+      ...(capsolverKey ? ['--capsolver_api_key', capsolverKey] : []),
       '--debug',
       ...(process.env.DS160_TIMING === '1' ? ['--timing'] : [])
     ]
@@ -535,6 +654,8 @@ export async function POST(request: NextRequest) {
       success: boolean
       message: string
       files: Array<{filename: string, path: string, size: number, downloadUrl: string}>
+      guideScreenshots?: Array<{filename: string, path: string, size: number, downloadUrl: string}>
+      guideScreenshotsZip?: { filename: string; path: string; size: number; downloadUrl: string }
       screenshot?: { filename: string; path: string; downloadUrl: string } | null
       summary: any
       logs: any
@@ -593,53 +714,34 @@ export async function POST(request: NextRequest) {
           }
           
           try {
-          // 检查Python脚本生成的PDF文件目录
-          // 根据用户邮箱动态获取文件夹名
-          const emailFolderName = emailToUse.replace('@', '_').replace(/\./g, '_').replace(/\+/g, '_')
-          const pythonOutputDir = path.join(pythonServicePath, emailFolderName)
-          console.log('Checking Python output directory:', pythonOutputDir)
-          
-          // 查找PDF文件
-          let pdfFiles: Array<{filename: string, path: string, size: number, downloadUrl: string}> = []
-          let pdfPathsForEmail: string[] = []
-          
-          try {
-            // 首先尝试从Python输出目录查找PDF文件
-            const resultFiles = await fs.readdir(pythonOutputDir)
-            console.log('Python output directory files:', resultFiles)
-            
-            // 过滤PDF文件并复制到temp目录
-            for (const file of resultFiles) {
-              if (file.endsWith('.pdf')) {
-                const sourcePath = path.join(pythonOutputDir, file)
-                const targetPath = path.join(outputPath, file)
-                
-                // 复制文件到temp目录
-                await fs.copyFile(sourcePath, targetPath)
-                
-                const stats = await fs.stat(targetPath)
-                
-                pdfFiles.push({
-                  filename: file,
-                  path: targetPath,
-                  size: stats.size,
-                  downloadUrl: `/api/usa-visa/ds160/download/${path.basename(tempDir)}/${file}`
-                })
-                pdfPathsForEmail.push(targetPath)
-              }
-            }
-          } catch (e) {
-            console.log('Python output directory not found, checking temp output directory...')
-            
-            // 如果Python输出目录不存在，检查temp输出目录
-            const resultFiles = await fs.readdir(outputPath).catch(() => [])
-            console.log('Temp output directory files:', resultFiles)
-            
-            for (const file of resultFiles) {
-              if (file.endsWith('.pdf')) {
+            const emailFolderName = emailToUse.replace('@', '_').replace(/\./g, '_').replace(/\+/g, '_')
+            const pythonOutputDir = path.join(pythonServicePath, emailFolderName)
+            console.log('Checking Python output directory:', pythonOutputDir)
+
+            let pdfFiles: Array<{ filename: string, path: string, size: number, downloadUrl: string }> = []
+            let guideScreenshots: Array<{ filename: string, path: string, size: number, downloadUrl: string }> = []
+            let pdfPathsForEmail: string[] = []
+
+            try {
+              const resultFiles = await fs.readdir(pythonOutputDir)
+              console.log('Python output directory files:', resultFiles)
+              pdfFiles = await collectCopiedArtifacts({
+                sourceDir: pythonOutputDir,
+                outputPath,
+                tempDir,
+                predicate: (file) => file.endsWith('.pdf'),
+              })
+              guideScreenshots = await collectGuideScreenshots(pythonOutputDir, outputPath, tempDir)
+              pdfPathsForEmail = pdfFiles.map((file) => file.path)
+            } catch (e) {
+              console.log('Python output directory not found, checking temp output directory...')
+              const resultFiles = await fs.readdir(outputPath).catch(() => [])
+              console.log('Temp output directory files:', resultFiles)
+
+              for (const file of resultFiles) {
+                if (!file.endsWith('.pdf')) continue
                 const filePath = path.join(outputPath, file)
                 const stats = await fs.stat(filePath)
-                
                 pdfFiles.push({
                   filename: file,
                   path: filePath,
@@ -648,19 +750,32 @@ export async function POST(request: NextRequest) {
                 })
                 pdfPathsForEmail.push(filePath)
               }
+              guideScreenshots = resultFiles
+                .filter((file) => /^guide_\d+_.+\.png$/i.test(file))
+                .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+                .map((file) => ({
+                  filename: file,
+                  path: path.join(outputPath, file),
+                  size: 0,
+                  downloadUrl: `/api/usa-visa/ds160/download/${path.basename(tempDir)}/${file}`,
+                }))
             }
-          }
-          
-          if (pdfFiles.length === 0) {
-            throw new Error('DS160表格生成失败，未找到PDF文件')
+
+            if (pdfFiles.length === 0) {
+              throw new Error('DS160表格生成失败，未找到PDF文件')
             }
-          
-          console.log(`Found ${pdfFiles.length} PDF files:`, pdfFiles.map(f => f.filename))
+
+            const guideScreenshotsZip = await buildGuideScreenshotBundle(
+              outputPath,
+              tempDir,
+              guideScreenshots.map((file) => file.filename),
+            ).catch(() => null)
+
+            console.log(`Found ${pdfFiles.length} PDF files:`, pdfFiles.map((f) => f.filename))
 
             let emailSent = false
             let aaCode = ''
 
-            // 尝试从stdout解析结果信息
             try {
               const lines = stdout.split('\n')
               for (const line of lines) {
@@ -689,38 +804,28 @@ export async function POST(request: NextRequest) {
             if (toEmail) {
               try {
                 const bodyHtml = buildDs160EmailHtml({ aaCode, files: pdfFiles, applicant: applicantInfo })
-                // 主收件人：Excel 个人邮箱；抄送：ukvisa20242024@163.com
-                if (pdfPathsForEmail.length > 0) {
-                  const emailResult = await sendEmailWithAttachments(
-                    toEmail,
-                    `DS-160 填表完成${aaCode ? ` | AA码: ${aaCode}` : ''}`,
-                    bodyHtml,
-                    pdfPathsForEmail,
-                    DS160_CC_EMAIL
-                  )
-                  emailSent = emailResult.success
-                } else {
-                  const emailResult = await sendEmailWithAttachments(
-                    toEmail,
-                    `DS-160 填表完成${aaCode ? ` | AA码: ${aaCode}` : ''}`,
-                    bodyHtml,
-                    [],
-                    DS160_CC_EMAIL
-                  )
-                  emailSent = emailResult.success
-                }
+                const emailResult = await sendEmailWithAttachments(
+                  toEmail,
+                  `DS-160 填表完成${aaCode ? ` | AA码: ${aaCode}` : ''}`,
+                  bodyHtml,
+                  pdfPathsForEmail,
+                  DS160_CC_EMAIL
+                )
+                emailSent = emailResult.success
               } catch (emailError) {
                 console.error('邮件发送失败', emailError)
               }
             }
 
-            // 生成成功响应
             const response = {
               success: true,
               message: 'DS160表格自动填写完成',
-            files: pdfFiles,
+              files: pdfFiles,
+              guideScreenshots,
+              guideScreenshotsZip: guideScreenshotsZip || undefined,
               summary: {
-              totalFiles: pdfFiles.length,
+                totalFiles: pdfFiles.length,
+                guideScreenshotCount: guideScreenshots.length,
                 processedAt: new Date().toISOString(),
                 tempId: path.basename(tempDir),
                 aaCode: aaCode,
@@ -728,14 +833,14 @@ export async function POST(request: NextRequest) {
                 email: toEmail
               },
               logs: {
-              stdout: stdout.split('\n'),
+                stdout: stdout.split('\n'),
                 hasErrors: stderr && !stderr.includes('WARNING')
               }
             }
 
             console.log('DS160处理完成:', response.summary)
-          resolve(response)
-            
+            resolve(response)
+
           } catch (error) {
             reject(error)
           }

@@ -8,6 +8,8 @@ import time
 import random
 import re
 import shutil
+import json
+import traceback
 from pathlib import Path
 from typing import Optional, Callable, Dict, Any
 
@@ -46,6 +48,64 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
     driver = None
     screenshot_file = None  # 用于存储截图文件名
     
+    debug_files = []
+    current_stage = "init"
+
+    def _safe_debug_name(name: str) -> str:
+        return re.sub(r"[^a-zA-Z0-9._-]+", "-", name).strip("-") or "debug"
+
+    def mark_stage(stage: str) -> None:
+        nonlocal current_stage
+        current_stage = stage
+
+    def save_debug_snapshot(name: str, error: Optional[str] = None, extra: Optional[Dict[str, Any]] = None) -> None:
+        nonlocal screenshot_file
+        base_name = _safe_debug_name(name)
+        meta: Dict[str, Any] = {
+            "stage": current_stage,
+            "name": name,
+            "error": error,
+            "extra": extra or {},
+        }
+
+        if driver:
+            try:
+                screenshot_name = f"{base_name}.png"
+                driver.save_screenshot(os.path.join(str(output_base), screenshot_name))
+                screenshot_file = screenshot_name
+                if screenshot_name not in debug_files:
+                    debug_files.append(screenshot_name)
+            except Exception as screenshot_error:
+                meta["screenshot_error"] = str(screenshot_error)
+
+            try:
+                html_name = f"{base_name}.html"
+                with open(os.path.join(str(output_base), html_name), "w", encoding="utf-8") as handle:
+                    handle.write(driver.page_source)
+                if html_name not in debug_files:
+                    debug_files.append(html_name)
+            except Exception as html_error:
+                meta["html_error"] = str(html_error)
+
+            try:
+                meta["current_url"] = driver.current_url
+            except Exception as url_error:
+                meta["current_url_error"] = str(url_error)
+
+            try:
+                meta["page_title"] = driver.title
+            except Exception as title_error:
+                meta["page_title_error"] = str(title_error)
+
+        try:
+            meta_name = f"{base_name}.json"
+            with open(os.path.join(str(output_base), meta_name), "w", encoding="utf-8") as handle:
+                json.dump(meta, handle, ensure_ascii=False, indent=2)
+            if meta_name not in debug_files:
+                debug_files.append(meta_name)
+        except Exception:
+            pass
+
     try:
         if callback:
             callback(0, "开始填写回执单...")
@@ -188,24 +248,64 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
         if callback:
             callback(30, "已提交登录表单")
         
+        mark_stage("login-post-submit")
         time.sleep(3)
-        # 登录后若遇到 ERR_HTTP2_PROTOCOL_ERROR 等无法访问页面，刷新重试
-        for _ in range(2):
+        recovered_after_login = False
+        for attempt in range(3):
+            current_url = ""
+            body_text = ""
+            try:
+                current_url = driver.current_url
+            except Exception:
+                current_url = ""
             try:
                 body_text = driver.find_element(By.TAG_NAME, "body").text
-                if "无法访问此网站" in body_text or "ERR_HTTP2" in body_text or "ERR_" in body_text:
-                    if callback:
-                        callback(30, "检测到网络错误页面，正在刷新...")
-                    driver.refresh()
-                    time.sleep(3)
             except Exception:
+                body_text = ""
+
+            has_browser_error = (
+                current_url.startswith("chrome-error://")
+                or "无法访问此网站" in body_text
+                or "ERR_HTTP2" in body_text
+                or "ERR_" in body_text
+                or "/error" in current_url
+            )
+            if not has_browser_error:
+                recovered_after_login = True
                 break
-        time.sleep(1)
-        
-        if "error" in driver.current_url:
+
             if callback:
-                callback(30, f"⚠️ 登录失败，当前URL: {driver.current_url}，等待手动登录...")
-            wait.until(lambda d: "error" not in d.current_url)
+                callback(30, f"登录后页面异常，正在恢复 ({attempt + 1}/3)...")
+            save_debug_snapshot(
+                f"login-post-submit-recovery-{attempt + 1}",
+                error="post_login_browser_error",
+                extra={"current_url": current_url, "body_excerpt": body_text[:500]},
+            )
+
+            try:
+                driver.refresh()
+                time.sleep(2)
+            except Exception:
+                pass
+
+            try:
+                current_url = driver.current_url
+            except Exception:
+                current_url = ""
+
+            if current_url.startswith("chrome-error://") or "/error" in current_url:
+                try:
+                    driver.get("https://application-form.france-visas.gouv.fr/fv-fo-dde/accueil.xhtml")
+                    time.sleep(3)
+                except Exception:
+                    pass
+
+        if not recovered_after_login:
+            save_debug_snapshot(
+                "login-post-submit-recovery-failed",
+                error="登录后的页面没有正常打开",
+            )
+            raise Exception("登录可能已成功，但登录后的页面没有正常打开。请刷新或直接访问 France-Visas 主页后重试。")
         
         # 点击编辑按钮
         if callback:
@@ -217,12 +317,27 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
                 time.sleep(2)
                 # 查找前检查是否在错误页面，若是则刷新
                 try:
+                    current_url = driver.current_url
                     body_text = driver.find_element(By.TAG_NAME, "body").text
-                    if "无法访问此网站" in body_text or "ERR_HTTP2" in body_text:
+                    if (
+                        current_url.startswith("chrome-error://")
+                        or "/error" in current_url
+                        or "无法访问此网站" in body_text
+                        or "ERR_HTTP2" in body_text
+                        or "ERR_" in body_text
+                    ):
                         if callback:
                             callback(35, f"检测到错误页面，刷新后重试 ({attempt + 1}/3)...")
+                        save_debug_snapshot(
+                            f"edit-button-recovery-{attempt + 1}",
+                            error="edit_button_page_error",
+                            extra={"current_url": current_url, "body_excerpt": body_text[:500]},
+                        )
                         driver.refresh()
                         time.sleep(3)
+                        if driver.current_url.startswith("chrome-error://") or "/error" in driver.current_url:
+                            driver.get("https://application-form.france-visas.gouv.fr/fv-fo-dde/accueil.xhtml")
+                            time.sleep(3)
                         continue
                 except Exception:
                     pass
@@ -514,6 +629,7 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
             
             # 申根签信息
             raw_schengen_value = df['是否办过申根签（五年内）'].iloc[0]
+            mark_stage("step3-schengen-history")
             schengen_visa_last_5_years = str(raw_schengen_value).strip()
 
             if callback:
@@ -545,8 +661,16 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
 
             # 勾选"是否五年内有申根签"
             is_schengen_yes = str(schengen_visa_last_5_years).strip() in ("是", "yes", "Yes", "YES")
-            wait.until(EC.presence_of_element_located((By.ID, "formStep3:haveOldSchengenVisas")))
-            time.sleep(0.5)
+            try:
+                wait.until(EC.presence_of_element_located((By.ID, "formStep3:haveOldSchengenVisas")))
+                time.sleep(0.5)
+            except Exception as e:
+                save_debug_snapshot(
+                    "step3-have-old-schengen-visas-timeout",
+                    error=str(e),
+                    extra={"selector": "formStep3:haveOldSchengenVisas"},
+                )
+                raise
 
             if is_schengen_yes:
                 # 是：选择 Yes，填写过去五年申根签详情
@@ -696,6 +820,7 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
                 callback(75, "正在填写旅行信息...")
             
             # 入境和离开日期
+            mark_stage("step4-travel-information")
             arrival_date_field = wait.until(EC.presence_of_element_located((By.ID, "formStep4:date-of-arrival_input")))
             arrival_date_field.clear()
             arrival_date_field.send_keys(entry_date)
@@ -760,7 +885,6 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
             except Exception as e:
                 if callback:
                     callback(79, f"⚠️ 截图失败: {str(e)}")
-                import traceback
                 print(f"[填写回执单] 截图保存错误: {traceback.format_exc()}")
             
             next_button = wait.until(EC.element_to_be_clickable((By.ID, "formStep4:btnSuivant")))
@@ -1082,7 +1206,6 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
                         print(f"[填写回执单] PDF文件未找到 - downloaded_file={downloaded_file}, download_folder={download_folder}, exists={os.path.exists(download_folder) if download_folder else False}")
             
             except Exception as pdf_error:
-                import traceback
                 error_detail = traceback.format_exc()
                 if callback:
                     callback(95, f"下载PDF时出错: {str(pdf_error)[:200]}")
@@ -1137,7 +1260,8 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
                 "pdf_saved": pdf_saved,
                 "pdf_path": new_file_path if (pdf_saved and new_file_path) else None,
                 "pdf_file": pdf_filename,  # 用于前端下载
-                "screenshot_file": screenshot_file  # 截图文件
+                "screenshot_file": screenshot_file,  # 截图文件
+                "debug_files": debug_files
             }
             
             # 调试输出到 stderr，避免污染 stdout 的 JSON
@@ -1154,15 +1278,14 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
                 user_msg = "浏览器窗口已被关闭。请勿在填写过程中手动关闭浏览器窗口，并重新运行。"
                 if callback:
                     callback(0, f"❌ {user_msg}")
-                return {"success": False, "error": user_msg}
-            if driver:
-                try:
-                    driver.save_screenshot(os.path.join(str(output_base), "error_screenshot.png"))
-                except Exception:
-                    pass
+                save_debug_snapshot("browser-closed", error=user_msg)
+                return {"success": False, "error": user_msg, "debug_files": debug_files, "screenshot_file": screenshot_file}
+            save_debug_snapshot("error-snapshot", error=err_msg, extra={"traceback": traceback.format_exc()})
             return {
                 "success": False,
-                "error": err_msg
+                "error": err_msg,
+                "debug_files": debug_files,
+                "screenshot_file": screenshot_file
             }
         
     except Exception as e:
@@ -1170,10 +1293,19 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
         if callback:
             callback(0, f"❌ 处理时发生错误: {err_msg}")
         if "closed" in err_msg.lower() or "browser has been closed" in err_msg.lower():
-            return {"success": False, "error": "浏览器窗口已被关闭。请勿在填写过程中手动关闭浏览器窗口，并重新运行。"}
+            save_debug_snapshot("browser-closed", error=err_msg)
+            return {
+                "success": False,
+                "error": "浏览器窗口已被关闭。请勿在填写过程中手动关闭浏览器窗口，并重新运行。",
+                "debug_files": debug_files,
+                "screenshot_file": screenshot_file
+            }
+        save_debug_snapshot("fatal-error", error=err_msg, extra={"traceback": traceback.format_exc()})
         return {
             "success": False,
-            "error": err_msg
+            "error": err_msg,
+            "debug_files": debug_files,
+            "screenshot_file": screenshot_file
         }
     finally:
         if driver:

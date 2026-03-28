@@ -265,7 +265,7 @@ export function FranceTaskList({
                 {task.status === "failed" && task.error && (
                   <p className="text-xs text-red-600 dark:text-red-400">{task.error}</p>
                 )}
-                {task.status === "completed" && task.result && (
+                {task.result && (
                   <FranceResultSummary result={task.result} />
                 )}
                 <div className="flex flex-wrap gap-2">

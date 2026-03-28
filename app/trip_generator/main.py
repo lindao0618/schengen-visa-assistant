@@ -7,6 +7,7 @@ from prompt_builder import build_prompt
 from deepseek_api import call_deepseek
 from docx import Document
 from docx.enum.section import WD_ORIENT
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Mm, Inches, Pt
 from docx2pdf import convert
@@ -36,11 +37,69 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+TABLE_COLUMN_WIDTHS_MM = [14, 24, 32, 84, 108]
+
+
+def apply_table_layout(doc: Document, table):
+    section = doc.sections[0]
+    section.orientation = WD_ORIENT.LANDSCAPE
+    section.left_margin = Mm(8)
+    section.right_margin = Mm(8)
+    section.top_margin = Mm(10)
+    section.bottom_margin = Mm(10)
+
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = False
+
+    for row in table.rows:
+        for index, width_mm in enumerate(TABLE_COLUMN_WIDTHS_MM):
+            if index < len(row.cells):
+                row.cells[index].width = Mm(width_mm)
+
+    if len(table.rows) >= 1:
+        table.rows[0].height = Mm(10)
+        table.rows[0].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+    if len(table.rows) >= 2:
+        table.rows[1].height = Mm(9)
+        table.rows[1].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+    for row in table.rows[2:]:
+        row.height = Mm(18)
+        row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+
+
+def apply_cell_style(cell, *, font_size, align, bold=False):
+    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+
+    for paragraph in cell.paragraphs:
+        paragraph.alignment = align
+        paragraph.paragraph_format.space_before = Pt(0)
+        paragraph.paragraph_format.space_after = Pt(0)
+        paragraph.paragraph_format.line_spacing = 1.05
+
+        for run in paragraph.runs:
+            run.font.size = font_size
+            if bold:
+                run.bold = True
+
+
+def apply_table_text_style(table):
+    for cell in table.rows[0].cells:
+        apply_cell_style(cell, font_size=Pt(18), align=WD_ALIGN_PARAGRAPH.CENTER, bold=True)
+
+    for cell in table.rows[1].cells:
+        apply_cell_style(cell, font_size=Pt(12), align=WD_ALIGN_PARAGRAPH.CENTER, bold=True)
+
+    for row in table.rows[2:]:
+        for index, cell in enumerate(row.cells):
+            align = WD_ALIGN_PARAGRAPH.CENTER if index in (0, 1, 2) else WD_ALIGN_PARAGRAPH.LEFT
+            apply_cell_style(cell, font_size=Pt(11), align=align)
+
 def create_word_from_template(rows, template_path: str, output_docx: str):
     """Create Word document using the template file - preserving all original formatting"""
 
     doc = Document(template_path)
     table = doc.tables[0]
+    apply_table_layout(doc, table)
     
     print(f"Template table has {len(table.rows)} rows")
     print(f"Data to insert: {len(rows)} rows")
@@ -80,6 +139,9 @@ def create_word_from_template(rows, template_path: str, output_docx: str):
             # 添加新内容，完全继承模板格式
             run = para.add_run(content)
             print(f"  Cell {j}: '{content}' -> '{run.text}'")
+
+    apply_table_layout(doc, table)
+    apply_table_text_style(table)
 
     print(f"Final table has {len(table.rows)} rows")
     doc.save(output_docx)

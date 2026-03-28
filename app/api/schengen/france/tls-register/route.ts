@@ -11,6 +11,7 @@ import {
 import { extractFranceTlsCityFromExcelBuffer } from "@/lib/france-tls-city-excel"
 import { extractTlsAccountsFromExcelBuffer } from "@/lib/france-visa-extract-accounts"
 import { normalizeFranceTlsCity } from "@/lib/france-tls-city"
+import { advanceFranceCase, setFranceCaseException } from "@/lib/france-cases"
 import { spawn } from "child_process"
 import path from "path"
 import fs from "fs/promises"
@@ -33,6 +34,13 @@ function getCaptchaConfig() {
     process.env.CAPTCHA_API_KEY ||
     ""
 
+  if (capsolverApiKey && twocaptchaApiKey) {
+    return {
+      captcha_provider: "capsolver",
+      capsolver_api_key: capsolverApiKey,
+      twocaptcha_api_key: twocaptchaApiKey,
+    }
+  }
   if (capsolverApiKey) {
     return { captcha_provider: "capsolver", capsolver_api_key: capsolverApiKey, twocaptcha_api_key: "" }
   }
@@ -58,18 +66,33 @@ function getUcConfig() {
   const ucChromeVersionRaw = process.env.TLS_UC_CHROME_VERSION || ""
   const ucChromeVersion = ucChromeVersionRaw ? Number.parseInt(ucChromeVersionRaw, 10) : undefined
   const proxy = process.env.TLS_PROXY || process.env.HTTPS_PROXY || process.env.HTTP_PROXY || ""
-  return { uc_chromedriver_path: ucChromedriverPath, uc_chrome_version: ucChromeVersion, proxy: proxy.trim() }
+  const headless = process.env.TLS_HEADLESS === "true"
+  return { uc_chromedriver_path: ucChromedriverPath, uc_chrome_version: ucChromeVersion, proxy: proxy.trim(), headless }
 }
 
 function normalizeLocation(location: unknown) {
   return normalizeFranceTlsCity(location) || null
 }
 
+function friendlyErrorMessage(rawMessage: string): string {
+  const m = rawMessage.toLowerCase()
+  if (m.includes("already in use") || m.includes("email_already_in_use")) {
+    return "该邮箱已注册 TLS 账号，无需重复注册，可直接使用该账号登录 TLS 预约系统。"
+  }
+  if (m.includes("cloudflare") || m.includes("cf gate") || m.includes("browser will restart")) {
+    return "Cloudflare 验证未通过，请检查网络环境后重试。"
+  }
+  if (m.includes("invalid email") || m.includes("invalid password")) {
+    return "邮箱或密码格式不正确，请检查 Excel 中的账号信息。"
+  }
+  return rawMessage
+}
+
 function summarizeRegisterResults(parsed: unknown) {
   const payload = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null
   const results = Array.isArray(payload?.results) ? (payload?.results as Array<Record<string, unknown>>) : []
   if (!results.length) {
-    return { hasAnyResult: false, successCount: 0, failCount: 0, sampleError: "" }
+    return { hasAnyResult: false, successCount: 0, failCount: 0, sampleError: "", friendlyError: "" }
   }
 
   const successStatuses = new Set(["submitted", "filled_only", "success", "completed"])
@@ -86,7 +109,7 @@ function summarizeRegisterResults(parsed: unknown) {
       if (!sampleError && message) sampleError = message
     }
   }
-  return { hasAnyResult: true, successCount, failCount, sampleError }
+  return { hasAnyResult: true, successCount, failCount, sampleError, friendlyError: sampleError ? friendlyErrorMessage(sampleError) : "" }
 }
 
 function artifactLabel(filename: string) {
@@ -243,7 +266,7 @@ export async function POST(request: NextRequest) {
       capsolver_api_key: captchaCfg.capsolver_api_key,
       twocaptcha_api_key: captchaCfg.twocaptcha_api_key,
       browser_channel: "chrome",
-      headless: false,
+      headless: ucCfg.headless,
       slow_mo_ms: 75,
       pause_between_accounts_sec: 2,
       navigation_timeout_ms: 45000,
@@ -273,6 +296,19 @@ export async function POST(request: NextRequest) {
         captcha: { provider: captchaCfg.captcha_provider, ...captchaDiag },
       },
     })
+
+    if (applicantProfileId) {
+      await advanceFranceCase({
+        userId,
+        applicantProfileId,
+        mainStatus: "TLS_PROCESSING",
+        subStatus: "TLS_REGISTERING",
+        clearException: true,
+        reason: "Started TLS account registration",
+      }).catch((error) => {
+        console.error("Failed to advance France case before tls-register", error)
+      })
+    }
 
     void (async () => {
       const tlsRegisterScript = "D:/Ai-user/tls_auto/tls_auto_register.py"
@@ -324,34 +360,56 @@ export async function POST(request: NextRequest) {
       const stderrDownload = debugDownloads.find((item) => item.filename === "runner_stderr.log")?.url
       const stdoutDownload = debugDownloads.find((item) => item.filename === "runner_stdout.log")?.url
       if (exitCode !== 0 || !parsed || !summary.hasAnyResult || summary.successCount === 0) {
+        const displayError =
+          summary.friendlyError ||
+          summary.sampleError ||
+          parseError ||
+          stderrLog.trim().slice(-1200) ||
+          stdoutLog.trim().slice(-1200) ||
+          `退出码 ${exitCode}`
+        const displayMessage = summary.friendlyError
+          ? `TLS 账户注册失败：${summary.friendlyError}`
+          : "TLS 账户注册失败，已保存调试文件。"
         await updateTask(task.task_id, {
           status: "failed",
           progress: 0,
           message: "TLS 账户注册失败",
-          error:
-            summary.sampleError ||
-            parseError ||
-            stderrLog.trim().slice(-1200) ||
-            stdoutLog.trim().slice(-1200) ||
-            `退出码 ${exitCode}`,
+          error: displayError,
           result:
             parsed && typeof parsed === "object"
               ? {
                   ...(parsed as Record<string, unknown>),
                   summary,
                   success: false,
-                  message: "TLS 账户注册失败，已保存调试文件。",
+                  message: displayMessage,
                   download_log: stderrDownload || stdoutDownload,
                   download_artifacts: debugDownloads,
                 }
               : {
                   summary,
                   success: false,
-                  message: "TLS 账户注册失败，已保存调试文件。",
+                  message: displayMessage,
                   download_log: stderrDownload || stdoutDownload,
                   download_artifacts: debugDownloads,
                 },
         })
+        if (applicantProfileId) {
+          await setFranceCaseException({
+            userId,
+            applicantProfileId,
+            mainStatus: "TLS_PROCESSING",
+            subStatus: "TLS_REGISTERING",
+            exceptionCode: "TLS_REGISTER_FAILED",
+            reason:
+              summary.sampleError ||
+              parseError ||
+              stderrLog.trim().slice(-1200) ||
+              stdoutLog.trim().slice(-1200) ||
+              `Exit code ${exitCode}`,
+          }).catch((error) => {
+            console.error("Failed to set France case exception after tls-register failure", error)
+          })
+        }
         return
       }
 
@@ -370,6 +428,18 @@ export async function POST(request: NextRequest) {
           download_artifacts: debugDownloads,
         },
       })
+      if (applicantProfileId) {
+        await advanceFranceCase({
+          userId,
+          applicantProfileId,
+          mainStatus: "TLS_PROCESSING",
+          subStatus: "SLOT_HUNTING",
+          clearException: true,
+          reason: "TLS account registration completed",
+        }).catch((error) => {
+          console.error("Failed to advance France case after tls-register success", error)
+        })
+      }
     })()
 
     return NextResponse.json({
@@ -385,4 +455,3 @@ export async function POST(request: NextRequest) {
     )
   }
 }
-

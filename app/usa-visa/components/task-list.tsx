@@ -419,6 +419,8 @@ function StatusBadge({ status }: { status: string }) {
 
 function ResultSummary({ result, taskType }: { result: Record<string, unknown>; taskType?: string }) {
   const files = result.files as Array<{ filename: string; downloadUrl: string }> | undefined
+  const guideScreenshots = result.guideScreenshots as Array<{ filename: string; downloadUrl: string }> | undefined
+  const guideScreenshotsZip = result.guideScreenshotsZip as { filename: string; downloadUrl: string } | undefined
   const aaCode = result.aaCode as string | undefined
   const emailTo = result.emailTo as string | undefined
   const emailSent = result.emailSent as boolean | undefined
@@ -529,12 +531,33 @@ function ResultSummary({ result, taskType }: { result: Record<string, unknown>; 
       </div>
     )
   }
-  if (!files?.length && !aaCode && !emailTo) return null
+  if (!files?.length && !guideScreenshots?.length && !aaCode && !emailTo) return null
   return (
     <div className="text-xs text-green-600 dark:text-green-400 space-y-0.5">
       {aaCode && <p>AA码: {aaCode}</p>}
       {files?.length && <p>{files.length} 个 PDF 已生成</p>}
+      {guideScreenshots?.length && <p>{guideScreenshots.length} 张 DS-160 页面截图已生成</p>}
       {emailSent && emailTo && <p>已发送至 {emailTo}</p>}
+      {!!guideScreenshots?.length && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {guideScreenshotsZip?.downloadUrl && (
+            <Button variant="default" size="sm" className="h-7 gap-1.5 text-xs" asChild>
+              <a href={guideScreenshotsZip.downloadUrl} download target="_blank" rel="noopener noreferrer">
+                <Download className="h-3.5 w-3.5" />
+                全部截图
+              </a>
+            </Button>
+          )}
+          {guideScreenshots.map((file) => (
+            <Button key={file.filename} variant="outline" size="sm" className="h-7 gap-1.5 text-xs" asChild>
+              <a href={file.downloadUrl} download target="_blank" rel="noopener noreferrer">
+                <ImageIcon className="h-3.5 w-3.5" />
+                {file.filename.replace(/^guide_\d+_/, "").replace(/\.png$/i, "")}
+              </a>
+            </Button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

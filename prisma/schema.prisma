@@ -15,7 +15,7 @@ model User {
   id            String    @id @default(cuid())
   email         String    @unique
   name          String?
-  password      String    // For credentials provider
+  password      String // For credentials provider
   role          String    @default("user") // 用户角色: user, admin
   status        String    @default("active") // active, inactive, banned
   emailVerified DateTime?
@@ -23,28 +23,31 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  accounts      Account[]
-  sessions      Session[]
+  accounts Account[]
+  sessions Session[]
 
-  applications  Application[]
-  documents     Document[]
+  applications      Application[]
+  documents         Document[]
   applicantProfiles ApplicantProfile[]
-  usVisaTasks     UsVisaTask[]
-  frenchVisaTasks FrenchVisaTask[]
+  usVisaTasks       UsVisaTask[]
+  frenchVisaTasks   FrenchVisaTask[]
+  visaCases         VisaCase[]
+  assignedVisaCases VisaCase[]        @relation("VisaCaseAssignee")
+  reminderLogs      ReminderLog[]
 }
 
 // 签证申请模型
 model Application {
-  id            String    @id @default(cuid())
-  userId        String
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  visaType      String    // 签证类型
-  status        String    // 申请状态
-  country       String    // 申请国家
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  documents     Document[]
-  reviews       Review[]
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  visaType  String // 签证类型
+  status    String // 申请状态
+  country   String // 申请国家
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  documents Document[]
+  reviews   Review[]
 
   @@index([userId])
   @@index([userId, status])
@@ -53,18 +56,18 @@ model Application {
 
 // 文档模型
 model Document {
-  id            String    @id @default(cuid())
+  id            String      @id @default(cuid())
   userId        String
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   applicationId String
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  type          String    // 文档类型 (hotel, flight, insurance, etc)
+  type          String // 文档类型 (hotel, flight, insurance, etc)
   filename      String
   fileUrl       String
-  status        String    // 文档状态
-  aiAnalysis    String?   @db.Text // AI分析结果，可能较长
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  status        String // 文档状态
+  aiAnalysis    String?     @db.Text // AI分析结果，可能较长
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
   reviews       Review[]
 
   @@index([userId])
@@ -75,15 +78,15 @@ model Document {
 
 // 审核记录模型
 model Review {
-  id            String    @id @default(cuid())
+  id            String      @id @default(cuid())
   applicationId String
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   documentId    String
-  document      Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  result        String    @db.Text // 审核结果，可能较长
-  feedback      String    @db.Text // 审核反馈，可能较长
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  document      Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  result        String      @db.Text // 审核结果，可能较长
+  feedback      String      @db.Text // 审核反馈，可能较长
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   @@index([applicationId])
   @@index([documentId])
@@ -92,18 +95,18 @@ model Review {
 
 // NextAuth.js Models
 model Account {
-  id                 String  @id @default(cuid())
-  userId             String
-  type               String
-  provider           String
-  providerAccountId  String
-  refresh_token      String?  @db.Text
-  access_token       String?  @db.Text
-  expires_at         Int?
-  token_type         String?
-  scope              String?
-  id_token           String?  @db.Text
-  session_state      String?
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -134,6 +137,12 @@ model ApplicantProfile {
   userId               String
   user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name                 String
+  phone                String?
+  email                String?
+  wechat               String?
+  passportNumber       String?
+  passportLast4        String?
+  note                 String?  @db.Text
   usVisaAaCode         String?
   usVisaSurname        String?
   usVisaBirthYear      String?
@@ -143,13 +152,17 @@ model ApplicantProfile {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  files                ApplicantFile[]
-  usVisaTasks          UsVisaTask[]
-  frenchVisaTasks      FrenchVisaTask[]
+  files           ApplicantFile[]
+  usVisaTasks     UsVisaTask[]
+  frenchVisaTasks FrenchVisaTask[]
+  visaCases       VisaCase[]
 
   @@index([userId])
   @@index([userId, updatedAt])
   @@index([userId, name])
+  @@index([phone])
+  @@index([email])
+  @@index([passportNumber])
 }
 
 model ApplicantFile {
@@ -171,19 +184,19 @@ model ApplicantFile {
 // 美签任务模型（持久化）
 model UsVisaTask {
   id                 String            @id @default(cuid())
-  taskId              String            @unique // 如 task-xxx
-  userId              String
-  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  applicantProfileId  String?
-  applicantProfile    ApplicantProfile? @relation(fields: [applicantProfileId], references: [id], onDelete: SetNull)
-  type                String            // check-photo | fill-ds160 | submit-ds160 | register-ais
-  status              String            // pending | running | completed | failed
-  progress            Int               @default(0)
-  message             String            @default("")
-  result              Json?             // { files, aaCode, emailSent, ... }
-  error               String?
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+  taskId             String            @unique // 如 task-xxx
+  userId             String
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicantProfileId String?
+  applicantProfile   ApplicantProfile? @relation(fields: [applicantProfileId], references: [id], onDelete: SetNull)
+  type               String // check-photo | fill-ds160 | submit-ds160 | register-ais
+  status             String // pending | running | completed | failed
+  progress           Int               @default(0)
+  message            String            @default("")
+  result             Json? // { files, aaCode, emailSent, ... }
+  error              String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
   @@index([userId])
   @@index([userId, createdAt])
@@ -200,11 +213,11 @@ model FrenchVisaTask {
   user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   applicantProfileId String?
   applicantProfile   ApplicantProfile? @relation(fields: [applicantProfileId], references: [id], onDelete: SetNull)
-  type               String            // extract | register | create-application | fill-receipt | submit-final
-  status             String            // pending | running | completed | failed
+  type               String // extract | register | create-application | fill-receipt | submit-final
+  status             String // pending | running | completed | failed
   progress           Int               @default(0)
   message            String            @default("")
-  result             Json?             // { download_excel, download_json, download_pdf, ... }
+  result             Json? // { download_excel, download_json, download_pdf, ... }
   error              String?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
@@ -217,6 +230,119 @@ model FrenchVisaTask {
 }
 
 // 管理后台设置
+model VisaCase {
+  id                 String           @id @default(cuid())
+  userId             String
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicantProfileId String
+  applicantProfile   ApplicantProfile @relation(fields: [applicantProfileId], references: [id], onDelete: Cascade)
+  caseType           String           @default("france-schengen")
+  visaType           String?
+  applyRegion        String?
+  tlsCity            String?
+  mainStatus         String
+  subStatus          String?
+  exceptionCode      String?
+  priority           String           @default("normal")
+  travelDate         DateTime?
+  submissionDate     DateTime?
+  assignedToUserId   String?
+  assignedTo         User?            @relation("VisaCaseAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  assignedRole       String?
+  isActive           Boolean          @default(true)
+  paymentConfirmedAt DateTime?
+  formSubmittedAt    DateTime?
+  docsReadyAt        DateTime?
+  slotBookedAt       DateTime?
+  submittedAt        DateTime?
+  completedAt        DateTime?
+  nextActionAt       DateTime?
+  closedAt           DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  statusHistory VisaCaseStatusHistory[]
+  reminderLogs  ReminderLog[]
+
+  @@index([userId, caseType, isActive])
+  @@index([applicantProfileId, caseType, isActive])
+  @@index([userId, mainStatus, updatedAt])
+  @@index([userId, applicantProfileId, updatedAt])
+  @@index([assignedToUserId])
+  @@index([visaType, applyRegion])
+}
+
+model VisaCaseStatusHistory {
+  id             String   @id @default(cuid())
+  caseId         String
+  visaCase       VisaCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  fromMainStatus String?
+  fromSubStatus  String?
+  toMainStatus   String
+  toSubStatus    String?
+  exceptionCode  String?
+  reason         String?
+  operatorType   String   @default("system")
+  operatorId     String?
+  createdAt      DateTime @default(now())
+
+  @@index([caseId, createdAt])
+  @@index([toMainStatus, createdAt])
+}
+
+model ReminderRule {
+  id              String   @id @default(cuid())
+  ruleCode        String   @unique
+  name            String
+  enabled         Boolean  @default(true)
+  caseType        String   @default("france-schengen")
+  mainStatus      String?
+  subStatus       String?
+  exceptionCode   String?
+  triggerType     String
+  triggerValue    Json?
+  delayMinutes    Int      @default(0)
+  channels        String[]
+  automationMode  String
+  severity        String
+  templateCode    String
+  cooldownMinutes Int      @default(0)
+  stopCondition   Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  reminderLogs ReminderLog[]
+
+  @@index([caseType, enabled])
+  @@index([caseType, mainStatus, subStatus])
+  @@index([caseType, exceptionCode])
+}
+
+model ReminderLog {
+  id              String        @id @default(cuid())
+  caseId          String
+  visaCase        VisaCase      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  ruleId          String?
+  rule            ReminderRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ruleCode        String
+  channel         String
+  automationMode  String
+  severity        String
+  templateCode    String
+  renderedContent String?       @db.Text
+  sendStatus      String        @default("pending")
+  errorMessage    String?       @db.Text
+  triggeredAt     DateTime      @default(now())
+  sentAt          DateTime?
+  createdAt       DateTime      @default(now())
+
+  @@index([caseId, triggeredAt])
+  @@index([userId, triggeredAt])
+  @@index([ruleCode, triggeredAt])
+}
+
 model AdminSetting {
   id        String   @id @default(cuid())
   key       String   @unique
