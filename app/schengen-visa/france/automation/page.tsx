@@ -267,7 +267,7 @@ function FranceAutomationContent() {
               profiles={profiles}
               canUseApplicantProfile={hasSchengenProfileExcel}
             />
-            <div className="mt-6">
+            <div id="france-extract-register-tasks" className="mt-6">
               <FranceTaskList filterTaskTypes={["extract-register", "extract", "register"]} title="提取+注册任务" pollInterval={2000} autoRefresh />
             </div>
           </TabsContent>
@@ -285,7 +285,7 @@ function FranceAutomationContent() {
               profiles={profiles}
               canUseApplicantProfile={hasSchengenProfileExcel}
             />
-            <div className="mt-6">
+            <div id="france-create-application-tasks" className="mt-6">
               <FranceTaskList filterTaskTypes={["create-application"]} title="生成新申请任务" pollInterval={2000} autoRefresh />
             </div>
           </TabsContent>
@@ -303,7 +303,7 @@ function FranceAutomationContent() {
               profiles={profiles}
               canUseApplicantProfile={hasSchengenProfileExcel}
             />
-            <div className="mt-6">
+            <div id="france-fill-receipt-tasks" className="mt-6">
               <FranceTaskList filterTaskTypes={["fill-receipt"]} title="填写回执单任务" pollInterval={2000} autoRefresh />
             </div>
           </TabsContent>
@@ -317,7 +317,7 @@ function FranceAutomationContent() {
               profiles={profiles}
               canUseApplicantProfile={hasSchengenProfileExcel}
             />
-            <div className="mt-6">
+            <div id="france-tls-register-tasks" className="mt-6">
               <FranceTaskList filterTaskTypes={["tls-register"]} title="TLS 账户注册任务" pollInterval={2000} autoRefresh />
             </div>
           </TabsContent>
@@ -331,7 +331,7 @@ function FranceAutomationContent() {
               profiles={profiles}
               canUseApplicantProfile={hasSchengenProfileExcel}
             />
-            <div className="mt-6">
+            <div id="france-tls-apply-tasks" className="mt-6">
               <FranceTaskList filterTaskTypes={["tls-apply"]} title="TLS 填表提交任务" pollInterval={2000} autoRefresh />
             </div>
           </TabsContent>
@@ -349,7 +349,7 @@ function FranceAutomationContent() {
               profiles={profiles}
               canUseApplicantProfile={hasSchengenProfileExcel}
             />
-            <div className="mt-6">
+            <div id="france-submit-final-tasks" className="mt-6">
               <FranceTaskList filterTaskTypes={["submit-final"]} title="提交最终表任务" pollInterval={2000} autoRefresh />
             </div>
           </TabsContent>

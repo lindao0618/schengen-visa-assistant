@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { AlertCircle, CheckCircle2, Loader2, PlayCircle, RotateCcw, Sparkles } from "lucide-react"
+import { AlertCircle, CheckCircle2, ExternalLink, Loader2, PlayCircle, RotateCcw, Sparkles } from "lucide-react"
 
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -59,12 +59,47 @@ function hasUsVisaPhoto(profile: ReturnType<typeof useActiveApplicantProfile>) {
   return Boolean(profile?.files?.usVisaPhoto || profile?.files?.photo)
 }
 
+function scrollToTaskList(id: string) {
+  if (typeof window === "undefined") return
+  const node = document.getElementById(id)
+  if (!node) return
+  node.scrollIntoView({ behavior: "smooth", block: "start" })
+}
+
 function StepBadge({ label, step }: { label: string; step: QuickStepState }) {
   return (
     <div className={`rounded-xl border px-3 py-2 text-sm ${getStepStatusClass(step)}`}>
       <div className="font-medium">{label}</div>
       <div className="mt-1 text-xs">{getStepStatusText(step)}</div>
       {step.finishedAt && <div className="mt-1 text-[11px] opacity-80">{formatWorkflowTime(step.finishedAt)}</div>}
+    </div>
+  )
+}
+
+function StepMeta({
+  step,
+  taskListId,
+  taskLabel,
+}: {
+  step: QuickStepState
+  taskListId: string
+  taskLabel: string
+}) {
+  if (!step.taskId && !step.error) return null
+
+  return (
+    <div className="mt-2 space-y-2 rounded-lg border border-dashed border-gray-200 bg-gray-50/80 p-2 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">
+      {step.taskId && (
+        <div>
+          最近任务 ID：
+          <span className="ml-1 font-mono text-[11px] text-gray-800 dark:text-gray-100">{step.taskId}</span>
+        </div>
+      )}
+      {step.error && <div className="break-all text-red-600 dark:text-red-400">失败摘要：{step.error}</div>}
+      <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={() => scrollToTaskList(taskListId)}>
+        <ExternalLink className="h-3.5 w-3.5" />
+        查看{taskLabel}任务
+      </Button>
     </div>
   )
 }
@@ -562,8 +597,14 @@ export function UsVisaQuickStartCard() {
             <Progress value={prepPercent} className="h-2.5" />
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <StepBadge label="步骤 1：照片检测" step={prepWorkflow?.steps.photoCheck ?? { status: "idle" }} />
-            <StepBadge label="步骤 2：DS-160 填表" step={prepWorkflow?.steps.ds160Fill ?? { status: "idle" }} />
+            <div>
+              <StepBadge label="步骤 1：照片检测" step={prepWorkflow?.steps.photoCheck ?? { status: "idle" }} />
+              <StepMeta step={prepWorkflow?.steps.photoCheck ?? { status: "idle" }} taskListId="us-photo-tasks" taskLabel="照片检测" />
+            </div>
+            <div>
+              <StepBadge label="步骤 2：DS-160 填表" step={prepWorkflow?.steps.ds160Fill ?? { status: "idle" }} />
+              <StepMeta step={prepWorkflow?.steps.ds160Fill ?? { status: "idle" }} taskListId="us-ds160-fill-tasks" taskLabel="DS-160 填表" />
+            </div>
           </div>
           {prepWorkflow?.phase === "completed" && (
             <Alert className="mt-4">
@@ -621,8 +662,14 @@ export function UsVisaQuickStartCard() {
             <Progress value={submitPercent} className="h-2.5" />
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <StepBadge label="步骤 1：提交 DS-160" step={submitWorkflow?.steps.submitDs160 ?? { status: "idle" }} />
-            <StepBadge label="步骤 2：AIS 注册" step={submitWorkflow?.steps.registerAis ?? { status: "idle" }} />
+            <div>
+              <StepBadge label="步骤 1：提交 DS-160" step={submitWorkflow?.steps.submitDs160 ?? { status: "idle" }} />
+              <StepMeta step={submitWorkflow?.steps.submitDs160 ?? { status: "idle" }} taskListId="us-ds160-submit-tasks" taskLabel="提交 DS-160" />
+            </div>
+            <div>
+              <StepBadge label="步骤 2：AIS 注册" step={submitWorkflow?.steps.registerAis ?? { status: "idle" }} />
+              <StepMeta step={submitWorkflow?.steps.registerAis ?? { status: "idle" }} taskListId="us-ais-register-tasks" taskLabel="AIS 注册" />
+            </div>
           </div>
           {submitWorkflow?.phase === "completed" && (
             <Alert className="mt-4">

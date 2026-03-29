@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { AlertCircle, CheckCircle2, Loader2, PlayCircle, RotateCcw, Sparkles } from "lucide-react"
+import { AlertCircle, CheckCircle2, ExternalLink, Loader2, PlayCircle, RotateCcw, Sparkles } from "lucide-react"
 
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -65,6 +65,13 @@ function hasFranceExcel(profile: ReturnType<typeof useActiveApplicantProfile>) {
   return Boolean(profile?.files?.schengenExcel || profile?.files?.franceExcel)
 }
 
+function scrollToTaskList(id: string) {
+  if (typeof window === "undefined") return
+  const node = document.getElementById(id)
+  if (!node) return
+  node.scrollIntoView({ behavior: "smooth", block: "start" })
+}
+
 function StepBadge({ label, step }: { label: string; step: QuickStepState }) {
   return (
     <div className={`rounded-xl border px-3 py-2 text-sm ${getStepStatusClass(step)}`}>
@@ -75,9 +82,37 @@ function StepBadge({ label, step }: { label: string; step: QuickStepState }) {
   )
 }
 
+function StepMeta({
+  step,
+  taskListId,
+  taskLabel,
+}: {
+  step: QuickStepState
+  taskListId: string
+  taskLabel: string
+}) {
+  if (!step.taskId && !step.error) return null
+
+  return (
+    <div className="mt-2 space-y-2 rounded-lg border border-dashed border-gray-200 bg-gray-50/80 p-2 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">
+      {step.taskId && (
+        <div>
+          最近任务 ID：
+          <span className="ml-1 font-mono text-[11px] text-gray-800 dark:text-gray-100">{step.taskId}</span>
+        </div>
+      )}
+      {step.error && <div className="break-all text-red-600 dark:text-red-400">失败摘要：{step.error}</div>}
+      <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={() => scrollToTaskList(taskListId)}>
+        <ExternalLink className="h-3.5 w-3.5" />
+        查看{taskLabel}任务
+      </Button>
+    </div>
+  )
+}
+
 function getFranceCurrentStepLabel(workflow: FranceQuickWorkflow | null) {
   if (!workflow) return "未开始"
-  if (workflow.phase === "failed") return "已停止，等待你处理失败步骤"
+  if (workflow.phase === "failed") return "已停止，等待处理失败步骤"
   if (workflow.phase === "completed") return "自动阶段已完成，等待人工审核"
   if (workflow.steps.tlsApply.status === "running") return "步骤 3：TLS 填表提交"
   if (workflow.steps.createApplication.status === "running") return "步骤 2：生成新申请"
@@ -90,8 +125,7 @@ function getFranceCurrentStepLabel(workflow: FranceQuickWorkflow | null) {
 }
 
 function canResumeFranceWorkflow(workflow: FranceQuickWorkflow | null) {
-  if (!workflow || workflow.phase !== "failed") return false
-  return true
+  return Boolean(workflow && workflow.phase === "failed")
 }
 
 export function FranceQuickStartCard() {
@@ -578,8 +612,14 @@ export function FranceQuickStartCard() {
             <div className="text-sm font-semibold text-gray-900 dark:text-white">步骤 1：注册准备</div>
             <div className="mt-1 text-xs text-gray-500">只有 FV 注册和 TLS 注册都成功，才会继续下一步。</div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <StepBadge label="FV 注册" step={workflow?.steps.extractRegister ?? { status: "idle" }} />
-              <StepBadge label="TLS 注册" step={workflow?.steps.tlsRegister ?? { status: "idle" }} />
+              <div>
+                <StepBadge label="FV 注册" step={workflow?.steps.extractRegister ?? { status: "idle" }} />
+                <StepMeta step={workflow?.steps.extractRegister ?? { status: "idle" }} taskListId="france-extract-register-tasks" taskLabel="提取+注册" />
+              </div>
+              <div>
+                <StepBadge label="TLS 注册" step={workflow?.steps.tlsRegister ?? { status: "idle" }} />
+                <StepMeta step={workflow?.steps.tlsRegister ?? { status: "idle" }} taskListId="france-tls-register-tasks" taskLabel="TLS 注册" />
+              </div>
             </div>
           </div>
           <div className="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-black/20">
@@ -587,6 +627,11 @@ export function FranceQuickStartCard() {
             <div className="mt-1 text-xs text-gray-500">生成 France-visas 新申请 JSON。</div>
             <div className="mt-3">
               <StepBadge label="France-visas 新申请" step={workflow?.steps.createApplication ?? { status: "idle" }} />
+              <StepMeta
+                step={workflow?.steps.createApplication ?? { status: "idle" }}
+                taskListId="france-create-application-tasks"
+                taskLabel="生成新申请"
+              />
             </div>
           </div>
           <div className="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-black/20">
@@ -594,6 +639,7 @@ export function FranceQuickStartCard() {
             <div className="mt-1 text-xs text-gray-500">提交完成后自动停止，留给人工检查。</div>
             <div className="mt-3">
               <StepBadge label="TLS 页面填表与提交" step={workflow?.steps.tlsApply ?? { status: "idle" }} />
+              <StepMeta step={workflow?.steps.tlsApply ?? { status: "idle" }} taskListId="france-tls-apply-tasks" taskLabel="TLS 填表提交" />
             </div>
           </div>
         </div>

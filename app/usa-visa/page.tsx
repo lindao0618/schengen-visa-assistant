@@ -60,7 +60,7 @@ export default function USAVisaPage() {
                   <PhotoChecker />
                 </CardContent>
               </Card>
-              <div className="mt-6">
+              <div id="us-photo-tasks" className="mt-6">
                 <TaskList filterTaskTypes={["check-photo"]} title="照片检测任务" pollInterval={2000} autoRefresh={true} />
               </div>
             </TabsContent>
@@ -80,7 +80,7 @@ export default function USAVisaPage() {
                   <DS160Form />
                 </CardContent>
               </Card>
-              <div className="mt-6">
+              <div id="us-ds160-fill-tasks" className="mt-6">
                 <TaskList filterTaskTypes={["fill-ds160"]} title="DS-160 填表任务" pollInterval={2000} autoRefresh={true} />
               </div>
             </TabsContent>
@@ -100,7 +100,7 @@ export default function USAVisaPage() {
                   <SubmitDS160Form />
                 </CardContent>
               </Card>
-              <div className="mt-6">
+              <div id="us-ds160-submit-tasks" className="mt-6">
                 <TaskList filterTaskTypes={["submit-ds160"]} title="提交 DS160 任务" pollInterval={2000} autoRefresh={true} />
               </div>
             </TabsContent>
@@ -120,7 +120,7 @@ export default function USAVisaPage() {
                   <RegisterAISForm />
                 </CardContent>
               </Card>
-              <div className="mt-6">
+              <div id="us-ais-register-tasks" className="mt-6">
                 <TaskList filterTaskTypes={["register-ais"]} title="AIS 注册任务" pollInterval={2000} autoRefresh={true} />
               </div>
             </TabsContent>
