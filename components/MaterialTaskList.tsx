@@ -17,6 +17,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { useTaskStatusReminder } from "@/hooks/use-task-status-reminder"
 
 function formatTimestamp(ts?: number) {
   if (!ts) return "-"
@@ -151,6 +152,15 @@ export function MaterialTaskList({
     () => tasks.filter((task) => task.status === "failed").map((task) => task.task_id),
     [tasks]
   )
+
+  useTaskStatusReminder(tasks, {
+    getSuccessTitle: (task) => `${TYPE_LABELS[task.type] || task.type}已完成`,
+    getFailureTitle: (task) => `${TYPE_LABELS[task.type] || task.type}失败`,
+    getDescription: (task) =>
+      [task.applicantName ? `申请人：${task.applicantName}` : "", getTaskDisplayName(task)]
+        .filter(Boolean)
+        .join(" · "),
+  })
 
   const clearFailedTasks = useCallback(async () => {
     if (!failedTaskIds.length || clearingFailed) return

@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, CheckCircle2, XCircle, Clock, ListTodo, RefreshCw, Search, Download, ImageIcon, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
+import { useTaskStatusReminder } from "@/hooks/use-task-status-reminder"
 
 function getTaskFilename(task: UsVisaTask): string {
   if (task.type === "check-photo") {
@@ -187,6 +188,15 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
     })
     return sorted
   }, [tasks, statusFilter, searchKeyword])
+
+  useTaskStatusReminder(tasks, {
+    getSuccessTitle: (task) => `${TYPE_LABELS[task.type] || task.type}已完成`,
+    getFailureTitle: (task) => `${TYPE_LABELS[task.type] || task.type}失败`,
+    getDescription: (task) =>
+      [task.applicantName ? `申请人：${task.applicantName}` : "", getTaskFilename(task)]
+        .filter(Boolean)
+        .join(" · "),
+  })
 
   useEffect(() => {
     fetchTasks()

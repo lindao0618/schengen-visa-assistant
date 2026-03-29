@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Loader2, CheckCircle2, XCircle, Clock, ListTodo, RefreshCw, Search, Download, ExternalLink } from "lucide-react"
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
+import { useTaskStatusReminder } from "@/hooks/use-task-status-reminder"
 
 export interface FranceVisaTask {
   task_id: string
@@ -152,6 +153,15 @@ export function FranceTaskList({
     })
     return sorted
   }, [tasks, statusFilter, searchKeyword])
+
+  useTaskStatusReminder(tasks, {
+    getSuccessTitle: (task) => `${TYPE_LABELS[task.type] || task.type}已完成`,
+    getFailureTitle: (task) => `${TYPE_LABELS[task.type] || task.type}失败`,
+    getDescription: (task) =>
+      [task.applicantName ? `申请人：${task.applicantName}` : "", getTaskFilename(task)]
+        .filter(Boolean)
+        .join(" · "),
+  })
 
   useEffect(() => {
     fetchTasks()
