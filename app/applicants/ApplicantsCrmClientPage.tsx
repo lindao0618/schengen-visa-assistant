@@ -1,9 +1,14 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowRight, BriefcaseBusiness, CalendarClock, RefreshCw, Search, UserPlus } from "lucide-react"
 
+import {
+  getApplicantCrmPriorityLabel,
+  getApplicantCrmRegionLabel,
+  getApplicantCrmVisaTypeLabel,
+} from "@/lib/applicant-crm-labels"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -83,6 +88,19 @@ const emptyCreateForm: CreateApplicantForm = {
   note: "",
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  no_case: "未创建案件",
+  pending_payment: "待付款",
+  preparing_docs: "资料准备中",
+  reviewing: "审核中",
+  docs_ready: "材料已就绪",
+  tls_processing: "TLS 处理中",
+  slot_booked: "已获取 Slot",
+  submitted: "已递签",
+  completed: "已完成",
+  exception: "异常处理中",
+}
+
 function formatDate(value?: string | null) {
   if (!value) return "-"
   const date = new Date(value)
@@ -105,11 +123,8 @@ function getStatusVariant(statusKey: string) {
   return "outline" as const
 }
 
-function getPriorityLabel(value?: string) {
-  if (!value) return "-"
-  if (value === "urgent") return "紧急"
-  if (value === "high") return "高优先级"
-  return "普通"
+function getApplicantCrmStatusLabel(statusKey: string, fallbackLabel?: string) {
+  return STATUS_LABELS[statusKey] || fallbackLabel || statusKey || "-"
 }
 
 function FilterGroup({
@@ -163,7 +178,7 @@ function StatCard({
   title: string
   value: number
   hint: string
-  icon: React.ReactNode
+  icon: ReactNode
 }) {
   return (
     <Card className="border-gray-200 bg-white/90">
@@ -206,50 +221,53 @@ export default function ApplicantsCrmClientPage() {
   const [creating, setCreating] = useState(false)
   const [createForm, setCreateForm] = useState<CreateApplicantForm>(emptyCreateForm)
 
-  const fetchApplicants = useCallback(async (showRefresh = false) => {
-    if (showRefresh) setRefreshing(true)
-    else setLoading(true)
+  const fetchApplicants = useCallback(
+    async (showRefresh = false) => {
+      if (showRefresh) setRefreshing(true)
+      else setLoading(true)
 
-    try {
-      const params = new URLSearchParams()
-      if (keyword.trim()) params.set("keyword", keyword.trim())
-      for (const value of selectedVisaTypes) params.append("visaTypes", value)
-      for (const value of selectedStatuses) params.append("statuses", value)
-      for (const value of selectedRegions) params.append("regions", value)
-      for (const value of selectedPriorities) params.append("priorities", value)
+      try {
+        const params = new URLSearchParams()
+        if (keyword.trim()) params.set("keyword", keyword.trim())
+        for (const value of selectedVisaTypes) params.append("visaTypes", value)
+        for (const value of selectedStatuses) params.append("statuses", value)
+        for (const value of selectedRegions) params.append("regions", value)
+        for (const value of selectedPriorities) params.append("priorities", value)
 
-      const response = await fetch(`/api/applicants?${params.toString()}`, {
-        cache: "no-store",
-      })
-      const data = (await response.json().catch(() => null)) as ApplicantsResponse | null
-      if (!response.ok) {
-        throw new Error(data?.error || "加载申请人列表失败")
+        const response = await fetch(`/api/applicants?${params.toString()}`, {
+          cache: "no-store",
+        })
+        const data = (await response.json().catch(() => null)) as ApplicantsResponse | null
+        if (!response.ok) {
+          throw new Error(data?.error || "加载申请人列表失败")
+        }
+
+        setRows(data?.rows || [])
+        setStats(
+          data?.stats || {
+            applicantCount: 0,
+            activeCaseCount: 0,
+            exceptionCaseCount: 0,
+            updatedLast7DaysCount: 0,
+          },
+        )
+        setFilterOptions(
+          data?.filterOptions || {
+            visaTypes: [],
+            regions: [],
+            priorities: [],
+            statuses: [],
+          },
+        )
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "加载申请人列表失败")
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
       }
-
-      setRows(data?.rows || [])
-      setStats(
-        data?.stats || {
-          applicantCount: 0,
-          activeCaseCount: 0,
-          exceptionCaseCount: 0,
-          updatedLast7DaysCount: 0,
-        },
-      )
-      setFilterOptions(
-        data?.filterOptions || {
-          visaTypes: [],
-          regions: [],
-          priorities: [],
-          statuses: [],
-        },
-      )
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "加载申请人列表失败")
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [keyword, selectedPriorities, selectedRegions, selectedStatuses, selectedVisaTypes])
+    },
+    [keyword, selectedPriorities, selectedRegions, selectedStatuses, selectedVisaTypes],
+  )
 
   useEffect(() => {
     void fetchApplicants()
@@ -325,7 +343,7 @@ export default function ApplicantsCrmClientPage() {
           <div className="space-y-1">
             <h1 className="text-3xl font-semibold text-gray-900">申请人 CRM 工作台</h1>
             <p className="text-sm text-gray-500">
-              申请人、案件、材料和进度统一在这里管理。管理员可查看全部，员工默认只看自己的申请人或分配给自己的案件。
+              申请人、案件、材料和进度统一在这里管理。管理员可查看全部，员工默认只看自己创建的申请人或分配给自己的案件。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -400,25 +418,37 @@ export default function ApplicantsCrmClientPage() {
             <div className="grid gap-4 lg:grid-cols-2">
               <FilterGroup
                 title="签证类型"
-                options={filterOptions.visaTypes.map((item) => ({ value: item, label: item }))}
+                options={filterOptions.visaTypes.map((item) => ({
+                  value: item,
+                  label: getApplicantCrmVisaTypeLabel(item),
+                }))}
                 selected={selectedVisaTypes}
                 onToggle={(value) => setSelectedVisaTypes((prev) => toggleValue(prev, value))}
               />
               <FilterGroup
                 title="当前状态"
-                options={filterOptions.statuses}
+                options={filterOptions.statuses.map((item) => ({
+                  value: item.value,
+                  label: getApplicantCrmStatusLabel(item.value, item.label),
+                }))}
                 selected={selectedStatuses}
                 onToggle={(value) => setSelectedStatuses((prev) => toggleValue(prev, value))}
               />
               <FilterGroup
                 title="地区"
-                options={filterOptions.regions.map((item) => ({ value: item, label: item }))}
+                options={filterOptions.regions.map((item) => ({
+                  value: item,
+                  label: getApplicantCrmRegionLabel(item),
+                }))}
                 selected={selectedRegions}
                 onToggle={(value) => setSelectedRegions((prev) => toggleValue(prev, value))}
               />
               <FilterGroup
                 title="优先级"
-                options={filterOptions.priorities.map((item) => ({ value: item, label: getPriorityLabel(item) }))}
+                options={filterOptions.priorities.map((item) => ({
+                  value: item,
+                  label: getApplicantCrmPriorityLabel(item),
+                }))}
                 selected={selectedPriorities}
                 onToggle={(value) => setSelectedPriorities((prev) => toggleValue(prev, value))}
               />
@@ -444,6 +474,7 @@ export default function ApplicantsCrmClientPage() {
                     <TableHead>签证类型</TableHead>
                     <TableHead>地区</TableHead>
                     <TableHead>当前状态</TableHead>
+                    <TableHead>优先级</TableHead>
                     <TableHead>出行时间</TableHead>
                     <TableHead>最近更新</TableHead>
                     <TableHead className="w-[120px]">操作</TableHead>
@@ -464,11 +495,14 @@ export default function ApplicantsCrmClientPage() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell>{row.visaType || row.caseType || "-"}</TableCell>
-                      <TableCell>{row.region || "-"}</TableCell>
+                      <TableCell>{getApplicantCrmVisaTypeLabel(row.visaType || row.caseType)}</TableCell>
+                      <TableCell>{getApplicantCrmRegionLabel(row.region)}</TableCell>
                       <TableCell>
-                        <Badge variant={getStatusVariant(row.currentStatusKey)}>{row.currentStatusLabel}</Badge>
+                        <Badge variant={getStatusVariant(row.currentStatusKey)}>
+                          {getApplicantCrmStatusLabel(row.currentStatusKey, row.currentStatusLabel)}
+                        </Badge>
                       </TableCell>
+                      <TableCell>{getApplicantCrmPriorityLabel(row.priority)}</TableCell>
                       <TableCell>{formatDate(row.travelDate)}</TableCell>
                       <TableCell>{formatDateTime(row.updatedAt)}</TableCell>
                       <TableCell>
@@ -488,7 +522,7 @@ export default function ApplicantsCrmClientPage() {
                   ))}
                   {rows.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="py-10 text-center text-sm text-gray-500">
+                      <TableCell colSpan={8} className="py-10 text-center text-sm text-gray-500">
                         当前没有符合条件的申请人。
                       </TableCell>
                     </TableRow>
@@ -504,7 +538,7 @@ export default function ApplicantsCrmClientPage() {
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>新建申请人</DialogTitle>
-            <DialogDescription>先创建基本 CRM 档案，保存后进入详情页补材料和 Case。</DialogDescription>
+            <DialogDescription>先创建基础 CRM 档案，保存后进入详情页补材料和 Case。</DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 md:grid-cols-2">

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client"
 
 import prisma from "@/lib/db"
 import { ApplicantProfile, getApplicantProfile, listApplicantProfiles } from "@/lib/applicant-profiles"
+import { CRM_PRIORITY_FILTER_VALUES } from "@/lib/applicant-crm-labels"
 import {
   DEFAULT_FRANCE_CASE_MAIN_STATUS,
   DEFAULT_FRANCE_CASE_SUB_STATUS,
@@ -371,10 +372,7 @@ function mapApplicantRow(item: ApplicantWithCasesRecord): ApplicantCrmRow {
     passportNumber: item.passportNumber ?? item.usVisaPassportNumber ?? undefined,
     visaType: primaryCase?.visaType ?? primaryCase?.caseType ?? undefined,
     caseType: primaryCase?.caseType ?? undefined,
-    region:
-      primaryCase?.applyRegion ??
-      item.schengenCountry ??
-      undefined,
+    region: primaryCase?.applyRegion ?? undefined,
     currentStatusKey: crmStatus.key,
     currentStatusLabel: crmStatus.label,
     priority: primaryCase?.priority ?? undefined,
@@ -531,7 +529,7 @@ export async function listApplicantCrmData(
   const filterOptions = {
     visaTypes: Array.from(new Set(rows.map((item) => item.visaType || item.caseType).filter(Boolean))) as string[],
     regions: Array.from(new Set(rows.map((item) => item.region).filter(Boolean))) as string[],
-    priorities: Array.from(new Set(rows.map((item) => item.priority).filter(Boolean))) as string[],
+    priorities: [...CRM_PRIORITY_FILTER_VALUES],
     statuses: CRM_STATUS_OPTIONS,
   }
 
