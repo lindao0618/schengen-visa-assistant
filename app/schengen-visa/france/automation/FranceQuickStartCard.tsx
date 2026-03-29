@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { AlertCircle, CheckCircle2, Loader2, PlayCircle, RotateCcw } from "lucide-react"
+import { AlertCircle, CheckCircle2, Loader2, PlayCircle, RotateCcw, Sparkles } from "lucide-react"
 
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -15,13 +15,15 @@ import {
   fetchFranceTasksForApplicant,
   findTaskById,
   formatWorkflowTime,
+  getStepStatusClass,
+  getStepStatusText,
   readStoredWorkflow,
   syncStepWithTask,
   workflowPercent,
   writeStoredWorkflow,
 } from "@/components/quick-start/workflow-utils"
 
-type FranceWorkflowStage = "registrations" | "create-application" | "tls-apply" | "completed" | "failed"
+type FranceWorkflowStage = "registrations" | "create-application" | "tls-apply" | "review" | "failed"
 
 interface FranceQuickWorkflow {
   applicantProfileId: string
@@ -63,28 +65,33 @@ function hasFranceExcel(profile: ReturnType<typeof useActiveApplicantProfile>) {
   return Boolean(profile?.files?.schengenExcel || profile?.files?.franceExcel)
 }
 
-function statusText(step: QuickStepState) {
-  if (step.status === "completed") return "已完成"
-  if (step.status === "failed") return "失败"
-  if (step.status === "running") return "运行中"
-  return "未开始"
-}
-
-function statusColor(step: QuickStepState) {
-  if (step.status === "completed") return "border-emerald-200 bg-emerald-50 text-emerald-700"
-  if (step.status === "failed") return "border-red-200 bg-red-50 text-red-700"
-  if (step.status === "running") return "border-blue-200 bg-blue-50 text-blue-700"
-  return "border-gray-200 bg-gray-50 text-gray-500"
-}
-
 function StepBadge({ label, step }: { label: string; step: QuickStepState }) {
   return (
-    <div className={`rounded-xl border px-3 py-2 text-sm ${statusColor(step)}`}>
+    <div className={`rounded-xl border px-3 py-2 text-sm ${getStepStatusClass(step)}`}>
       <div className="font-medium">{label}</div>
-      <div className="mt-1 text-xs">{statusText(step)}</div>
+      <div className="mt-1 text-xs">{getStepStatusText(step)}</div>
       {step.finishedAt && <div className="mt-1 text-[11px] opacity-80">{formatWorkflowTime(step.finishedAt)}</div>}
     </div>
   )
+}
+
+function getFranceCurrentStepLabel(workflow: FranceQuickWorkflow | null) {
+  if (!workflow) return "未开始"
+  if (workflow.phase === "failed") return "已停止，等待你处理失败步骤"
+  if (workflow.phase === "completed") return "自动阶段已完成，等待人工审核"
+  if (workflow.steps.tlsApply.status === "running") return "步骤 3：TLS 填表提交"
+  if (workflow.steps.createApplication.status === "running") return "步骤 2：生成新申请"
+  if (workflow.steps.extractRegister.status === "running" || workflow.steps.tlsRegister.status === "running") {
+    return "步骤 1：注册准备"
+  }
+  if (workflow.stage === "create-application") return "步骤 2：生成新申请"
+  if (workflow.stage === "tls-apply") return "步骤 3：TLS 填表提交"
+  return "步骤 1：注册准备"
+}
+
+function canResumeFranceWorkflow(workflow: FranceQuickWorkflow | null) {
+  if (!workflow || workflow.phase !== "failed") return false
+  return true
 }
 
 export function FranceQuickStartCard() {
@@ -111,8 +118,7 @@ export function FranceQuickStartCard() {
       setWorkflow(null)
       return
     }
-    const stored = readStoredWorkflow<FranceQuickWorkflow>(storageKey)
-    setWorkflow(stored)
+    setWorkflow(readStoredWorkflow<FranceQuickWorkflow>(storageKey))
   }, [storageKey])
 
   const updateWorkflow = useCallback(
@@ -193,58 +199,6 @@ export function FranceQuickStartCard() {
     }
     return data.task_id
   }, [activeApplicant?.id])
-
-  const handleStart = useCallback(async () => {
-    if (!activeApplicant?.id || !canStart || launchLockRef.current) return
-    launchLockRef.current = true
-    setLoading(true)
-    const base = createInitialWorkflow(activeApplicant.id, activeApplicant.name || activeApplicant.label)
-    try {
-      const [extractResult, tlsResult] = await Promise.allSettled([startExtractRegister(), startTlsRegister()])
-      const next = { ...base }
-
-      if (extractResult.status === "fulfilled") {
-        next.steps.extractRegister = {
-          status: "running",
-          taskId: extractResult.value,
-          startedAt: Date.now(),
-          message: "FV 注册已启动",
-        }
-      } else {
-        next.steps.extractRegister = {
-          status: "failed",
-          error: extractResult.reason instanceof Error ? extractResult.reason.message : "FV 注册启动失败",
-          finishedAt: Date.now(),
-        }
-      }
-
-      if (tlsResult.status === "fulfilled") {
-        next.steps.tlsRegister = {
-          status: "running",
-          taskId: tlsResult.value,
-          startedAt: Date.now(),
-          message: "TLS 注册已启动",
-        }
-      } else {
-        next.steps.tlsRegister = {
-          status: "failed",
-          error: tlsResult.reason instanceof Error ? tlsResult.reason.message : "TLS 注册启动失败",
-          finishedAt: Date.now(),
-        }
-      }
-
-      if (extractResult.status === "rejected" || tlsResult.status === "rejected") {
-        next.phase = "failed"
-        next.stage = "failed"
-        next.lastError = [next.steps.extractRegister.error, next.steps.tlsRegister.error].filter(Boolean).join("；")
-      }
-      next.updatedAt = Date.now()
-      persistWorkflow(next)
-    } finally {
-      launchLockRef.current = false
-      setLoading(false)
-    }
-  }, [activeApplicant?.id, activeApplicant?.label, activeApplicant?.name, canStart, persistWorkflow, startExtractRegister, startTlsRegister])
 
   const launchCreateApplication = useCallback(
     async (current: FranceQuickWorkflow) => {
@@ -334,6 +288,142 @@ export function FranceQuickStartCard() {
     [persistWorkflow, startTlsApply],
   )
 
+  const handleStart = useCallback(async () => {
+    if (!activeApplicant?.id || !canStart || launchLockRef.current) return
+    launchLockRef.current = true
+    setLoading(true)
+    const base = createInitialWorkflow(activeApplicant.id, activeApplicant.name || activeApplicant.label)
+    try {
+      const [extractResult, tlsResult] = await Promise.allSettled([startExtractRegister(), startTlsRegister()])
+      const next = { ...base }
+
+      if (extractResult.status === "fulfilled") {
+        next.steps.extractRegister = {
+          status: "running",
+          taskId: extractResult.value,
+          startedAt: Date.now(),
+          message: "FV 注册已启动",
+        }
+      } else {
+        next.steps.extractRegister = {
+          status: "failed",
+          error: extractResult.reason instanceof Error ? extractResult.reason.message : "FV 注册启动失败",
+          finishedAt: Date.now(),
+        }
+      }
+
+      if (tlsResult.status === "fulfilled") {
+        next.steps.tlsRegister = {
+          status: "running",
+          taskId: tlsResult.value,
+          startedAt: Date.now(),
+          message: "TLS 注册已启动",
+        }
+      } else {
+        next.steps.tlsRegister = {
+          status: "failed",
+          error: tlsResult.reason instanceof Error ? tlsResult.reason.message : "TLS 注册启动失败",
+          finishedAt: Date.now(),
+        }
+      }
+
+      if (extractResult.status === "rejected" || tlsResult.status === "rejected") {
+        next.phase = "failed"
+        next.stage = "failed"
+        next.lastError = [next.steps.extractRegister.error, next.steps.tlsRegister.error].filter(Boolean).join("；")
+      }
+
+      next.updatedAt = Date.now()
+      persistWorkflow(next)
+    } finally {
+      launchLockRef.current = false
+      setLoading(false)
+    }
+  }, [activeApplicant?.id, activeApplicant?.label, activeApplicant?.name, canStart, persistWorkflow, startExtractRegister, startTlsRegister])
+
+  const handleResume = useCallback(async () => {
+    if (!workflow || !activeApplicant?.id || launchLockRef.current) return
+    launchLockRef.current = true
+    setLoading(true)
+    try {
+      const next = {
+        ...workflow,
+        phase: "running" as QuickWorkflowPhase,
+        stage: workflow.stage === "failed" ? "registrations" : workflow.stage,
+        updatedAt: Date.now(),
+        lastError: undefined,
+      }
+
+      const launchers: Promise<void>[] = []
+
+      if (next.steps.extractRegister.status === "failed" || next.steps.extractRegister.status === "idle") {
+        launchers.push(
+          startExtractRegister().then((taskId) => {
+            next.steps.extractRegister = {
+              status: "running",
+              taskId,
+              startedAt: Date.now(),
+              message: "FV 注册已重新启动",
+            }
+          }),
+        )
+      }
+
+      if (next.steps.tlsRegister.status === "failed" || next.steps.tlsRegister.status === "idle") {
+        launchers.push(
+          startTlsRegister().then((taskId) => {
+            next.steps.tlsRegister = {
+              status: "running",
+              taskId,
+              startedAt: Date.now(),
+              message: "TLS 注册已重新启动",
+            }
+          }),
+        )
+      }
+
+      if (!launchers.length && next.steps.createApplication.status !== "completed") {
+        const taskId = await startCreateApplication()
+        next.stage = "create-application"
+        next.steps.createApplication = {
+          status: "running",
+          taskId,
+          startedAt: Date.now(),
+          message: "生成新申请已重新启动",
+        }
+      } else if (!launchers.length && next.steps.tlsApply.status !== "completed") {
+        const taskId = await startTlsApply()
+        next.stage = "tls-apply"
+        next.steps.tlsApply = {
+          status: "running",
+          taskId,
+          startedAt: Date.now(),
+          message: "TLS 填表提交已重新启动",
+        }
+      } else if (launchers.length) {
+        next.stage = "registrations"
+        const results = await Promise.allSettled(launchers)
+        const rejected = results.find((result) => result.status === "rejected")
+        if (rejected?.status === "rejected") {
+          throw rejected.reason
+        }
+      }
+
+      persistWorkflow(next)
+    } catch (error) {
+      persistWorkflow({
+        ...workflow,
+        phase: "failed",
+        stage: "failed",
+        updatedAt: Date.now(),
+        lastError: error instanceof Error ? error.message : "续跑失败",
+      })
+    } finally {
+      launchLockRef.current = false
+      setLoading(false)
+    }
+  }, [activeApplicant?.id, persistWorkflow, startCreateApplication, startExtractRegister, startTlsApply, startTlsRegister, workflow])
+
   useEffect(() => {
     if (!activeApplicant?.id || !workflow || workflow.applicantProfileId !== activeApplicant.id) return
     if (workflow.phase === "completed" || workflow.phase === "failed") return
@@ -380,18 +470,19 @@ export function FranceQuickStartCard() {
 
         if (tlsApply.status === "completed") {
           next.phase = "completed"
-          next.stage = "completed"
+          next.stage = "review"
           persistWorkflow(next)
           return
         }
 
-        if (createApplication.status === "running") {
-          next.stage = "create-application"
-        } else if (tlsApply.status === "running") {
+        if (tlsApply.status === "running") {
           next.stage = "tls-apply"
+        } else if (createApplication.status === "running") {
+          next.stage = "create-application"
         } else {
           next.stage = "registrations"
         }
+
         persistWorkflow(next)
       } catch (error) {
         if (!cancelled) {
@@ -426,36 +517,53 @@ export function FranceQuickStartCard() {
       ])
     : 0
 
+  const currentStepText = useMemo(() => getFranceCurrentStepLabel(workflow), [workflow])
   const canReset = Boolean(workflow)
+  const canResume = canResumeFranceWorkflow(workflow)
 
   return (
     <Card className="mb-6 border-blue-200/60 bg-gradient-to-r from-blue-50 to-white shadow-xl dark:border-blue-900/40 dark:from-blue-950/20 dark:to-gray-950">
       <CardHeader className="border-b border-blue-100/80 dark:border-blue-900/30">
         <CardTitle className="text-xl text-gray-900 dark:text-white">法签一键启动</CardTitle>
-        <CardDescription>
-          自动执行到“TLS 填表提交”为止，后续抢号、回执单、最终表保留给人工审核。
-        </CardDescription>
+        <CardDescription>自动执行到 “TLS 填表提交” 为止，之后故意停下来，方便你人工审核数据是否正确。</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 pt-6">
         {!activeApplicant?.id ? (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>请先选择申请人档案</AlertTitle>
-            <AlertDescription>顶部先选中一个申请人，系统才知道要复用哪份申根资料。</AlertDescription>
+            <AlertDescription>先在顶部选中一个申请人，系统才能复用对应的申根资料。</AlertDescription>
           </Alert>
         ) : !canStart ? (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>缺少申根 Excel</AlertTitle>
-            <AlertDescription>当前申请人档案里还没有申根 Excel，先去申请人档案上传后再启动。</AlertDescription>
+            <AlertDescription>当前申请人档案里还没有申根 Excel，请先去档案页上传后再启动。</AlertDescription>
           </Alert>
         ) : (
           <Alert>
             <CheckCircle2 className="h-4 w-4" />
             <AlertTitle>当前申请人：{activeApplicant.name || activeApplicant.label}</AlertTitle>
-            <AlertDescription>将自动复用档案里的申根 Excel，并按“注册准备 → 生成新申请 → TLS 填表提交”顺序推进。</AlertDescription>
+            <AlertDescription>系统会自动按 “注册准备 → 生成新申请 → TLS 填表提交” 顺序执行。</AlertDescription>
           </Alert>
         )}
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border border-blue-100 bg-white/80 p-4 dark:border-blue-900/40 dark:bg-black/20">
+            <div className="text-xs text-gray-500">当前步骤</div>
+            <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{currentStepText}</div>
+          </div>
+          <div className="rounded-2xl border border-blue-100 bg-white/80 p-4 dark:border-blue-900/40 dark:bg-black/20">
+            <div className="text-xs text-gray-500">审核状态</div>
+            <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
+              {workflow?.phase === "completed" ? "等待人工审核" : workflow?.phase === "failed" ? "存在失败步骤" : "自动执行中"}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-blue-100 bg-white/80 p-4 dark:border-blue-900/40 dark:bg-black/20">
+            <div className="text-xs text-gray-500">自动进度</div>
+            <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{overallPercent}%</div>
+          </div>
+        </div>
 
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300">
@@ -465,22 +573,25 @@ export function FranceQuickStartCard() {
           <Progress value={overallPercent} className="h-2.5" />
         </div>
 
-        <div className="grid gap-3 md:grid-cols-[1.35fr,1fr,1fr]">
+        <div className="grid gap-3 md:grid-cols-[1.4fr,1fr,1fr]">
           <div className="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-black/20">
-            <div className="text-sm font-semibold text-gray-900 dark:text-white">阶段 1：注册准备</div>
+            <div className="text-sm font-semibold text-gray-900 dark:text-white">步骤 1：注册准备</div>
+            <div className="mt-1 text-xs text-gray-500">只有 FV 注册和 TLS 注册都成功，才会继续下一步。</div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <StepBadge label="FV 注册" step={workflow?.steps.extractRegister ?? { status: "idle" }} />
               <StepBadge label="TLS 注册" step={workflow?.steps.tlsRegister ?? { status: "idle" }} />
             </div>
           </div>
           <div className="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-black/20">
-            <div className="text-sm font-semibold text-gray-900 dark:text-white">阶段 2：生成新申请</div>
+            <div className="text-sm font-semibold text-gray-900 dark:text-white">步骤 2：生成新申请</div>
+            <div className="mt-1 text-xs text-gray-500">生成 France-visas 新申请 JSON。</div>
             <div className="mt-3">
-              <StepBadge label="France-visas 新申请 JSON" step={workflow?.steps.createApplication ?? { status: "idle" }} />
+              <StepBadge label="France-visas 新申请" step={workflow?.steps.createApplication ?? { status: "idle" }} />
             </div>
           </div>
           <div className="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-black/20">
-            <div className="text-sm font-semibold text-gray-900 dark:text-white">阶段 3：TLS 填表提交</div>
+            <div className="text-sm font-semibold text-gray-900 dark:text-white">步骤 3：TLS 填表提交</div>
+            <div className="mt-1 text-xs text-gray-500">提交完成后自动停止，留给人工检查。</div>
             <div className="mt-3">
               <StepBadge label="TLS 页面填表与提交" step={workflow?.steps.tlsApply ?? { status: "idle" }} />
             </div>
@@ -489,11 +600,9 @@ export function FranceQuickStartCard() {
 
         {workflow?.phase === "completed" && (
           <Alert>
-            <CheckCircle2 className="h-4 w-4" />
+            <Sparkles className="h-4 w-4" />
             <AlertTitle>自动阶段已完成</AlertTitle>
-            <AlertDescription>
-              已自动执行到 TLS 填表提交。现在可以人工审核资料，再继续后面的抢号、回执单和最终表流程。
-            </AlertDescription>
+            <AlertDescription>现在建议人工审核资料和页面结果，确认无误后再继续抢号、回执单和最终表流程。</AlertDescription>
           </Alert>
         )}
 
@@ -508,7 +617,11 @@ export function FranceQuickStartCard() {
         <div className="flex flex-wrap items-center gap-3">
           <Button onClick={handleStart} disabled={!canStart || loading || workflow?.phase === "running"} className="gap-2">
             {loading || workflow?.phase === "running" ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
-            {workflow?.phase === "running" ? "自动执行中" : "开始自动运行"}
+            {workflow ? "重新开始本轮自动化" : "开始自动运行"}
+          </Button>
+          <Button variant="secondary" disabled={!canResume || loading} onClick={handleResume} className="gap-2">
+            <PlayCircle className="h-4 w-4" />
+            从失败步骤续跑
           </Button>
           <Button
             variant="outline"

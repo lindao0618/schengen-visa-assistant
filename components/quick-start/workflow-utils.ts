@@ -80,6 +80,20 @@ export function formatWorkflowTime(ts?: number) {
   })
 }
 
+export function getStepStatusText(step: QuickStepState) {
+  if (step.status === "completed") return "已完成"
+  if (step.status === "failed") return "失败"
+  if (step.status === "running") return "进行中"
+  return "未开始"
+}
+
+export function getStepStatusClass(step: QuickStepState) {
+  if (step.status === "completed") return "border-emerald-200 bg-emerald-50 text-emerald-700"
+  if (step.status === "failed") return "border-red-200 bg-red-50 text-red-700"
+  if (step.status === "running") return "border-blue-200 bg-blue-50 text-blue-700"
+  return "border-gray-200 bg-gray-50 text-gray-500"
+}
+
 export async function fetchFranceTasksForApplicant(applicantProfileId: string) {
   const res = await fetch(
     `/api/schengen/france/tasks-list?limit=100&applicantProfileId=${encodeURIComponent(applicantProfileId)}&t=${Date.now()}`,

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { AlertCircle, CheckCircle2, Loader2, PlayCircle, RotateCcw } from "lucide-react"
+import { AlertCircle, CheckCircle2, Loader2, PlayCircle, RotateCcw, Sparkles } from "lucide-react"
 
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -15,6 +15,8 @@ import {
   fetchUsVisaTasksForApplicant,
   findTaskById,
   formatWorkflowTime,
+  getStepStatusClass,
+  getStepStatusText,
   readStoredWorkflow,
   syncStepWithTask,
   workflowPercent,
@@ -57,28 +59,37 @@ function hasUsVisaPhoto(profile: ReturnType<typeof useActiveApplicantProfile>) {
   return Boolean(profile?.files?.usVisaPhoto || profile?.files?.photo)
 }
 
-function statusText(step: QuickStepState) {
-  if (step.status === "completed") return "已完成"
-  if (step.status === "failed") return "失败"
-  if (step.status === "running") return "运行中"
-  return "未开始"
-}
-
-function statusColor(step: QuickStepState) {
-  if (step.status === "completed") return "border-emerald-200 bg-emerald-50 text-emerald-700"
-  if (step.status === "failed") return "border-red-200 bg-red-50 text-red-700"
-  if (step.status === "running") return "border-blue-200 bg-blue-50 text-blue-700"
-  return "border-gray-200 bg-gray-50 text-gray-500"
-}
-
 function StepBadge({ label, step }: { label: string; step: QuickStepState }) {
   return (
-    <div className={`rounded-xl border px-3 py-2 text-sm ${statusColor(step)}`}>
+    <div className={`rounded-xl border px-3 py-2 text-sm ${getStepStatusClass(step)}`}>
       <div className="font-medium">{label}</div>
-      <div className="mt-1 text-xs">{statusText(step)}</div>
+      <div className="mt-1 text-xs">{getStepStatusText(step)}</div>
       {step.finishedAt && <div className="mt-1 text-[11px] opacity-80">{formatWorkflowTime(step.finishedAt)}</div>}
     </div>
   )
+}
+
+function getPrepCurrentStep(workflow: UsVisaQuickWorkflow | null) {
+  if (!workflow) return "未开始"
+  if (workflow.phase === "failed") return "已停止，等待处理失败步骤"
+  if (workflow.phase === "completed") return "等待人工审核"
+  if (workflow.steps.ds160Fill?.status === "running") return "步骤 2：DS-160 填表"
+  if (workflow.steps.photoCheck?.status === "running") return "步骤 1：照片检测"
+  return "步骤 1：照片检测"
+}
+
+function getSubmitCurrentStep(workflow: UsVisaQuickWorkflow | null) {
+  if (!workflow) return "未开始"
+  if (workflow.phase === "failed") return "已停止，等待处理失败步骤"
+  if (workflow.phase === "completed") return "自动阶段已完成"
+  const running: string[] = []
+  if (workflow.steps.submitDs160?.status === "running") running.push("提交 DS-160")
+  if (workflow.steps.registerAis?.status === "running") running.push("AIS 注册")
+  return running.length ? `并行执行：${running.join(" + ")}` : "并行提交阶段"
+}
+
+function canResume(workflow: UsVisaQuickWorkflow | null) {
+  return Boolean(workflow && workflow.phase === "failed")
 }
 
 export function UsVisaQuickStartCard() {
@@ -214,91 +225,6 @@ export function UsVisaQuickStartCard() {
     return taskId
   }, [activeApplicant?.id])
 
-  const handleStartPrep = useCallback(async () => {
-    if (!activeApplicant?.id || !canStartPrep || prepLockRef.current) return
-    prepLockRef.current = true
-    setPrepLoading(true)
-    try {
-      const workflow = createWorkflow(activeApplicant.id, activeApplicant.name || activeApplicant.label, ["photoCheck", "ds160Fill"])
-      const photoTaskId = await startPhotoCheck()
-      workflow.steps.photoCheck = {
-        status: "running",
-        taskId: photoTaskId,
-        startedAt: Date.now(),
-        message: "照片检测已启动",
-      }
-      persistPrepWorkflow(workflow)
-    } catch (error) {
-      persistPrepWorkflow({
-        ...createWorkflow(activeApplicant.id, activeApplicant.name || activeApplicant.label, ["photoCheck", "ds160Fill"]),
-        phase: "failed",
-        updatedAt: Date.now(),
-        lastError: error instanceof Error ? error.message : "照片检测启动失败",
-        steps: {
-          photoCheck: {
-            status: "failed",
-            error: error instanceof Error ? error.message : "照片检测启动失败",
-            finishedAt: Date.now(),
-          },
-          ds160Fill: { status: "idle" },
-        },
-      })
-    } finally {
-      prepLockRef.current = false
-      setPrepLoading(false)
-    }
-  }, [activeApplicant?.id, activeApplicant?.label, activeApplicant?.name, canStartPrep, persistPrepWorkflow, startPhotoCheck])
-
-  const handleStartSubmit = useCallback(async () => {
-    if (!activeApplicant?.id || !canStartSubmit || submitLockRef.current) return
-    submitLockRef.current = true
-    setSubmitLoading(true)
-    const base = createWorkflow(activeApplicant.id, activeApplicant.name || activeApplicant.label, ["submitDs160", "registerAis"])
-    try {
-      const [submitResult, aisResult] = await Promise.allSettled([startSubmitDs160(), startAisRegister()])
-      const next = { ...base }
-
-      if (submitResult.status === "fulfilled") {
-        next.steps.submitDs160 = {
-          status: "running",
-          taskId: submitResult.value,
-          startedAt: Date.now(),
-          message: "提交 DS-160 已启动",
-        }
-      } else {
-        next.steps.submitDs160 = {
-          status: "failed",
-          error: submitResult.reason instanceof Error ? submitResult.reason.message : "提交 DS-160 启动失败",
-          finishedAt: Date.now(),
-        }
-      }
-
-      if (aisResult.status === "fulfilled") {
-        next.steps.registerAis = {
-          status: "running",
-          taskId: aisResult.value,
-          startedAt: Date.now(),
-          message: "AIS 注册已启动",
-        }
-      } else {
-        next.steps.registerAis = {
-          status: "failed",
-          error: aisResult.reason instanceof Error ? aisResult.reason.message : "AIS 注册启动失败",
-          finishedAt: Date.now(),
-        }
-      }
-
-      if (submitResult.status === "rejected" || aisResult.status === "rejected") {
-        next.phase = "failed"
-        next.lastError = [next.steps.submitDs160.error, next.steps.registerAis.error].filter(Boolean).join("；")
-      }
-      persistSubmitWorkflow(next)
-    } finally {
-      submitLockRef.current = false
-      setSubmitLoading(false)
-    }
-  }, [activeApplicant?.id, activeApplicant?.label, activeApplicant?.name, canStartSubmit, persistSubmitWorkflow, startAisRegister, startSubmitDs160])
-
   const launchDs160Fill = useCallback(
     async (current: UsVisaQuickWorkflow) => {
       if (prepLockRef.current) return
@@ -339,6 +265,138 @@ export function UsVisaQuickStartCard() {
     },
     [persistPrepWorkflow, startDs160Fill],
   )
+
+  const launchSubmitTasks = useCallback(
+    async (current: UsVisaQuickWorkflow) => {
+      if (submitLockRef.current) return
+      submitLockRef.current = true
+      setSubmitLoading(true)
+      try {
+        const needSubmit = current.steps.submitDs160.status === "idle" || current.steps.submitDs160.status === "failed"
+        const needAis = current.steps.registerAis.status === "idle" || current.steps.registerAis.status === "failed"
+
+        const next = {
+          ...current,
+          phase: "running" as QuickWorkflowPhase,
+          updatedAt: Date.now(),
+          lastError: undefined,
+          steps: { ...current.steps },
+        }
+
+        const launches: Promise<void>[] = []
+
+        if (needSubmit) {
+          launches.push(
+            startSubmitDs160().then((taskId) => {
+              next.steps.submitDs160 = {
+                status: "running",
+                taskId,
+                startedAt: Date.now(),
+                message: "提交 DS-160 已启动",
+              }
+            }),
+          )
+        }
+
+        if (needAis) {
+          launches.push(
+            startAisRegister().then((taskId) => {
+              next.steps.registerAis = {
+                status: "running",
+                taskId,
+                startedAt: Date.now(),
+                message: "AIS 注册已启动",
+              }
+            }),
+          )
+        }
+
+        const results = await Promise.allSettled(launches)
+        const rejected = results.find((result) => result.status === "rejected")
+        if (rejected?.status === "rejected") {
+          throw rejected.reason
+        }
+
+        persistSubmitWorkflow(next)
+      } catch (error) {
+        persistSubmitWorkflow({
+          ...current,
+          phase: "failed",
+          updatedAt: Date.now(),
+          lastError: error instanceof Error ? error.message : "提交阶段启动失败",
+        })
+      } finally {
+        submitLockRef.current = false
+        setSubmitLoading(false)
+      }
+    },
+    [persistSubmitWorkflow, startAisRegister, startSubmitDs160],
+  )
+
+  const handleStartPrep = useCallback(async () => {
+    if (!activeApplicant?.id || !canStartPrep || prepLockRef.current) return
+    prepLockRef.current = true
+    setPrepLoading(true)
+    try {
+      const workflow = createWorkflow(activeApplicant.id, activeApplicant.name || activeApplicant.label, ["photoCheck", "ds160Fill"])
+      const photoTaskId = await startPhotoCheck()
+      workflow.steps.photoCheck = {
+        status: "running",
+        taskId: photoTaskId,
+        startedAt: Date.now(),
+        message: "照片检测已启动",
+      }
+      persistPrepWorkflow(workflow)
+    } catch (error) {
+      persistPrepWorkflow({
+        ...createWorkflow(activeApplicant.id, activeApplicant.name || activeApplicant.label, ["photoCheck", "ds160Fill"]),
+        phase: "failed",
+        updatedAt: Date.now(),
+        lastError: error instanceof Error ? error.message : "照片检测启动失败",
+        steps: {
+          photoCheck: {
+            status: "failed",
+            error: error instanceof Error ? error.message : "照片检测启动失败",
+            finishedAt: Date.now(),
+          },
+          ds160Fill: { status: "idle" },
+        },
+      })
+    } finally {
+      prepLockRef.current = false
+      setPrepLoading(false)
+    }
+  }, [activeApplicant?.id, activeApplicant?.label, activeApplicant?.name, canStartPrep, persistPrepWorkflow, startPhotoCheck])
+
+  const handleResumePrep = useCallback(async () => {
+    if (!prepWorkflow || !canResume(prepWorkflow) || prepLockRef.current) return
+    if (prepWorkflow.steps.photoCheck.status !== "completed") {
+      await handleStartPrep()
+      return
+    }
+    await launchDs160Fill({
+      ...prepWorkflow,
+      phase: "running",
+      updatedAt: Date.now(),
+      lastError: undefined,
+    })
+  }, [handleStartPrep, launchDs160Fill, prepWorkflow])
+
+  const handleStartSubmit = useCallback(async () => {
+    if (!activeApplicant?.id || !canStartSubmit) return
+    const base = createWorkflow(activeApplicant.id, activeApplicant.name || activeApplicant.label, ["submitDs160", "registerAis"])
+    await launchSubmitTasks(base)
+  }, [activeApplicant?.id, activeApplicant?.label, activeApplicant?.name, canStartSubmit, launchSubmitTasks])
+
+  const handleResumeSubmit = useCallback(async () => {
+    if (!submitWorkflow || !canResume(submitWorkflow)) return
+    await launchSubmitTasks({
+      ...submitWorkflow,
+      phase: "running",
+      updatedAt: Date.now(),
+      lastError: undefined,
+    })
+  }, [launchSubmitTasks, submitWorkflow])
 
   useEffect(() => {
     if (!activeApplicant?.id || !prepWorkflow || prepWorkflow.applicantProfileId !== activeApplicant.id) return
@@ -459,13 +517,13 @@ export function UsVisaQuickStartCard() {
     if (!activeApplicant?.id) return "请先选择申请人档案。"
     if (!hasUsVisaPhoto(activeApplicant)) return "当前申请人档案还没有美签照片。"
     if (!hasUsVisaExcel(activeApplicant)) return "当前申请人档案还没有 DS-160 / AIS Excel。"
-    return "将自动执行“照片检测 → DS-160 填表”，跑完后停下来，给人工审核留空档。"
+    return "系统会自动执行“照片检测 → DS-160 填表”，跑完后停下来给人工审核留空档。"
   }, [activeApplicant])
 
   const submitReadyMessage = useMemo(() => {
     if (!activeApplicant?.id) return "请先选择申请人档案。"
     if (!hasUsVisaExcel(activeApplicant)) return "当前申请人档案还没有 DS-160 / AIS Excel。"
-    if (!activeApplicant?.usVisa?.aaCode) return "还没有 AA 码，先完成 DS-160 填表。"
+    if (!activeApplicant?.usVisa?.aaCode) return "还没有 AA 码，请先完成 DS-160 填表。"
     if (!activeApplicant?.usVisa?.surname || !activeApplicant?.usVisa?.birthYear || !activeApplicant?.usVisa?.passportNumber) {
       return "提交阶段还缺少姓、出生年份或护照号，请先确认档案信息已自动回写。"
     }
@@ -476,17 +534,27 @@ export function UsVisaQuickStartCard() {
     <Card className="mb-6 border-blue-200/60 bg-gradient-to-r from-blue-50 to-white shadow-xl dark:border-blue-900/40 dark:from-blue-950/20 dark:to-gray-950">
       <CardHeader className="border-b border-blue-100/80 dark:border-blue-900/30">
         <CardTitle className="text-xl text-gray-900 dark:text-white">美签一键启动</CardTitle>
-        <CardDescription>按你的业务节奏拆成两段：先做资料预处理，审核无误后再做提交阶段并行处理。</CardDescription>
+        <CardDescription>按你的业务节奏拆成两段：先做资料预处理，人工确认后再做并行提交。</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-5 pt-6 xl:grid-cols-2">
         <div className="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-black/20">
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-gray-900 dark:text-white">阶段一：照片检测 → DS-160 填表</div>
-              <div className="mt-1 text-xs text-gray-500">{prepReadyMessage}</div>
+          <div className="mb-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
+              <div className="text-xs text-gray-500">当前步骤</div>
+              <div className="mt-1 text-sm font-semibold">{getPrepCurrentStep(prepWorkflow)}</div>
+            </div>
+            <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
+              <div className="text-xs text-gray-500">审核状态</div>
+              <div className="mt-1 text-sm font-semibold">
+                {prepWorkflow?.phase === "completed" ? "等待人工审核" : prepWorkflow?.phase === "failed" ? "存在失败步骤" : "自动执行中"}
+              </div>
             </div>
           </div>
-          <div className="space-y-2">
+          <div>
+            <div className="text-sm font-semibold text-gray-900 dark:text-white">阶段一：照片检测 → DS-160 填表</div>
+            <div className="mt-1 text-xs text-gray-500">{prepReadyMessage}</div>
+          </div>
+          <div className="mt-4 space-y-2">
             <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300">
               <span>进度</span>
               <span>{prepPercent}%</span>
@@ -494,14 +562,14 @@ export function UsVisaQuickStartCard() {
             <Progress value={prepPercent} className="h-2.5" />
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <StepBadge label="照片检测" step={prepWorkflow?.steps.photoCheck ?? { status: "idle" }} />
-            <StepBadge label="DS-160 填表" step={prepWorkflow?.steps.ds160Fill ?? { status: "idle" }} />
+            <StepBadge label="步骤 1：照片检测" step={prepWorkflow?.steps.photoCheck ?? { status: "idle" }} />
+            <StepBadge label="步骤 2：DS-160 填表" step={prepWorkflow?.steps.ds160Fill ?? { status: "idle" }} />
           </div>
           {prepWorkflow?.phase === "completed" && (
             <Alert className="mt-4">
-              <CheckCircle2 className="h-4 w-4" />
-              <AlertTitle>阶段一完成</AlertTitle>
-              <AlertDescription>照片检测和 DS-160 填表都已完成，现在可以人工审核数据，再决定是否启动提交阶段。</AlertDescription>
+              <Sparkles className="h-4 w-4" />
+              <AlertTitle>阶段一已完成</AlertTitle>
+              <AlertDescription>照片检测和 DS-160 填表都已完成，现在可以人工审核数据后再进入并行提交阶段。</AlertDescription>
             </Alert>
           )}
           {prepWorkflow?.phase === "failed" && prepWorkflow.lastError && (
@@ -514,7 +582,11 @@ export function UsVisaQuickStartCard() {
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <Button onClick={handleStartPrep} disabled={!canStartPrep || prepLoading || prepWorkflow?.phase === "running"} className="gap-2">
               {prepLoading || prepWorkflow?.phase === "running" ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
-              {prepWorkflow?.phase === "running" ? "自动执行中" : "启动阶段一"}
+              {prepWorkflow ? "重新开始阶段一" : "启动阶段一"}
+            </Button>
+            <Button variant="secondary" disabled={!canResume(prepWorkflow) || prepLoading} onClick={handleResumePrep} className="gap-2">
+              <PlayCircle className="h-4 w-4" />
+              从失败步骤续跑
             </Button>
             <Button variant="outline" disabled={!prepWorkflow} onClick={() => persistPrepWorkflow(null)} className="gap-2">
               <RotateCcw className="h-4 w-4" />
@@ -525,13 +597,23 @@ export function UsVisaQuickStartCard() {
         </div>
 
         <div className="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-black/20">
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-gray-900 dark:text-white">阶段二：提交 DS-160 + AIS 注册</div>
-              <div className="mt-1 text-xs text-gray-500">{submitReadyMessage}</div>
+          <div className="mb-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
+              <div className="text-xs text-gray-500">当前步骤</div>
+              <div className="mt-1 text-sm font-semibold">{getSubmitCurrentStep(submitWorkflow)}</div>
+            </div>
+            <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
+              <div className="text-xs text-gray-500">审核状态</div>
+              <div className="mt-1 text-sm font-semibold">
+                {submitWorkflow?.phase === "completed" ? "自动阶段已完成" : submitWorkflow?.phase === "failed" ? "存在失败步骤" : "等待你确认后启动"}
+              </div>
             </div>
           </div>
-          <div className="space-y-2">
+          <div>
+            <div className="text-sm font-semibold text-gray-900 dark:text-white">阶段二：提交 DS-160 + AIS 注册</div>
+            <div className="mt-1 text-xs text-gray-500">{submitReadyMessage}</div>
+          </div>
+          <div className="mt-4 space-y-2">
             <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300">
               <span>进度</span>
               <span>{submitPercent}%</span>
@@ -539,14 +621,14 @@ export function UsVisaQuickStartCard() {
             <Progress value={submitPercent} className="h-2.5" />
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <StepBadge label="提交 DS-160" step={submitWorkflow?.steps.submitDs160 ?? { status: "idle" }} />
-            <StepBadge label="AIS 注册" step={submitWorkflow?.steps.registerAis ?? { status: "idle" }} />
+            <StepBadge label="步骤 1：提交 DS-160" step={submitWorkflow?.steps.submitDs160 ?? { status: "idle" }} />
+            <StepBadge label="步骤 2：AIS 注册" step={submitWorkflow?.steps.registerAis ?? { status: "idle" }} />
           </div>
           {submitWorkflow?.phase === "completed" && (
             <Alert className="mt-4">
               <CheckCircle2 className="h-4 w-4" />
               <AlertTitle>阶段二完成</AlertTitle>
-              <AlertDescription>提交 DS-160 和 AIS 注册都已经完成，可以继续人工跟进后续预约流程。</AlertDescription>
+              <AlertDescription>提交 DS-160 和 AIS 注册都已完成，可以继续人工跟进后续预约流程。</AlertDescription>
             </Alert>
           )}
           {submitWorkflow?.phase === "failed" && submitWorkflow.lastError && (
@@ -559,7 +641,11 @@ export function UsVisaQuickStartCard() {
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <Button onClick={handleStartSubmit} disabled={!canStartSubmit || submitLoading || submitWorkflow?.phase === "running"} className="gap-2">
               {submitLoading || submitWorkflow?.phase === "running" ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
-              {submitWorkflow?.phase === "running" ? "并行执行中" : "启动阶段二"}
+              {submitWorkflow ? "重新开始阶段二" : "启动阶段二"}
+            </Button>
+            <Button variant="secondary" disabled={!canResume(submitWorkflow) || submitLoading} onClick={handleResumeSubmit} className="gap-2">
+              <PlayCircle className="h-4 w-4" />
+              从失败步骤续跑
             </Button>
             <Button variant="outline" disabled={!submitWorkflow} onClick={() => persistSubmitWorkflow(null)} className="gap-2">
               <RotateCcw className="h-4 w-4" />
