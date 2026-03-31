@@ -1,37 +1,35 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
-import path from "path"
 import fs from "fs/promises"
+import path from "path"
+
+import { getServerSession } from "next-auth"
+import { NextRequest, NextResponse } from "next/server"
+
+import { authOptions } from "@/lib/auth"
+import { canAccessFrenchVisaTaskOutput, sanitizeDownloadFilename } from "@/lib/task-route-access"
 
 export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ outputId: string; filename: string }> }
+  _request: NextRequest,
+  { params }: { params: Promise<{ outputId: string; filename: string }> },
 ) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: "请先登录" }, { status: 401 })
     }
+
     const { outputId, filename: rawFilename } = await params
     if (!outputId || !rawFilename) {
       return NextResponse.json({ error: "缺少参数" }, { status: 400 })
     }
-    let filename: string
-    try {
-      filename = decodeURIComponent(rawFilename)
-    } catch {
-      filename = rawFilename
+
+    const canAccess = await canAccessFrenchVisaTaskOutput(session.user.id, outputId, "fv-create-")
+    if (!canAccess) {
+      return NextResponse.json({ error: "文件不存在或无权访问" }, { status: 404 })
     }
-    const safeName = path.basename(filename).replace(/\.\./g, "")
-    const filePath = path.join(
-      process.cwd(),
-      "temp",
-      "french-visa-create-application",
-      outputId,
-      safeName
-    )
-    // #region agent log
+
+    const safeName = sanitizeDownloadFilename(rawFilename)
+    const filePath = path.join(process.cwd(), "temp", "french-visa-create-application", outputId, safeName)
+
     fetch("http://127.0.0.1:7657/ingest/921ae087-a611-4872-822e-58b23ada05b2", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "f5d383" },
@@ -40,27 +38,27 @@ export async function GET(
         hypothesisId: "A",
         location: "download:before_access",
         message: "download attempt",
-        data: { rawFilename, filename, safeName, filePath },
+        data: { rawFilename, safeName, filePath },
         timestamp: Date.now(),
       }),
     }).catch(() => {})
-    // #endregion
+
     await fs.access(filePath)
     const buf = await fs.readFile(filePath)
     const contentType = safeName.endsWith(".json")
       ? "application/json"
       : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    const contentDisp = /^[\x20-\x7E]*$/.test(safeName)
+    const contentDisposition = /^[\x20-\x7E]*$/.test(safeName)
       ? `attachment; filename="${safeName}"`
       : `attachment; filename="download${path.extname(safeName)}"; filename*=UTF-8''${encodeURIComponent(safeName)}`
+
     return new NextResponse(buf, {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": contentDisp,
+        "Content-Disposition": contentDisposition,
       },
     })
   } catch (e) {
-    // #region agent log
     fetch("http://127.0.0.1:7657/ingest/921ae087-a611-4872-822e-58b23ada05b2", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "f5d383" },
@@ -76,7 +74,7 @@ export async function GET(
         timestamp: Date.now(),
       }),
     }).catch(() => {})
-    // #endregion
+
     if ((e as NodeJS.ErrnoException)?.code === "ENOENT") {
       return NextResponse.json({ error: "文件不存在或已过期" }, { status: 404 })
     }

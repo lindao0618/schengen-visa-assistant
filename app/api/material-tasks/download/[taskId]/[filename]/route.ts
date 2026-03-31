@@ -1,7 +1,12 @@
-import { NextRequest, NextResponse } from "next/server"
-import path from "path"
 import fs from "fs/promises"
+import path from "path"
+
+import { getServerSession } from "next-auth"
+import { NextRequest, NextResponse } from "next/server"
+
+import { authOptions } from "@/lib/auth"
 import { getMaterialTaskOutputDir } from "@/lib/material-tasks"
+import { getAuthorizedMaterialTask } from "@/lib/task-route-access"
 
 function contentDisposition(safeName: string, inline = false): string {
   const dispositionType = inline ? "inline" : "attachment"
@@ -21,19 +26,27 @@ const MIME: Record<string, string> = {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ taskId: string; filename: string }> }
+  { params }: { params: Promise<{ taskId: string; filename: string }> },
 ) {
   try {
+    const session = await getServerSession(authOptions)
     const { taskId, filename: rawFilename } = await params
     if (!taskId || !rawFilename) {
       return NextResponse.json({ error: "缺少参数" }, { status: 400 })
     }
+
+    const task = await getAuthorizedMaterialTask(taskId, session?.user?.id)
+    if (!task) {
+      return NextResponse.json({ error: "文件不存在或无权访问" }, { status: 404 })
+    }
+
     let filename: string
     try {
       filename = decodeURIComponent(rawFilename)
     } catch {
       filename = rawFilename
     }
+
     const safeName = path.basename(filename).replace(/\.\./g, "")
     const outputDir = getMaterialTaskOutputDir(taskId)
     const filePath = path.join(outputDir, safeName)
@@ -42,6 +55,7 @@ export async function GET(
     const ext = path.extname(safeName).slice(1).toLowerCase()
     const contentType = MIME[ext] || "application/octet-stream"
     const inline = request.nextUrl.searchParams.get("inline") === "1"
+
     return new NextResponse(buf, {
       headers: {
         "Content-Type": contentType,

@@ -45,6 +45,7 @@ export const maxDuration = 120
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
     const formData = await request.formData()
     const file = formData.get("file") as File | null
     if (!file || !(file instanceof File)) {
@@ -57,7 +58,6 @@ export async function POST(request: NextRequest) {
     const applicantProfileId = String(formData.get("applicantProfileId") || "").trim()
     const caseId = String(formData.get("caseId") || "").trim()
 
-    const session = applicantProfileId ? await getServerSession(authOptions) : null
     if (applicantProfileId && !session?.user?.id) {
       return NextResponse.json({ error: "请先登录后再关联申请人档案" }, { status: 401 })
     }
@@ -91,6 +91,7 @@ export async function POST(request: NextRequest) {
     const filePrefix = getFileNamePrefix(file.name)
     const taskMessage = `材料审核 · ${visaLabel} · ${docLabel} · ${filePrefix}`
     const task = await createMaterialTask("material-review", taskMessage, {
+      userId: session?.user?.id,
       applicantProfileId: applicantProfileId || undefined,
       applicantName: applicantProfile?.name || applicantProfile?.label,
       caseId: caseId || undefined,

@@ -1,5 +1,6 @@
-import * as fs from "fs/promises"
 import * as path from "path"
+
+import { createJsonRecordStore } from "@/lib/json-record-store"
 
 export type HotelBookingTaskStatus = "pending" | "running" | "completed" | "failed"
 export type HotelBookingTaskType = "book-hotel"
@@ -29,7 +30,6 @@ export interface HotelBookingTask {
   created_at: number
   updated_at: number
   userId: string
-  // booking params snapshot
   city?: string
   checkin_date?: string
   checkout_date?: string
@@ -40,35 +40,7 @@ export interface HotelBookingTask {
 }
 
 const TASKS_FILE = path.join(process.cwd(), "temp", "hotel-booking-tasks.json")
-let fileOpsQueue = Promise.resolve<unknown>(undefined)
-
-async function readFileTasks(): Promise<Record<string, HotelBookingTask>> {
-  try {
-    const raw = await fs.readFile(TASKS_FILE, "utf-8")
-    return JSON.parse(raw) as Record<string, HotelBookingTask>
-  } catch {
-    return {}
-  }
-}
-
-async function writeFileTasks(tasks: Record<string, HotelBookingTask>): Promise<void> {
-  await fs.mkdir(path.dirname(TASKS_FILE), { recursive: true })
-  await fs.writeFile(TASKS_FILE, JSON.stringify(tasks, null, 2), "utf-8")
-}
-
-async function runExclusive<T>(fn: () => Promise<T>): Promise<T> {
-  const prev = fileOpsQueue
-  let resolveNext!: () => void
-  fileOpsQueue = new Promise<void>((r) => {
-    resolveNext = r
-  })
-  try {
-    await prev
-    return await fn()
-  } finally {
-    resolveNext()
-  }
-}
+const taskStore = createJsonRecordStore<HotelBookingTask>({ filePath: TASKS_FILE })
 
 export interface CreateHotelBookingTaskParams {
   userId: string
@@ -80,7 +52,7 @@ export interface CreateHotelBookingTaskParams {
 
 export async function createHotelBookingTask(
   params: CreateHotelBookingTaskParams,
-  message = "任务已创建"
+  message = "任务已创建",
 ): Promise<HotelBookingTask> {
   const taskId = `hotel-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const now = Date.now()
@@ -99,10 +71,10 @@ export async function createHotelBookingTask(
     guest_name: params.guest_name,
   }
 
-  await runExclusive(async () => {
-    const tasks = await readFileTasks()
+  await taskStore.runExclusive(async () => {
+    const tasks = await taskStore.readRecords()
     tasks[taskId] = task
-    await writeFileTasks(tasks)
+    await taskStore.writeRecords(tasks)
   })
 
   return { ...task }
@@ -110,14 +82,15 @@ export async function createHotelBookingTask(
 
 export async function updateHotelBookingTask(
   taskId: string,
-  updates: Partial<Pick<HotelBookingTask, "status" | "progress" | "message" | "result" | "error" | "hotel_name">>
+  updates: Partial<Pick<HotelBookingTask, "status" | "progress" | "message" | "result" | "error" | "hotel_name">>,
 ): Promise<HotelBookingTask | null> {
-  return runExclusive(async () => {
-    const tasks = await readFileTasks()
+  return taskStore.runExclusive(async () => {
+    const tasks = await taskStore.readRecords()
     const task = tasks[taskId]
     if (!task) return null
+
     Object.assign(task, updates, { updated_at: Date.now() })
-    await writeFileTasks(tasks)
+    await taskStore.writeRecords(tasks)
     return { ...task }
   })
 }
@@ -125,27 +98,34 @@ export async function updateHotelBookingTask(
 export async function listHotelBookingTasks(
   userId: string,
   limit = 50,
-  statusFilter?: string
+  statusFilter?: string,
 ): Promise<HotelBookingTask[]> {
-  const allTasks = await runExclusive(async () => {
-    const tasks = await readFileTasks()
-    return Object.values(tasks).filter((t) => t.userId === userId)
+  const allTasks = await taskStore.runExclusive(async () => {
+    const tasks = await taskStore.readRecords()
+    return Object.values(tasks).filter((task) => task.userId === userId)
   })
 
   let list = allTasks
 
-  if (statusFilter === "completed") list = list.filter((t) => t.status === "completed")
-  else if (statusFilter === "failed") list = list.filter((t) => t.status === "failed")
-  else if (statusFilter === "running") list = list.filter((t) => t.status === "running" || t.status === "pending")
+  if (statusFilter === "completed") list = list.filter((task) => task.status === "completed")
+  else if (statusFilter === "failed") list = list.filter((task) => task.status === "failed")
+  else if (statusFilter === "running") {
+    list = list.filter((task) => task.status === "running" || task.status === "pending")
+  }
 
-  return list
-    .sort((a, b) => b.updated_at - a.updated_at)
-    .slice(0, limit)
+  return list.sort((a, b) => b.updated_at - a.updated_at).slice(0, limit)
 }
 
 export async function getHotelBookingTask(taskId: string): Promise<HotelBookingTask | null> {
-  return runExclusive(async () => {
-    const tasks = await readFileTasks()
+  return taskStore.runExclusive(async () => {
+    const tasks = await taskStore.readRecords()
     return tasks[taskId] ? { ...tasks[taskId] } : null
+  })
+}
+
+export async function listAllHotelBookingTasks(): Promise<HotelBookingTask[]> {
+  return taskStore.runExclusive(async () => {
+    const tasks = await taskStore.readRecords()
+    return Object.values(tasks).sort((a, b) => b.updated_at - a.updated_at)
   })
 }

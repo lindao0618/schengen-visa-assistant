@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
 import { deleteMaterialTasks, listMaterialTasks } from "@/lib/material-tasks"
 import type { MaterialTaskType } from "@/lib/material-tasks"
 import prisma from "@/lib/db"
@@ -9,6 +11,7 @@ export const revalidate = 0
 
 export async function GET(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
     const { searchParams } = new URL(request.url)
     const taskIdsParam = searchParams.get("task_ids")
     const typeParam = searchParams.get("type") as MaterialTaskType | null
@@ -22,7 +25,7 @@ export async function GET(request: NextRequest) {
         ? (typeParam as import("@/lib/material-tasks").MaterialTaskType)
         : undefined
 
-    const tasks = await listMaterialTasks(taskIds, typeFilter)
+    const tasks = await listMaterialTasks(taskIds, typeFilter, session?.user?.id)
     const caseIds = Array.from(new Set(tasks.map((task) => task.caseId).filter((value): value is string => Boolean(value))))
 
     let labelMap = new Map<string, string>()
@@ -58,6 +61,7 @@ export async function GET(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
     const body = (await request.json().catch(() => ({}))) as {
       task_ids?: unknown
     }
@@ -70,7 +74,8 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "缺少要删除的任务 ID" }, { status: 400 })
     }
 
-    const removed = await deleteMaterialTasks(taskIds)
+    const removableTasks = await listMaterialTasks(taskIds, undefined, session?.user?.id)
+    const removed = await deleteMaterialTasks(removableTasks.map((task) => task.task_id))
     return NextResponse.json({ success: true, removed })
   } catch (e) {
     console.error("Material tasks delete error:", e)

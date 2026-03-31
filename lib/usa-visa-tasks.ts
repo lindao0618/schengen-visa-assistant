@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client"
 import prisma from "@/lib/db"
-import * as fs from "fs/promises"
 import * as path from "path"
+import { createJsonRecordStore } from "@/lib/json-record-store"
 import { ensureTempCleanup } from "@/lib/temp-cleanup"
 import { formatFallbackVisaCaseLabel, formatVisaCaseLabel } from "@/lib/visa-case-labels"
 
@@ -35,36 +35,7 @@ interface FileTask extends UsVisaTaskResponse {
 }
 
 const TASKS_FILE = path.join(process.cwd(), "temp", "usa-visa-tasks.json")
-
-let fileOpsQueue = Promise.resolve<unknown>(undefined)
-
-async function readFileTasks(): Promise<Record<string, FileTask>> {
-  try {
-    const raw = await fs.readFile(TASKS_FILE, "utf-8")
-    return JSON.parse(raw) as Record<string, FileTask>
-  } catch {
-    return {}
-  }
-}
-
-async function writeFileTasks(tasks: Record<string, FileTask>): Promise<void> {
-  await fs.mkdir(path.dirname(TASKS_FILE), { recursive: true })
-  await fs.writeFile(TASKS_FILE, JSON.stringify(tasks, null, 2), "utf-8")
-}
-
-async function runExclusive<T>(fn: () => Promise<T>): Promise<T> {
-  const prev = fileOpsQueue
-  let resolveNext!: () => void
-  fileOpsQueue = new Promise<void>((r) => {
-    resolveNext = r
-  })
-  try {
-    await prev
-    return await fn()
-  } finally {
-    resolveNext()
-  }
-}
+const taskStore = createJsonRecordStore<FileTask>({ filePath: TASKS_FILE })
 
 function isPrismaConnectionError(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : String(e)
@@ -200,19 +171,19 @@ export async function createTask(
       },
     })
 
-    await runExclusive(async () => {
-      const tasks = await readFileTasks()
+    await taskStore.runExclusive(async () => {
+      const tasks = await taskStore.readRecords()
       tasks[taskId] = { ...fileTask, created_at: row.createdAt.getTime(), updated_at: row.updatedAt.getTime() }
-      await writeFileTasks(tasks)
+      await taskStore.writeRecords(tasks)
     }).catch(() => {})
 
     return toResponse(row)
   } catch (e) {
     if (isPrismaConnectionError(e)) {
-      return runExclusive(async () => {
-        const tasks = await readFileTasks()
+      return taskStore.runExclusive(async () => {
+        const tasks = await taskStore.readRecords()
         tasks[taskId] = fileTask
-        await writeFileTasks(tasks)
+        await taskStore.writeRecords(tasks)
         return { ...fileTask }
       })
     }
@@ -225,8 +196,8 @@ export async function updateTask(
   updates: Partial<Pick<UsVisaTaskResponse, "status" | "progress" | "message" | "result" | "error">>
 ): Promise<UsVisaTaskResponse | null> {
   const syncToFile = () => {
-    runExclusive(async () => {
-      const tasks = await readFileTasks()
+    taskStore.runExclusive(async () => {
+      const tasks = await taskStore.readRecords()
       const task = tasks[taskId]
       if (!task) return
       Object.assign(task, updates, {
@@ -237,7 +208,7 @@ export async function updateTask(
         }),
         updated_at: Date.now(),
       })
-      await writeFileTasks(tasks)
+      await taskStore.writeRecords(tasks)
     }).catch(() => {})
   }
 
@@ -269,8 +240,8 @@ export async function updateTask(
     syncToFile()
     return resp
   } catch {
-    const fallback = await runExclusive(async () => {
-      const tasks = await readFileTasks()
+    const fallback = await taskStore.runExclusive(async () => {
+      const tasks = await taskStore.readRecords()
       const task = tasks[taskId]
       if (!task) return null
       Object.assign(task, updates, {
@@ -281,7 +252,7 @@ export async function updateTask(
         }),
         updated_at: Date.now(),
       })
-      await writeFileTasks(tasks)
+      await taskStore.writeRecords(tasks)
       return { ...task }
     })
     return fallback
@@ -307,8 +278,8 @@ export async function getTask(userId: string, taskId: string): Promise<UsVisaTas
   }
 
   try {
-    fromFile = await runExclusive(async () => {
-      const tasks = await readFileTasks()
+    fromFile = await taskStore.runExclusive(async () => {
+      const tasks = await taskStore.readRecords()
       const task = tasks[taskId]
       if (belongsToUser(task, userId)) return { ...task }
       return null
@@ -411,8 +382,8 @@ export async function listTasks(
   }
 
   try {
-    const fileMap = await runExclusive(async () => {
-      const tasks = await readFileTasks()
+    const fileMap = await taskStore.runExclusive(async () => {
+      const tasks = await taskStore.readRecords()
       return Object.values(tasks).filter((task) => belongsToUser(task, userId))
     })
     fileTasks.push(...fileMap.map((task) => ({ ...task })))

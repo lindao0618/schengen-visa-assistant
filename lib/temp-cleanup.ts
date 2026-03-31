@@ -19,11 +19,14 @@ const RULES: CleanupRule[] = [
   { dir: path.join(TEMP_ROOT, "ds160-submit-outputs"), maxAgeMs: 2 * DAY },
   { dir: path.join(TEMP_ROOT, "material-tasks-output"), maxAgeMs: 2 * DAY },
   { dir: path.join(TEMP_ROOT, "french-visa-extract"), maxAgeMs: 2 * DAY },
+  { dir: path.join(TEMP_ROOT, "french-visa-extract-register"), maxAgeMs: 2 * DAY },
   { dir: path.join(TEMP_ROOT, "french-visa-register"), maxAgeMs: 2 * DAY },
   { dir: path.join(TEMP_ROOT, "french-visa-create-application"), maxAgeMs: 2 * DAY },
   { dir: path.join(TEMP_ROOT, "french-visa-fill-receipt"), maxAgeMs: 2 * DAY },
   { dir: path.join(TEMP_ROOT, "french-visa-submit-final"), maxAgeMs: 2 * DAY },
-  // DS-160 自动填表会直接在 temp 根目录下创建临时工作目录
+  { dir: path.join(TEMP_ROOT, "french-visa-tls-register"), maxAgeMs: 2 * DAY },
+  { dir: path.join(TEMP_ROOT, "french-visa-tls-apply"), maxAgeMs: 2 * DAY },
+  { dir: path.join(TEMP_ROOT, "hotel-booking"), maxAgeMs: 2 * DAY },
   { dir: TEMP_ROOT, maxAgeMs: 12 * HOUR, matcher: /^ds160-\d+/ },
 ]
 

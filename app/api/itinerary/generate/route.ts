@@ -55,6 +55,7 @@ function buildItineraryPdfFilename({
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
     const body = await request.json()
     const applicantProfileId =
       typeof body?.applicantProfileId === "string" ? body.applicantProfileId.trim() : ""
@@ -77,7 +78,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const session = applicantProfileId ? await getServerSession(authOptions) : null
     if (applicantProfileId && !session?.user?.id) {
       return NextResponse.json({ success: false, error: "请先登录后再关联申请人档案" }, { status: 401 })
     }
@@ -135,11 +135,14 @@ export async function POST(request: NextRequest) {
         : `行程单 · ${body.departure_city} -> ${body.arrival_city}`,
       applicantProfile
         ? {
+            userId: session?.user?.id,
             applicantProfileId,
             applicantName: applicantProfile.name || applicantProfile.label,
             caseId: caseId || undefined,
           }
-        : undefined
+        : session?.user?.id
+          ? { userId: session.user.id }
+          : undefined
     )
 
     ;(async () => {

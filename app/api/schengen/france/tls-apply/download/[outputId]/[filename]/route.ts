@@ -1,8 +1,11 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
-import path from "path"
 import fs from "fs/promises"
+import path from "path"
+
+import { getServerSession } from "next-auth"
+import { NextRequest, NextResponse } from "next/server"
+
+import { authOptions } from "@/lib/auth"
+import { canAccessFrenchVisaTaskOutput, sanitizeDownloadFilename } from "@/lib/task-route-access"
 
 function contentDisposition(safeName: string): string {
   const asciiSafe = /^[\x20-\x7E]*$/.test(safeName)
@@ -44,18 +47,18 @@ export async function GET(
     if (!session?.user?.id) {
       return NextResponse.json({ error: "请先登录" }, { status: 401 })
     }
+
     const { outputId, filename: rawFilename } = await params
     if (!outputId || !rawFilename) {
       return NextResponse.json({ error: "缺少参数" }, { status: 400 })
     }
 
-    let filename: string
-    try {
-      filename = decodeURIComponent(rawFilename)
-    } catch {
-      filename = rawFilename
+    const canAccess = await canAccessFrenchVisaTaskOutput(session.user.id, outputId, "fv-tls-apply-")
+    if (!canAccess) {
+      return NextResponse.json({ error: "文件不存在或无权访问" }, { status: 404 })
     }
-    const safeName = path.basename(filename).replace(/\.\./g, "")
+
+    const safeName = sanitizeDownloadFilename(rawFilename)
     const filePath = await resolveFilePath(outputId, safeName)
     const buf = await fs.readFile(filePath)
 

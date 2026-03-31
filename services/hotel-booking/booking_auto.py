@@ -45,6 +45,8 @@ import traceback
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+DEFAULT_RUNTIME_ROOT = Path.cwd() / "temp" / "hotel-booking" / "manual-run"
+
 
 def log(msg: str):
     """输出日志（stdout flush）"""
@@ -1321,9 +1323,9 @@ def complete_booking(page, artifacts_dir: str) -> dict:
 def run(job: dict):
     from playwright.sync_api import sync_playwright
 
-    results_path = job.get("results_path", "booking_results.json")
+    results_path = job.get("results_path") or str(DEFAULT_RUNTIME_ROOT / "booking_results.json")
     output_dir = os.path.dirname(os.path.abspath(results_path)) or os.getcwd()
-    artifacts_dir = job.get("artifacts_dir", "artifacts")
+    artifacts_dir = job.get("artifacts_dir") or str(Path(output_dir) / "artifacts")
     os.makedirs(artifacts_dir, exist_ok=True)
 
     headless = bool(job.get("headless", False))

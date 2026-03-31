@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth"
 import { NextRequest, NextResponse } from "next/server"
 
 import { authOptions } from "@/lib/auth"
+import { canAccessFrenchVisaTaskOutput, sanitizeDownloadFilename } from "@/lib/task-route-access"
 
 function getContentType(filename: string) {
   const ext = path.extname(filename).toLowerCase()
@@ -19,7 +20,7 @@ function getContentType(filename: string) {
 }
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ outputId: string; filename: string }> },
 ) {
   try {
@@ -33,14 +34,12 @@ export async function GET(
       return NextResponse.json({ error: "缺少参数" }, { status: 400 })
     }
 
-    let decoded = filename
-    try {
-      decoded = decodeURIComponent(filename)
-    } catch {
-      // keep original filename
+    const canAccess = await canAccessFrenchVisaTaskOutput(session.user.id, outputId, "fv-receipt-")
+    if (!canAccess) {
+      return NextResponse.json({ error: "文件不存在或无权访问" }, { status: 404 })
     }
 
-    const safeName = path.basename(decoded).replace(/\.\./g, "")
+    const safeName = sanitizeDownloadFilename(filename)
     const dirPath = path.join(process.cwd(), "temp", "french-visa-fill-receipt", outputId)
     let filePath = path.join(dirPath, safeName)
 

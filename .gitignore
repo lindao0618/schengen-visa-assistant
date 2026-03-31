@@ -85,6 +85,10 @@ __pycache__/
 /uploads/
 
 # generated outputs and local runtime caches
+/artifacts/
+/booking_results.json
+/payment_handoff.json
+/payment_storage_state.json
 /app/trip_generator/output/
 /output/
 /storage/

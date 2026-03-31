@@ -45,12 +45,12 @@ async function saveBase64ToFile(outputDir: string, base64Data: string, filename:
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
     const body = await request.json()
     const applicantProfileId =
       typeof body?.applicantProfileId === "string" ? body.applicantProfileId.trim() : ""
     const caseId = typeof body?.caseId === "string" ? body.caseId.trim() : ""
 
-    const session = applicantProfileId ? await getServerSession(authOptions) : null
     if (applicantProfileId && !session?.user?.id) {
       return NextResponse.json({ success: false, error: "请先登录后再关联申请人档案" }, { status: 401 })
     }
@@ -147,11 +147,14 @@ export async function POST(request: NextRequest) {
         : `解释信 · ${englishName || chineseName || "未命名申请人"}`,
       applicantProfile
         ? {
+            userId: session?.user?.id,
             applicantProfileId,
             applicantName: applicantProfile.name || applicantProfile.label,
             caseId: caseId || undefined,
           }
-        : undefined
+        : session?.user?.id
+          ? { userId: session.user.id }
+          : undefined
     )
 
     ;(async () => {

@@ -1,7 +1,9 @@
 /** Material generation tasks for itinerary / explanation letter / material review. */
 
-import * as fs from "fs/promises"
+import fs from "fs/promises"
 import * as path from "path"
+
+import { createJsonRecordStore } from "@/lib/json-record-store"
 import { ensureTempCleanup } from "@/lib/temp-cleanup"
 
 export type MaterialTaskStatus = "pending" | "running" | "completed" | "failed"
@@ -13,6 +15,7 @@ export interface MaterialTaskResponse {
   status: MaterialTaskStatus
   progress: number
   message: string
+  userId?: string
   applicantProfileId?: string
   applicantName?: string
   caseId?: string
@@ -30,52 +33,23 @@ interface MaterialTask extends MaterialTaskResponse {
 const TASKS_FILE = path.join(process.cwd(), "temp", "material-tasks.json")
 const OUTPUT_BASE = path.join(process.cwd(), "temp", "material-tasks-output")
 
-let fileOpsQueue = Promise.resolve<unknown>(undefined)
-
-async function runExclusive<T>(fn: () => Promise<T>): Promise<T> {
-  const prev = fileOpsQueue
-  let resolveNext!: () => void
-  fileOpsQueue = new Promise<void>((resolve) => {
-    resolveNext = resolve
-  })
-
-  try {
-    await prev
-    return await fn()
-  } finally {
-    resolveNext()
-  }
-}
-
-async function readTasks(): Promise<Record<string, MaterialTask>> {
-  try {
-    const raw = await fs.readFile(TASKS_FILE, "utf-8")
-    return JSON.parse(raw) as Record<string, MaterialTask>
-  } catch {
-    return {}
-  }
-}
-
-async function writeTasks(tasks: Record<string, MaterialTask>): Promise<void> {
-  await fs.mkdir(path.dirname(TASKS_FILE), { recursive: true })
-  const toWrite: Record<string, Omit<MaterialTask, "outputDir">> = {}
-
-  for (const [taskId, task] of Object.entries(tasks)) {
-    const { outputDir, ...rest } = task
-    toWrite[taskId] = rest
-  }
-
-  await fs.writeFile(TASKS_FILE, JSON.stringify(toWrite, null, 2), "utf-8")
-}
+const taskStore = createJsonRecordStore<MaterialTask, Omit<MaterialTask, "outputDir">>({
+  filePath: TASKS_FILE,
+  toStoredRecord: (task) => {
+    const { outputDir, ...persisted } = task
+    return persisted
+  },
+})
 
 export async function createMaterialTask(
   type: MaterialTaskType,
   message = "任务已创建",
   meta?: {
+    userId?: string
     applicantProfileId?: string
     applicantName?: string
     caseId?: string
-  }
+  },
 ): Promise<MaterialTaskResponse> {
   await ensureTempCleanup().catch(() => {})
 
@@ -88,6 +62,7 @@ export async function createMaterialTask(
     status: "pending",
     progress: 0,
     message,
+    userId: meta?.userId,
     applicantProfileId: meta?.applicantProfileId,
     applicantName: meta?.applicantName,
     caseId: meta?.caseId,
@@ -95,11 +70,11 @@ export async function createMaterialTask(
     outputDir,
   }
 
-  return runExclusive(async () => {
+  return taskStore.runExclusive(async () => {
     await fs.mkdir(outputDir, { recursive: true })
-    const tasks = await readTasks()
+    const tasks = await taskStore.readRecords()
     tasks[taskId] = task
-    await writeTasks(tasks)
+    await taskStore.writeRecords(tasks)
     const { outputDir: _outputDir, ...response } = task
     return response
   })
@@ -107,15 +82,15 @@ export async function createMaterialTask(
 
 export async function updateMaterialTask(
   taskId: string,
-  updates: Partial<Pick<MaterialTaskResponse, "status" | "progress" | "message" | "result" | "error">>
+  updates: Partial<Pick<MaterialTaskResponse, "status" | "progress" | "message" | "result" | "error">>,
 ): Promise<MaterialTaskResponse | null> {
-  return runExclusive(async () => {
-    const tasks = await readTasks()
+  return taskStore.runExclusive(async () => {
+    const tasks = await taskStore.readRecords()
     const current = tasks[taskId]
     if (!current) return null
 
     Object.assign(current, updates, { updated_at: Date.now() })
-    await writeTasks(tasks)
+    await taskStore.writeRecords(tasks)
 
     const { outputDir: _outputDir, ...response } = current
     return response
@@ -123,8 +98,8 @@ export async function updateMaterialTask(
 }
 
 export async function getMaterialTask(taskId: string): Promise<MaterialTaskResponse | null> {
-  return runExclusive(async () => {
-    const tasks = await readTasks()
+  return taskStore.runExclusive(async () => {
+    const tasks = await taskStore.readRecords()
     const current = tasks[taskId]
     if (!current) return null
 
@@ -135,12 +110,17 @@ export async function getMaterialTask(taskId: string): Promise<MaterialTaskRespo
 
 export async function listMaterialTasks(
   taskIds: string[],
-  typeFilter?: MaterialTaskType
+  typeFilter?: MaterialTaskType,
+  userId?: string,
 ): Promise<MaterialTaskResponse[]> {
-  return runExclusive(async () => {
-    const tasks = await readTasks()
+  return taskStore.runExclusive(async () => {
+    const tasks = await taskStore.readRecords()
     const idSet = new Set(taskIds)
     let list = Object.values(tasks).filter((task) => idSet.has(task.task_id))
+
+    if (userId) {
+      list = list.filter((task) => !task.userId || task.userId === userId)
+    }
 
     if (typeFilter) {
       list = list.filter((task) => task.type === typeFilter)
@@ -152,8 +132,8 @@ export async function listMaterialTasks(
 }
 
 export async function listAllMaterialTasks(): Promise<MaterialTaskResponse[]> {
-  return runExclusive(async () => {
-    const list = Object.values(await readTasks())
+  return taskStore.runExclusive(async () => {
+    const list = Object.values(await taskStore.readRecords())
     list.sort((a, b) => (b.updated_at ?? b.created_at) - (a.updated_at ?? a.created_at))
     return list.map(({ outputDir: _outputDir, ...response }) => response)
   })
@@ -166,8 +146,8 @@ export function getMaterialTaskOutputDir(taskId: string): string {
 export async function deleteMaterialTasks(taskIds: string[]): Promise<number> {
   if (!taskIds.length) return 0
 
-  return runExclusive(async () => {
-    const tasks = await readTasks()
+  return taskStore.runExclusive(async () => {
+    const tasks = await taskStore.readRecords()
     let removed = 0
     const outputDirsToDelete: string[] = []
 
@@ -179,12 +159,12 @@ export async function deleteMaterialTasks(taskIds: string[]): Promise<number> {
       }
     }
 
-    await writeTasks(tasks)
+    await taskStore.writeRecords(tasks)
 
     await Promise.all(
       outputDirsToDelete.map((dir) =>
-        fs.rm(dir, { recursive: true, force: true }).catch(() => {})
-      )
+        fs.rm(dir, { recursive: true, force: true }).catch(() => {}),
+      ),
     )
 
     return removed

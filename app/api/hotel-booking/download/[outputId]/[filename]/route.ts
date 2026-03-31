@@ -4,16 +4,9 @@ import fs from "fs/promises"
 import path from "path"
 
 import { authOptions } from "@/lib/auth"
-import { getHotelBookingTask } from "@/lib/hotel-booking-tasks"
+import { canAccessHotelBookingTaskOutput } from "@/lib/task-route-access"
 
 export const dynamic = "force-dynamic"
-
-function getTaskIdFromOutputId(outputId: string) {
-  const prefix = "hotel-"
-  if (!outputId.startsWith(prefix)) return null
-  const taskId = outputId.slice(prefix.length)
-  return taskId || null
-}
 
 export async function GET(
   _request: NextRequest,
@@ -27,14 +20,8 @@ export async function GET(
 
     const outputId = params.outputId
     const filename = decodeURIComponent(params.filename)
-    const taskId = getTaskIdFromOutputId(outputId)
-
-    if (!taskId) {
-      return new NextResponse("Invalid output id", { status: 400 })
-    }
-
-    const task = await getHotelBookingTask(taskId)
-    if (!task || task.userId !== session.user.id) {
+    const canAccess = await canAccessHotelBookingTaskOutput(session.user.id, outputId)
+    if (!canAccess) {
       return new NextResponse("File not found", { status: 404 })
     }
 

@@ -1,48 +1,51 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
-import path from "path"
 import fs from "fs/promises"
+import path from "path"
+
+import { getServerSession } from "next-auth"
+import { NextRequest, NextResponse } from "next/server"
+
+import { authOptions } from "@/lib/auth"
+import { canAccessFrenchVisaTaskOutput, sanitizeDownloadFilename } from "@/lib/task-route-access"
 
 export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ outputId: string; filename: string }> }
+  _request: NextRequest,
+  { params }: { params: Promise<{ outputId: string; filename: string }> },
 ) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: "请先登录" }, { status: 401 })
     }
+
     const { outputId, filename } = await params
     if (!outputId || !filename) {
       return NextResponse.json({ error: "缺少参数" }, { status: 400 })
     }
-    const decodedName = (() => {
-      try {
-        return decodeURIComponent(filename)
-      } catch {
-        return filename
-      }
-    })()
-    const safeName = path.basename(decodedName)
+
+    const canAccess = await canAccessFrenchVisaTaskOutput(session.user.id, outputId, "fv-submit-")
+    if (!canAccess) {
+      return NextResponse.json({ error: "文件不存在或无权访问" }, { status: 404 })
+    }
+
+    const safeName = sanitizeDownloadFilename(filename)
     const filePath = path.join(process.cwd(), "temp", "french-visa-submit-final", outputId, safeName)
     await fs.access(filePath)
     const buf = await fs.readFile(filePath)
-    const contentType = safeName.endsWith(".pdf") ? "application/pdf" : "application/octet-stream"
-    // HTTP 头必须为 Latin-1，中文需用 RFC 5987 的 filename*=UTF-8''...
-    const rfc5987 = encodeURIComponent(safeName)
-    const contentDisp = `attachment; filename="download.pdf"; filename*=UTF-8''${rfc5987}`
+    const isPdf = safeName.toLowerCase().endsWith(".pdf")
+    const contentType = isPdf ? "application/pdf" : "application/octet-stream"
+    const encodedName = encodeURIComponent(safeName)
+
     return new NextResponse(buf, {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": contentDisp,
+        "Content-Disposition": `attachment; filename="${safeName}"; filename*=UTF-8''${encodedName}`,
       },
     })
   } catch (e) {
-    console.error("[submit-final-download] 错误:", e)
     if ((e as NodeJS.ErrnoException)?.code === "ENOENT") {
       return NextResponse.json({ error: "文件不存在或已过期" }, { status: 404 })
     }
+    console.error("法签提交最终表下载失败:", e)
     return NextResponse.json({ error: "下载失败" }, { status: 500 })
   }
 }
