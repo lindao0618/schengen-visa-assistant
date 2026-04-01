@@ -1,18 +1,58 @@
 "use client"
 
+import { useEffect, useMemo } from "react"
+import { useSearchParams } from "next/navigation"
+
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Camera, FileSpreadsheet, FileCheck, UserPlus } from "lucide-react"
+import { Camera, FileSpreadsheet, FileCheck, UserPlus, FileText } from "lucide-react"
 import { AuthPromptProvider } from "./contexts/AuthPromptContext"
-import { ApplicantProfileSelector } from "@/components/applicant-profile-selector"
+import {
+  ACTIVE_APPLICANT_CASE_KEY,
+  ACTIVE_APPLICANT_PROFILE_KEY,
+  ApplicantProfileSelector,
+} from "@/components/applicant-profile-selector"
 import { PhotoChecker } from "./components/photo-checker"
 import { DS160Form } from "./components/ds160-form"
 import { SubmitDS160Form } from "./components/submit-ds160-form"
 import { RegisterAISForm } from "./components/register-ais-form"
+import { InterviewBriefForm } from "./components/interview-brief-form"
 import { TaskList } from "./components/task-list"
 import { UsVisaQuickStartCard } from "./components/us-visa-quick-start-card"
 
 export default function USAVisaPage() {
+  const searchParams = useSearchParams()
+
+  const defaultTab = useMemo(() => {
+    const requestedTab = searchParams.get("tab") || ""
+    const allowedTabs = new Set(["photo", "ds160-fill", "ds160-submit", "ais-register", "interview-brief"])
+    return allowedTabs.has(requestedTab) ? requestedTab : "photo"
+  }, [searchParams])
+
+  const applicantProfileId = searchParams.get("applicantProfileId")?.trim() || ""
+  const caseId = searchParams.get("caseId")?.trim() || ""
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !applicantProfileId) return
+
+    window.localStorage.setItem(ACTIVE_APPLICANT_PROFILE_KEY, applicantProfileId)
+    window.dispatchEvent(
+      new CustomEvent("active-applicant-profile-changed", {
+        detail: { applicantProfileId },
+      }),
+    )
+
+    if (!caseId) return
+
+    window.localStorage.setItem(ACTIVE_APPLICANT_CASE_KEY, caseId)
+    window.localStorage.setItem(`${ACTIVE_APPLICANT_CASE_KEY}:${applicantProfileId}`, caseId)
+    window.dispatchEvent(
+      new CustomEvent("active-applicant-case-changed", {
+        detail: { applicantProfileId, caseId },
+      }),
+    )
+  }, [applicantProfileId, caseId])
+
   return (
     <AuthPromptProvider>
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-black">
@@ -25,8 +65,8 @@ export default function USAVisaPage() {
         <div className="w-full mx-auto">
           <ApplicantProfileSelector scope="usa-visa" />
           <UsVisaQuickStartCard />
-          <Tabs defaultValue="photo" className="w-full">
-            <TabsList className="grid w-full grid-cols-4 h-12 mb-6 bg-gray-100/80 dark:bg-black/50 backdrop-blur-xl p-1 rounded-2xl border border-gray-200/50 dark:border-white/10 shadow-lg">
+          <Tabs key={defaultTab} defaultValue={defaultTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-5 h-12 mb-6 bg-gray-100/80 dark:bg-black/50 backdrop-blur-xl p-1 rounded-2xl border border-gray-200/50 dark:border-white/10 shadow-lg">
               <TabsTrigger value="photo" className="flex items-center gap-2">
                 <Camera className="h-4 w-4" />
                 照片检测
@@ -42,6 +82,10 @@ export default function USAVisaPage() {
               <TabsTrigger value="ais-register" className="flex items-center gap-2">
                 <UserPlus className="h-4 w-4" />
                 AIS 注册
+              </TabsTrigger>
+              <TabsTrigger value="interview-brief" className="flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                面试必看
               </TabsTrigger>
             </TabsList>
 
@@ -123,6 +167,23 @@ export default function USAVisaPage() {
               <div id="us-ais-register-tasks" className="mt-6">
                 <TaskList filterTaskTypes={["register-ais"]} title="AIS 注册任务" pollInterval={2000} autoRefresh={true} />
               </div>
+            </TabsContent>
+
+            <TabsContent value="interview-brief">
+              <Card className="backdrop-blur-md bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-black border border-gray-200/50 dark:border-gray-800/50 shadow-2xl rounded-2xl overflow-hidden">
+                <CardHeader className="border-b border-gray-100 dark:border-gray-800/50">
+                  <CardTitle className="text-2xl font-semibold flex items-center gap-2">
+                    <FileText className="h-6 w-6" />
+                    面试必看与 PDF
+                  </CardTitle>
+                  <CardDescription>
+                    上传递签之前必看 Word 模板，自动替换中间问答区并导出新的 Word / PDF。
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6">
+                  <InterviewBriefForm />
+                </CardContent>
+              </Card>
             </TabsContent>
           </Tabs>
         </div>
