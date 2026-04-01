@@ -11,6 +11,8 @@ export type ApplicantProfileFileSlot =
   | "usVisaAisExcel"
   | "usVisaDs160ConfirmationPdf"
   | "usVisaDs160PrecheckJson"
+  | "usVisaInterviewBriefDocx"
+  | "usVisaInterviewBriefPdf"
   | "schengenPhoto"
   | "schengenExcel"
   | "schengenItineraryPdf"
@@ -79,12 +81,28 @@ export type ApplicantProfileInput = Partial<
 
 const STORAGE_ROOT = path.join(process.cwd(), "storage", "applicant-profiles")
 
+/** Slots whose files are Excel workbooks and may be replaced via online editor (PUT). */
+const EXCEL_EDITABLE_SLOTS: ApplicantProfileFileSlot[] = [
+  "schengenExcel",
+  "franceExcel",
+  "usVisaDs160Excel",
+  "usVisaAisExcel",
+  "ds160Excel",
+  "aisExcel",
+]
+
+export function isApplicantProfileExcelEditableSlot(slot: string): slot is ApplicantProfileFileSlot {
+  return EXCEL_EDITABLE_SLOTS.includes(slot as ApplicantProfileFileSlot)
+}
+
 const VALID_SLOTS: ApplicantProfileFileSlot[] = [
   "usVisaPhoto",
   "usVisaDs160Excel",
   "usVisaAisExcel",
   "usVisaDs160ConfirmationPdf",
   "usVisaDs160PrecheckJson",
+  "usVisaInterviewBriefDocx",
+  "usVisaInterviewBriefPdf",
   "schengenPhoto",
   "schengenExcel",
   "schengenItineraryPdf",

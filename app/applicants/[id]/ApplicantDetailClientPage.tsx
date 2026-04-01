@@ -5,8 +5,8 @@
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Loader2, Plus, Save, Trash2 } from "lucide-react"
-import { read, utils } from "xlsx"
+import { ArrowLeft, FileText, Loader2, Plus, Save, Trash2 } from "lucide-react"
+import { read, utils, write } from "xlsx"
 
 import { FranceCaseProgressCard } from "@/components/france-case-progress-card"
 import { Badge } from "@/components/ui/badge"
@@ -37,6 +37,7 @@ import {
 } from "@/lib/applicant-crm-labels"
 import { formatFranceStatusLabel } from "@/lib/france-case-labels"
 import { FRANCE_TLS_CITY_OPTIONS, getFranceTlsCityLabel } from "@/lib/france-tls-city"
+import { cn } from "@/lib/utils"
 
 type ApplicantProfileDetail = {
   id: string
@@ -198,6 +199,20 @@ type PreviewState = {
   excelSheets: ExcelPreviewSheet[]
   activeExcelSheet: string
   error: string
+  /** Slot key for PUT /api/applicants/.../files/[slot] (Excel only). */
+  excelSlot: string
+  excelOriginalName: string
+  workbookArrayBuffer: ArrayBuffer | null
+  excelEditMode: boolean
+  excelDirty: boolean
+  excelSaving: boolean
+}
+
+type AuditDialogState = {
+  open: boolean
+  title: string
+  status: "running" | "success" | "error"
+  issues: Array<{ field: string; message: string; value?: string }>
 }
 
 const emptyPreview: PreviewState = {
@@ -212,6 +227,19 @@ const emptyPreview: PreviewState = {
   excelSheets: [],
   activeExcelSheet: "",
   error: "",
+  excelSlot: "",
+  excelOriginalName: "",
+  workbookArrayBuffer: null,
+  excelEditMode: false,
+  excelDirty: false,
+  excelSaving: false,
+}
+
+const emptyAuditDialog: AuditDialogState = {
+  open: false,
+  title: "",
+  status: "running",
+  issues: [],
 }
 
 const emptyBasicForm: BasicFormState = {
@@ -337,6 +365,11 @@ const usVisaSubmissionSlots = [
   { key: "usVisaDs160PrecheckJson", label: "DS-160 预检查 JSON", accept: ".json,application/json" },
 ] as const
 
+const usVisaInterviewBriefSlots = [
+  { key: "usVisaInterviewBriefPdf", label: "面试必看 PDF", accept: ".pdf,application/pdf" },
+  { key: "usVisaInterviewBriefDocx", label: "面试必看 Word", accept: ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+] as const
+
 const schengenUploadedSlots = [
   { key: "schengenPhoto", label: "申根照片", accept: "image/*" },
   { key: "schengenExcel", label: "申根 Excel", accept: ".xlsx,.xls" },
@@ -444,17 +477,43 @@ function buildCaseForm(visaCase?: VisaCaseRecord | null): CaseFormState {
 function Section({
   title,
   description,
+  tone = "slate",
   children,
 }: {
   title: string
   description: string
+  tone?: "slate" | "sky" | "emerald" | "amber"
   children: React.ReactNode
 }) {
+  const toneMap = {
+    slate: {
+      card: "border-slate-200 bg-white/95",
+      title: "text-slate-900",
+      desc: "text-slate-500",
+    },
+    sky: {
+      card: "border-sky-200 bg-[linear-gradient(180deg,_#ffffff,_#f0f9ff)]",
+      title: "text-sky-950",
+      desc: "text-sky-700/80",
+    },
+    emerald: {
+      card: "border-emerald-200 bg-[linear-gradient(180deg,_#ffffff,_#ecfdf5)]",
+      title: "text-emerald-950",
+      desc: "text-emerald-700/80",
+    },
+    amber: {
+      card: "border-amber-200 bg-[linear-gradient(180deg,_#ffffff,_#fffbeb)]",
+      title: "text-amber-950",
+      desc: "text-amber-700/80",
+    },
+  } as const
+
+  const styles = toneMap[tone]
   return (
-    <Card className="border-gray-200 bg-white/90">
+    <Card className={cn("shadow-sm", styles.card)}>
       <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <CardTitle className={cn("text-lg font-semibold", styles.title)}>{title}</CardTitle>
+        <CardDescription className={cn("text-sm", styles.desc)}>{description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">{children}</CardContent>
     </Card>
@@ -468,6 +527,7 @@ function UploadGrid({
   onUpload,
   onPreview,
   emptyMessage = "当前还没有材料。",
+  tone = "slate",
 }: {
   applicantId: string
   files: Record<string, { originalName: string; uploadedAt: string }>
@@ -475,7 +535,44 @@ function UploadGrid({
   onUpload: (event: ChangeEvent<HTMLInputElement>, slot: string) => Promise<void>
   onPreview: (slot: string, meta: { originalName: string; uploadedAt: string }) => Promise<void>
   emptyMessage?: string
+  tone?: "slate" | "sky" | "emerald" | "amber"
 }) {
+  const toneMap = {
+    slate: {
+      card: "border-slate-200 bg-white",
+      title: "text-slate-900",
+      meta: "text-slate-500",
+      empty: "text-slate-400",
+      preview: "text-sky-700",
+      download: "text-slate-700",
+    },
+    sky: {
+      card: "border-sky-200 bg-sky-50/50",
+      title: "text-sky-950",
+      meta: "text-sky-800/70",
+      empty: "text-sky-700/50",
+      preview: "text-sky-700",
+      download: "text-sky-900",
+    },
+    emerald: {
+      card: "border-emerald-200 bg-emerald-50/50",
+      title: "text-emerald-950",
+      meta: "text-emerald-800/70",
+      empty: "text-emerald-700/50",
+      preview: "text-emerald-700",
+      download: "text-emerald-900",
+    },
+    amber: {
+      card: "border-amber-200 bg-amber-50/50",
+      title: "text-amber-950",
+      meta: "text-amber-900/70",
+      empty: "text-amber-700/50",
+      preview: "text-amber-700",
+      download: "text-amber-900",
+    },
+  } as const
+  const styles = toneMap[tone]
+
   if (!slots.length) {
     return <div className="rounded-xl border border-dashed p-4 text-sm text-gray-500">{emptyMessage}</div>
   }
@@ -484,24 +581,27 @@ function UploadGrid({
     <div className="grid gap-3 md:grid-cols-2">
       {slots.map((slot) => {
         const meta = files[slot.key]
+        const canPreview = Boolean(meta && !/\.docx?$/i.test(meta.originalName))
         return (
-          <div key={slot.key} className="rounded-2xl border border-gray-200 p-4">
-            <div className="mb-2 text-sm font-medium text-gray-900">{slot.label}</div>
-            <Input type="file" accept={slot.accept} onChange={(event) => void onUpload(event, slot.key)} />
+          <div key={slot.key} className={cn("rounded-2xl border p-4 shadow-sm transition", styles.card)}>
+            <div className={cn("mb-2 text-base font-semibold", styles.title)}>{slot.label}</div>
+            <Input type="file" accept={slot.accept} onChange={(event) => void onUpload(event, slot.key)} className="bg-white/90" />
             {meta ? (
-              <div className="mt-3 space-y-1 text-xs text-gray-500">
-                <div>{meta.originalName}</div>
+              <div className={cn("mt-3 space-y-1 text-xs", styles.meta)}>
+                <div className="truncate text-sm font-medium">{meta.originalName}</div>
                 <div>{formatDateTime(meta.uploadedAt)}</div>
                 <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    className="text-blue-600 hover:underline"
-                    onClick={() => void onPreview(slot.key, meta)}
-                  >
-                    预览
-                  </button>
+                  {canPreview ? (
+                    <button
+                      type="button"
+                      className={cn("font-medium hover:underline", styles.preview)}
+                      onClick={() => void onPreview(slot.key, meta)}
+                    >
+                      预览
+                    </button>
+                  ) : null}
                   <a
-                    className="text-blue-600 hover:underline"
+                    className={cn("font-medium hover:underline", styles.download)}
                     href={`/api/applicants/${applicantId}/files/${slot.key}`}
                     target="_blank"
                     rel="noreferrer"
@@ -511,7 +611,7 @@ function UploadGrid({
                 </div>
               </div>
             ) : (
-              <div className="mt-3 text-xs text-gray-400">暂未上传</div>
+              <div className={cn("mt-3 text-xs", styles.empty)}>暂未上传</div>
             )}
           </div>
         )
@@ -535,6 +635,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
   const [createCaseOpen, setCreateCaseOpen] = useState(false)
   const [newCaseForm, setNewCaseForm] = useState<CaseFormState>(emptyCaseForm)
   const [preview, setPreview] = useState<PreviewState>(emptyPreview)
+  const [auditDialog, setAuditDialog] = useState<AuditDialogState>(emptyAuditDialog)
 
   const selectedCase = useMemo(
     () => detail?.cases.find((item) => item.id === selectedCaseId) ?? null,
@@ -651,8 +752,20 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
     const file = event.target.files?.[0]
     if (!file) return
 
+    const isSchengenExcelUpload = slot === "schengenExcel" || slot === "franceExcel"
+    const isUsVisaExcelUpload =
+      slot === "usVisaDs160Excel" || slot === "usVisaAisExcel" || slot === "ds160Excel" || slot === "aisExcel"
     setMessage("")
     try {
+      if (isSchengenExcelUpload || isUsVisaExcelUpload) {
+        setAuditDialog({
+          open: true,
+          title: isSchengenExcelUpload ? "申根 Excel 审核中" : "美签 Excel 审核中",
+          status: "running",
+          issues: [],
+        })
+      }
+
       const formData = new FormData()
       formData.append(slot, file)
       const response = await fetch(`/api/applicants/${applicantId}/files`, {
@@ -663,6 +776,14 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
         profile?: ApplicantProfileDetail
         parsedUsVisaDetails?: { surname?: string; birthYear?: string; passportNumber?: string }
         parsedSchengenDetails?: { city?: string }
+        schengenAudit?: {
+          ok: boolean
+          errors: Array<{ field: string; message: string; value?: string }>
+        }
+        usVisaAudit?: {
+          ok: boolean
+          errors: Array<{ field: string; message: string; value?: string }>
+        }
         error?: string
       }>(response)
 
@@ -682,6 +803,34 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
       ].filter(Boolean)
 
       setMessage(parsedFields.length > 0 ? `资料已上传，并自动识别 ${parsedFields.join("、")}` : "资料已上传")
+
+      if (isSchengenExcelUpload) {
+        const issues = data.schengenAudit?.errors || []
+        const passed = Boolean(data.schengenAudit?.ok)
+        setAuditDialog({
+          open: true,
+          title: passed ? "申根 Excel 审核通过" : "申根 Excel 审核失败",
+          status: passed ? "success" : "error",
+          issues: passed
+            ? []
+            : issues.length > 0
+              ? issues
+              : [{ field: "审核流程", message: "未获得有效审核结果，请重试上传。" }],
+        })
+      } else if (isUsVisaExcelUpload) {
+        const issues = data.usVisaAudit?.errors || []
+        const passed = Boolean(data.usVisaAudit?.ok)
+        setAuditDialog({
+          open: true,
+          title: passed ? "美签 Excel 审核通过" : "美签 Excel 审核失败",
+          status: passed ? "success" : "error",
+          issues: passed
+            ? []
+            : issues.length > 0
+              ? issues
+              : [{ field: "审核流程", message: "未获得有效审核结果，请重试上传。" }],
+        })
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "上传文件失败")
     } finally {
@@ -703,9 +852,109 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
       return {
         ...prev,
         activeExcelSheet: sheetName,
-        tableRows: targetSheet.rows,
+        tableRows: targetSheet.rows.map((row) => [...row]),
       }
     })
+  }
+
+  const setExcelCell = (rowIndex: number, colIndex: number, value: string) => {
+    setPreview((prev) => {
+      if (prev.kind !== "excel") return prev
+      const sheetIndex = prev.excelSheets.findIndex((s) => s.name === prev.activeExcelSheet)
+      if (sheetIndex < 0) return prev
+      const nextSheets = prev.excelSheets.map((s) => ({ ...s, rows: s.rows.map((r) => [...r]) }))
+      const rows = nextSheets[sheetIndex].rows
+      while (rows.length <= rowIndex) {
+        rows.push([])
+      }
+      const row = [...rows[rowIndex]]
+      while (row.length <= colIndex) {
+        row.push("")
+      }
+      row[colIndex] = value
+      rows[rowIndex] = row
+      nextSheets[sheetIndex] = { ...nextSheets[sheetIndex], rows }
+      return {
+        ...prev,
+        excelSheets: nextSheets,
+        tableRows: rows.map((r) => [...r]),
+        excelDirty: true,
+      }
+    })
+  }
+
+  const cancelExcelEdit = () => {
+    setPreview((prev) => {
+      if (prev.kind !== "excel" || !prev.workbookArrayBuffer) {
+        return { ...prev, excelEditMode: false, excelDirty: false }
+      }
+      const wb = read(prev.workbookArrayBuffer, { type: "array" })
+      const excelSheets = wb.SheetNames.map((sheetName) => {
+        const sheet = wb.Sheets[sheetName]
+        const rows = sheet
+          ? (utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" }) as unknown[][]).map((row) =>
+              (row as unknown[]).map((cell) => String(cell ?? "")),
+            )
+          : []
+        return { name: sheetName, rows }
+      })
+      const active = excelSheets.find((s) => s.name === prev.activeExcelSheet) || excelSheets[0]
+      return {
+        ...prev,
+        excelSheets,
+        tableRows: active?.rows.map((r) => [...r]) || [],
+        excelEditMode: false,
+        excelDirty: false,
+      }
+    })
+  }
+
+  const saveExcelFromPreview = async () => {
+    const snap = preview
+    if (snap.kind !== "excel" || !snap.workbookArrayBuffer || !snap.excelSlot) return
+    setPreview((p) => ({ ...p, excelSaving: true }))
+    setMessage("")
+    try {
+      const wb = read(snap.workbookArrayBuffer, { type: "array" })
+      for (const sh of snap.excelSheets) {
+        wb.Sheets[sh.name] = utils.aoa_to_sheet(sh.rows)
+      }
+      const out = write(wb, { bookType: "xlsx", type: "array" })
+      const u8 = out instanceof Uint8Array ? out : new Uint8Array(out)
+      const name =
+        snap.excelOriginalName ||
+        snap.title ||
+        `${snap.excelSlot}.xlsx`
+      const response = await fetch(`/api/applicants/${applicantId}/files/${snap.excelSlot}`, {
+        method: "PUT",
+        body: u8,
+        headers: {
+          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "x-excel-original-name": encodeURIComponent(/\.xlsx$/i.test(name) ? name : name.replace(/\.xls$/i, ".xlsx")),
+        },
+      })
+      const data = await readJsonSafely<{ profile?: ApplicantProfileDetail; error?: string }>(response)
+      if (!response.ok || !data?.profile) {
+        throw new Error(data?.error || "保存失败")
+      }
+      setDetail((prev) => (prev ? { ...prev, profile: data.profile! } : prev))
+      setMessage("Excel 已保存到档案")
+      const nextBuf = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength)
+      setPreview((p) =>
+        p.kind === "excel" && p.excelSlot === snap.excelSlot
+          ? {
+              ...p,
+              workbookArrayBuffer: nextBuf,
+              excelDirty: false,
+              excelSaving: false,
+              excelEditMode: false,
+            }
+          : { ...p, excelSaving: false },
+      )
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "保存失败")
+      setPreview((p) => ({ ...p, excelSaving: false }))
+    }
   }
 
   const openPreview = async (slot: string, meta: { originalName: string; uploadedAt: string }) => {
@@ -736,7 +985,8 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
       }
 
       if (/\.(xlsx|xls)$/.test(filename) || mime.includes("spreadsheet") || mime.includes("excel")) {
-        const workbook = read(await blob.arrayBuffer(), { type: "array" })
+        const arrayBuffer = await blob.arrayBuffer()
+        const workbook = read(arrayBuffer, { type: "array" })
         const excelSheets = workbook.SheetNames.map((sheetName) => {
           const sheet = workbook.Sheets[sheetName]
           const rows = sheet
@@ -757,7 +1007,13 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
           kind: "excel",
           excelSheets,
           activeExcelSheet: firstSheet?.name || "",
-          tableRows: firstSheet?.rows || [],
+          tableRows: (firstSheet?.rows || []).map((r) => [...r]),
+          excelSlot: slot,
+          excelOriginalName: meta.originalName || "",
+          workbookArrayBuffer: arrayBuffer.slice(0),
+          excelEditMode: false,
+          excelDirty: false,
+          excelSaving: false,
         }))
         return
       }
@@ -892,6 +1148,12 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
   }
 
   const files = detail.profile.files || {}
+  const hasUsVisaInterviewSource = Boolean(
+    files.usVisaDs160Excel || files.ds160Excel || files.usVisaAisExcel || files.aisExcel,
+  )
+  const interviewBriefHref = `/usa-visa?tab=interview-brief&applicantProfileId=${encodeURIComponent(detail.profile.id)}${
+    selectedCase ? `&caseId=${encodeURIComponent(selectedCase.id)}` : ""
+  }`
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white px-4 py-8">
@@ -928,16 +1190,36 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
           </div>
         )}
 
-        <Tabs defaultValue="basic" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="basic">基本信息</TabsTrigger>
-            <TabsTrigger value="cases">签证 Case</TabsTrigger>
-            <TabsTrigger value="materials">材料文档</TabsTrigger>
-            <TabsTrigger value="progress">进度与日志</TabsTrigger>
+        <Tabs defaultValue="basic" className="space-y-5">
+          <TabsList className="grid h-auto w-full grid-cols-4 rounded-2xl border border-slate-200 bg-white/90 p-1.5 shadow-sm backdrop-blur">
+            <TabsTrigger
+              value="basic"
+              className="h-11 w-full rounded-xl border border-transparent bg-transparent text-sm font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 data-[state=active]:!border-slate-300 data-[state=active]:!bg-white data-[state=active]:!text-slate-900 data-[state=active]:shadow-sm"
+            >
+              基本信息
+            </TabsTrigger>
+            <TabsTrigger
+              value="cases"
+              className="h-11 w-full rounded-xl border border-transparent bg-transparent text-sm font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 data-[state=active]:!border-slate-300 data-[state=active]:!bg-white data-[state=active]:!text-slate-900 data-[state=active]:shadow-sm"
+            >
+              签证 Case
+            </TabsTrigger>
+            <TabsTrigger
+              value="materials"
+              className="h-11 w-full rounded-xl border border-transparent bg-transparent text-sm font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 data-[state=active]:!border-slate-300 data-[state=active]:!bg-white data-[state=active]:!text-slate-900 data-[state=active]:shadow-sm"
+            >
+              材料文档
+            </TabsTrigger>
+            <TabsTrigger
+              value="progress"
+              className="h-11 w-full rounded-xl border border-transparent bg-transparent text-sm font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 data-[state=active]:!border-slate-300 data-[state=active]:!bg-white data-[state=active]:!text-slate-900 data-[state=active]:shadow-sm"
+            >
+              进度与日志
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="basic" className="space-y-6">
-            <Section title="CRM 基本信息" description="申请人主实体信息，后续搜索和 CRM 列表会优先使用这里的字段。">
+            <Section title="CRM 基本信息" description="申请人主实体信息，后续搜索和 CRM 列表会优先使用这里的字段。" tone="slate">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <Field label="申请人姓名" value={basicForm.name} onChange={(value) => setBasicForm((prev) => ({ ...prev, name: value }))} />
                 <Field label="手机号" value={basicForm.phone} onChange={(value) => setBasicForm((prev) => ({ ...prev, phone: value }))} />
@@ -962,7 +1244,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
               </div>
             </Section>
 
-            <Section title="美签基础信息" description="这块会继续为 DS-160、AIS 注册和提交 DS-160 提供复用信息。">
+            <Section title="美签基础信息" description="这块会继续为 DS-160、AIS 注册和提交 DS-160 提供复用信息。" tone="sky">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <ReadOnlyField label="AA 码" value={detail.profile.usVisa?.aaCode || "仅 DS-160 成功后自动回写"} />
                 <Field
@@ -983,7 +1265,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
               </div>
             </Section>
 
-            <Section title="申根基础信息" description="申根国家和 TLS 递签城市会同时影响法签自动化和解释信默认值。">
+            <Section title="申根基础信息" description="申根国家和 TLS 递签城市会同时影响法签自动化和解释信默认值。" tone="emerald">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>申根国家</Label>
@@ -1027,7 +1309,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
             </Section>
 
             <div className="flex justify-end">
-              <Button onClick={() => void saveProfile()} disabled={savingProfile}>
+              <Button onClick={() => void saveProfile()} disabled={savingProfile} className="rounded-2xl bg-slate-900 text-white hover:bg-slate-800">
                 <Save className="mr-2 h-4 w-4" />
                 {savingProfile ? "保存中..." : "保存申请人"}
               </Button>
@@ -1039,6 +1321,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
             <Section
               title="案件切换"
               description="同一个申请人可同时办理多个签证案件，点击标签即可切换当前工作案件。"
+              tone="amber"
             >
               <div className="flex flex-wrap gap-3">
                 {detail.cases.map((item) => (
@@ -1047,10 +1330,10 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                     type="button"
                     onClick={() => setSelectedCaseId(item.id)}
                     className={[
-                      "rounded-full border px-4 py-2 text-sm font-medium transition-colors",
+                      "rounded-full border px-4 py-2 text-sm font-semibold shadow-sm transition-all",
                       selectedCaseId === item.id
-                        ? "border-gray-900 bg-gray-900 text-white"
-                        : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50",
+                        ? "border-amber-500 bg-amber-500 text-white"
+                        : "border-amber-200 bg-white text-amber-900 hover:border-amber-300 hover:bg-amber-50",
                     ].join(" ")}
                   >
                     {getApplicantCrmVisaTypeLabel(item.visaType || item.caseType)}
@@ -1062,15 +1345,15 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
           ) : null}
 
           <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
-              <Section title="Case 列表" description="一个申请人可以挂多个 Case。当前激活中的 France Case 会驱动法签自动化和提醒。">
+              <Section title="Case 列表" description="一个申请人可以挂多个 Case。当前激活中的 France Case 会驱动法签自动化和提醒。" tone="amber">
                 <div className="space-y-3">
-                  <Button onClick={() => setCreateCaseOpen(true)} className="w-full">
+                  <Button onClick={() => setCreateCaseOpen(true)} className="w-full rounded-2xl bg-amber-500 text-white hover:bg-amber-600">
                     <Plus className="mr-2 h-4 w-4" />
                     新建 Case
                   </Button>
 
                   {detail.cases.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed p-4 text-sm text-gray-500">
+                    <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/70 p-4 text-sm text-amber-800">
                       当前还没有 Case，先创建一个再继续。
                     </div>
                   ) : (
@@ -1080,10 +1363,10 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                         type="button"
                         onClick={() => setSelectedCaseId(item.id)}
                         className={[
-                          "w-full rounded-2xl border p-4 text-left transition-colors",
+                          "w-full rounded-2xl border p-4 text-left shadow-sm transition-all",
                           selectedCaseId === item.id
-                            ? "border-gray-900 bg-gray-900 text-white"
-                            : "border-gray-200 bg-white hover:border-gray-300",
+                            ? "border-amber-500 bg-[linear-gradient(135deg,_#f59e0b,_#d97706)] text-white"
+                            : "border-amber-200 bg-white hover:border-amber-300 hover:bg-amber-50/60",
                         ].join(" ")}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -1111,9 +1394,10 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
               <Section
                 title="Case 详情"
                 description="这里维护案件基础信息。对于 France Case，勾选“设为当前案件”后，自动化和进度条就会围绕这条 Case 运行。"
+                tone="amber"
               >
                 {!selectedCase ? (
-                  <div className="rounded-2xl border border-dashed p-6 text-sm text-gray-500">
+                  <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/70 p-6 text-sm text-amber-800">
                     请选择左侧的 Case。
                   </div>
                 ) : (
@@ -1157,12 +1441,12 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                       <div className="space-y-2">
                         <Label>DS-160 预检查 JSON</Label>
                         {selectedCase.ds160PrecheckFile ? (
-                          <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/80 p-3">
-                            <div className="text-sm text-gray-700">{selectedCase.ds160PrecheckFile.originalName}</div>
-                            <div className="text-xs text-gray-500">
+                          <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50/90 p-3">
+                            <div className="text-sm font-medium text-sky-950">{selectedCase.ds160PrecheckFile.originalName}</div>
+                            <div className="text-xs text-sky-800/70">
                               上传时间：{formatDateTime(selectedCase.ds160PrecheckFile.uploadedAt)}
                             </div>
-                            <Button variant="outline" size="sm" asChild>
+                            <Button variant="outline" size="sm" asChild className="border-sky-300 text-sky-800 hover:bg-sky-100">
                               <a
                                 href={`/api/cases/${selectedCase.id}/precheck-file`}
                                 target="_blank"
@@ -1173,7 +1457,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                             </Button>
                           </div>
                         ) : (
-                          <div className="rounded-xl border border-dashed p-3 text-sm text-gray-500">
+                          <div className="rounded-xl border border-dashed border-sky-300 bg-sky-50/70 p-3 text-sm text-sky-800">
                             当前案件还没有保存 DS-160 预检查结果。
                           </div>
                         )}
@@ -1328,10 +1612,10 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                     </div>
 
                     {caseForm.caseType === "france-schengen" && (
-                      <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50/70 p-4">
+                      <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/80 p-4">
                         <div className="mb-3">
-                          <div className="text-sm font-semibold text-gray-900">slot 信息</div>
-                          <div className="text-xs text-gray-500">单独维护递签时间，方便直接查看和提取。</div>
+                          <div className="text-sm font-semibold text-amber-950">slot 信息</div>
+                          <div className="text-xs text-amber-800/70">单独维护递签时间，方便直接查看和提取。</div>
                         </div>
                         <div className="grid gap-4 md:grid-cols-2">
                           <SlotTimeField
@@ -1365,7 +1649,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                     )}
 
                     <div className="flex justify-end">
-                      <Button onClick={() => void saveCase()} disabled={savingCase}>
+                      <Button onClick={() => void saveCase()} disabled={savingCase} className="rounded-2xl bg-amber-500 text-white hover:bg-amber-600">
                         <Save className="mr-2 h-4 w-4" />
                         {savingCase ? "保存中..." : "保存 Case"}
                       </Button>
@@ -1377,32 +1661,73 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
           </TabsContent>
 
           <TabsContent value="materials" className="space-y-6">
-            <Section title="美签材料" description="继续兼容 DS-160、AIS、照片检测和提交 DS-160 的现有归档结构。">
+            <Section title="美签材料" description="继续兼容 DS-160、AIS、照片检测和提交 DS-160 的现有归档结构。" tone="sky">
               <div className="space-y-5">
-                <div className="space-y-3">
-                  <div className="text-sm font-semibold text-gray-900">上传材料</div>
-                  <UploadGrid applicantId={applicantId} files={files} slots={usVisaUploadedSlots} onUpload={uploadFiles} onPreview={openPreview} />
+                <div className="rounded-2xl border border-sky-200 bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.14),_transparent_40%),linear-gradient(135deg,_#ffffff,_#f0f9ff)] p-4 shadow-sm">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                        <FileText className="h-4 w-4 text-sky-700" />
+                        面试必看生成
+                      </div>
+                      <div className="text-sm text-slate-600">
+                        从当前申请人直接跳到美签工作台的“面试必看”页签，生成后的 Word 和 PDF 也会自动归档到下面的材料区。
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {hasUsVisaInterviewSource
+                          ? "已检测到 DS-160 / AIS Excel，可直接生成。"
+                          : "当前档案里还没有可用的 DS-160 / AIS Excel，先上传后再生成会更顺。"}
+                      </div>
+                    </div>
+                    {hasUsVisaInterviewSource ? (
+                      <Button asChild className="rounded-2xl bg-slate-900 text-white hover:bg-slate-800">
+                        <Link href={interviewBriefHref}>
+                          <FileText className="mr-2 h-4 w-4" />
+                          去生成面试必看
+                        </Link>
+                      </Button>
+                    ) : (
+                      <Button disabled className="rounded-2xl">
+                        <FileText className="mr-2 h-4 w-4" />
+                        先上传美签 Excel
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-3">
-                  <div className="text-sm font-semibold text-gray-900">递签材料</div>
-                  <UploadGrid applicantId={applicantId} files={files} slots={usVisaSubmissionSlots} onUpload={uploadFiles} onPreview={openPreview} />
+                  <div className="text-base font-semibold text-sky-950">上传材料</div>
+                  <div className="text-sm text-sky-800/70">先放照片和 DS-160 / AIS 信息表，后续自动化与材料整理都会用到。</div>
+                  <UploadGrid applicantId={applicantId} files={files} slots={usVisaUploadedSlots} onUpload={uploadFiles} onPreview={openPreview} tone="sky" />
+                </div>
+                <div className="space-y-3">
+                  <div className="text-base font-semibold text-sky-950">递签材料</div>
+                  <div className="text-sm text-sky-800/70">这里放 DS-160 确认页和预检查结果，方便后续复核与递签。</div>
+                  <UploadGrid applicantId={applicantId} files={files} slots={usVisaSubmissionSlots} onUpload={uploadFiles} onPreview={openPreview} tone="sky" />
+                </div>
+                <div className="space-y-3">
+                  <div className="text-base font-semibold text-sky-950">面试必看材料</div>
+                  <div className="text-sm text-sky-800/70">生成后的 PDF 可直接预览，Word 和 PDF 都可以从这里下载。</div>
+                  <UploadGrid applicantId={applicantId} files={files} slots={usVisaInterviewBriefSlots} onUpload={uploadFiles} onPreview={openPreview} tone="sky" />
                 </div>
               </div>
             </Section>
 
-            <Section title="申根材料" description="申根上传材料、递签材料和材料文档都统一归档在这里。">
+            <Section title="申根材料" description="申根上传材料、递签材料和材料文档都统一归档在这里。" tone="emerald">
               <div className="space-y-5">
                 <div className="space-y-3">
-                  <div className="text-sm font-semibold text-gray-900">上传材料</div>
-                  <UploadGrid applicantId={applicantId} files={files} slots={schengenUploadedSlots} onUpload={uploadFiles} onPreview={openPreview} />
+                  <div className="text-base font-semibold text-emerald-950">上传材料</div>
+                  <div className="text-sm text-emerald-800/70">基础照片、信息表和护照扫描件统一放这里，方便后续申根流程继续接力。</div>
+                  <UploadGrid applicantId={applicantId} files={files} slots={schengenUploadedSlots} onUpload={uploadFiles} onPreview={openPreview} tone="emerald" />
                 </div>
                 <div className="space-y-3">
-                  <div className="text-sm font-semibold text-gray-900">递签材料</div>
-                  <UploadGrid applicantId={applicantId} files={files} slots={schengenSubmissionSlots} onUpload={uploadFiles} onPreview={openPreview} />
+                  <div className="text-base font-semibold text-emerald-950">递签材料</div>
+                  <div className="text-sm text-emerald-800/70">TLS、申请 JSON、回执 PDF 和最终表统一归档在这一组。</div>
+                  <UploadGrid applicantId={applicantId} files={files} slots={schengenSubmissionSlots} onUpload={uploadFiles} onPreview={openPreview} tone="emerald" />
                 </div>
                 <div className="space-y-3">
-                  <div className="text-sm font-semibold text-gray-900">材料文档</div>
-                  <UploadGrid applicantId={applicantId} files={files} slots={schengenMaterialDocumentSlots} onUpload={uploadFiles} onPreview={openPreview} />
+                  <div className="text-base font-semibold text-emerald-950">材料文档</div>
+                  <div className="text-sm text-emerald-800/70">行程单、解释信、预订单等辅助材料集中放这里，避免和递签件混在一起。</div>
+                  <UploadGrid applicantId={applicantId} files={files} slots={schengenMaterialDocumentSlots} onUpload={uploadFiles} onPreview={openPreview} tone="emerald" />
                 </div>
               </div>
             </Section>
@@ -1412,13 +1737,15 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
             {selectedCase ? (
               <>
                 {selectedCase.caseType === "france-schengen" ? (
-                  <FranceCaseProgressCard
-                    applicantProfileId={detail.profile.id}
-                    applicantName={detail.profile.name || detail.profile.label}
-                    caseId={selectedCase.id}
-                  />
+                  <div className="rounded-3xl border border-emerald-200 bg-[linear-gradient(180deg,_rgba(255,255,255,0.92),_rgba(236,253,245,0.92))] p-2 shadow-sm">
+                    <FranceCaseProgressCard
+                      applicantProfileId={detail.profile.id}
+                      applicantName={detail.profile.name || detail.profile.label}
+                      caseId={selectedCase.id}
+                    />
+                  </div>
                 ) : (
-                  <Section title="当前案件进度" description="当前选中的是非 France Case，这里先展示基础案件信息。">
+                  <Section title="当前案件进度" description="当前选中的是非 France Case，这里先展示基础案件信息。" tone="emerald">
                     <div className="grid gap-4 md:grid-cols-4">
                       <ReadOnlyField
                         label="状态"
@@ -1431,21 +1758,21 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                   </Section>
                 )}
 
-                <Section title="状态日志" description="这里直接读取 VisaCaseStatusHistory。">
+                <Section title="状态日志" description="这里直接读取 VisaCaseStatusHistory。" tone="emerald">
                   {selectedCase.statusHistory.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed p-4 text-sm text-gray-500">当前案件还没有状态日志。</div>
+                    <div className="rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/70 p-4 text-sm text-emerald-800">当前案件还没有状态日志。</div>
                   ) : (
                     <div className="space-y-3">
                       {selectedCase.statusHistory.map((item) => (
-                        <div key={item.id} className="rounded-2xl border border-gray-200 bg-white/90 p-4">
+                        <div key={item.id} className="rounded-2xl border border-emerald-200 bg-white/95 p-4 shadow-sm">
                           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                            <div className="text-sm font-medium text-gray-900">
+                            <div className="text-sm font-semibold text-emerald-950">
                               {item.toMainStatus}
                               {item.toSubStatus ? ` / ${item.toSubStatus}` : ""}
                             </div>
-                            <div className="text-xs text-gray-500">{formatDateTime(item.createdAt)}</div>
+                            <div className="text-xs text-emerald-800/70">{formatDateTime(item.createdAt)}</div>
                           </div>
-                          {item.reason && <div className="mt-2 text-sm text-gray-600">原因：{item.reason}</div>}
+                          {item.reason && <div className="mt-2 text-sm text-slate-700">原因：{item.reason}</div>}
                           {item.exceptionCode && (
                             <div className="mt-2 text-sm text-red-600">异常：{item.exceptionCode}</div>
                           )}
@@ -1455,12 +1782,13 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                   )}
                 </Section>
 
-                <Section title="Reminder 日志" description="这里直接读取 ReminderLog，当前仍是模拟发送。">
+                <Section title="Reminder 日志" description="这里直接读取 ReminderLog，当前仍是模拟发送。" tone="slate">
                   {selectedCase.reminderLogs.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed p-4 text-sm text-gray-500">当前案件还没有 Reminder 日志。</div>
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-4 text-sm text-slate-600">当前案件还没有 Reminder 日志。</div>
                   ) : (
+                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <Table>
-                      <TableHeader>
+                      <TableHeader className="bg-slate-50/90">
                         <TableRow>
                           <TableHead>触发时间</TableHead>
                           <TableHead>规则</TableHead>
@@ -1480,19 +1808,20 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                             <TableCell>
                               <Badge variant={getSendStatusBadge(item.sendStatus)}>{item.sendStatus}</Badge>
                             </TableCell>
-                            <TableCell className="max-w-[320px] truncate text-sm text-gray-500">
+                            <TableCell className="max-w-[320px] truncate text-sm text-slate-500">
                               {item.renderedContent || item.errorMessage || "-"}
                             </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
+                    </div>
                   )}
                 </Section>
               </>
             ) : (
-              <Section title="进度与日志" description="先在 Case 标签页中创建或选择一个案件。">
-                <div className="rounded-2xl border border-dashed p-6 text-sm text-gray-500">
+              <Section title="进度与日志" description="先在 Case 标签页中创建或选择一个案件。" tone="emerald">
+                <div className="rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/70 p-6 text-sm text-emerald-800">
                   当前还没有可展示的案件进度。
                 </div>
               </Section>
@@ -1690,12 +2019,35 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
         </DialogContent>
       </Dialog>
 
-      <Dialog open={preview.open} onOpenChange={(open) => (!open ? closePreview() : null)}>
-        <DialogContent className="max-w-6xl">
+      <Dialog
+        open={preview.open}
+        onOpenChange={(open) => {
+          if (open) return
+          if (preview.kind === "excel" && preview.excelEditMode && preview.excelDirty) {
+            if (!window.confirm("有未保存的修改，确定关闭？")) return
+          }
+          closePreview()
+        }}
+      >
+        <DialogContent
+          className={cn(
+            "!flex max-h-[92vh] max-w-none flex-col gap-4 overflow-hidden p-6",
+            preview.kind === "excel" && preview.excelEditMode
+              ? "w-[min(99.5vw,1920px)]"
+              : preview.kind === "excel"
+                ? "w-[min(98vw,1680px)]"
+                : "w-[min(96vw,72rem)]",
+          )}
+        >
           <DialogHeader>
             <DialogTitle>{preview.title || "文件预览"}</DialogTitle>
+            {preview.kind === "excel" ? (
+              <DialogDescription>
+                预览申根/美签 Excel。点击「在线编辑」可直接改单元格并保存回档案（多 Sheet 请切换标签；保存后为 .xlsx）。
+              </DialogDescription>
+            ) : null}
           </DialogHeader>
-          <div className="max-h-[75vh] overflow-auto rounded-xl border border-gray-200 p-3">
+          <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-gray-200 p-3">
             {preview.loading && <div className="p-6 text-sm text-gray-500">正在加载预览...</div>}
             {!preview.loading && preview.error && <div className="p-6 text-sm text-amber-700">{preview.error}</div>}
             {!preview.loading && !preview.error && preview.kind === "pdf" && preview.objectUrl && (
@@ -1706,6 +2058,25 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
             )}
             {!preview.loading && !preview.error && preview.kind === "excel" && (
               <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {preview.excelEditMode ? (
+                    <>
+                      <Button size="sm" onClick={() => void saveExcelFromPreview()} disabled={preview.excelSaving}>
+                        {preview.excelSaving ? "保存中…" : "保存到档案"}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => cancelExcelEdit()} disabled={preview.excelSaving}>
+                        放弃修改
+                      </Button>
+                    </>
+                  ) : (
+                    <Button size="sm" variant="secondary" onClick={() => setPreview((p) => ({ ...p, excelEditMode: true }))}>
+                      在线编辑
+                    </Button>
+                  )}
+                  {preview.excelDirty ? (
+                    <span className="text-xs text-amber-700">有未保存修改</span>
+                  ) : null}
+                </div>
                 {preview.excelSheets.length > 1 && (
                   <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-3">
                     {preview.excelSheets.map((sheet) => (
@@ -1714,6 +2085,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                         variant={sheet.name === preview.activeExcelSheet ? "default" : "outline"}
                         size="sm"
                         onClick={() => selectExcelSheet(sheet.name)}
+                        disabled={preview.excelSaving}
                       >
                         {sheet.name}
                       </Button>
@@ -1726,20 +2098,44 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                   {preview.tableRows.length} 行
                 </div>
                 <div className="overflow-auto rounded-lg border border-gray-200">
-                  <table className="min-w-full border-collapse text-xs">
+                  <table className="w-max min-w-full border-collapse text-xs">
                     <tbody>
-                      {preview.tableRows.map((row, rowIndex) => (
-                        <tr key={`row-${rowIndex}`} className={rowIndex === 0 ? "bg-gray-50" : ""}>
-                          <td className="sticky left-0 border bg-white px-2 py-1 text-right text-[11px] text-gray-400">
-                            {rowIndex + 1}
-                          </td>
-                          {row.map((cell, cellIndex) => (
-                            <td key={`cell-${rowIndex}-${cellIndex}`} className="border px-2 py-1 align-top whitespace-pre-wrap">
-                              {cell || ""}
+                      {(() => {
+                        const maxCols =
+                          preview.tableRows.length === 0
+                            ? 0
+                            : Math.max(...preview.tableRows.map((r) => r.length))
+                        return preview.tableRows.map((row, rowIndex) => (
+                          <tr key={`row-${rowIndex}`} className={rowIndex === 0 ? "bg-gray-50" : ""}>
+                            <td className="sticky left-0 z-[1] w-11 min-w-[2.75rem] border bg-white px-1.5 py-1 text-right text-[11px] text-gray-400">
+                              {rowIndex + 1}
                             </td>
-                          ))}
-                        </tr>
-                      ))}
+                            {Array.from({ length: maxCols }, (_, cellIndex) => {
+                              const cell = row[cellIndex] ?? ""
+                              const colClass = excelColumnMinWidthClass(cellIndex)
+                              return (
+                                <td key={`cell-${rowIndex}-${cellIndex}`} className={cn("border p-0 align-top", colClass)}>
+                                  {preview.excelEditMode ? (
+                                    <Input
+                                      className={cn(
+                                        "h-auto min-h-8 w-full rounded-none border-0 py-1.5 text-xs shadow-none focus-visible:ring-1",
+                                        colClass,
+                                      )}
+                                      value={cell}
+                                      onChange={(e) => setExcelCell(rowIndex, cellIndex, e.target.value)}
+                                      disabled={preview.excelSaving}
+                                    />
+                                  ) : (
+                                    <div className={cn("whitespace-pre-wrap break-words px-2 py-1.5", colClass)}>
+                                      {cell || ""}
+                                    </div>
+                                  )}
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        ))
+                      })()}
                     </tbody>
                   </table>
                   {preview.tableRows.length === 0 && <div className="p-4 text-sm text-gray-500">Excel 内容为空。</div>}
@@ -1753,6 +2149,50 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
               <pre className="whitespace-pre-wrap break-words p-3 text-xs">{preview.textContent || "暂无可预览内容"}</pre>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={auditDialog.open} onOpenChange={(open) => (!open ? setAuditDialog(emptyAuditDialog) : null)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle className={auditDialog.status === "error" ? "text-red-600" : auditDialog.status === "success" ? "text-emerald-600" : ""}>
+              {auditDialog.title}
+            </DialogTitle>
+            <DialogDescription>
+              {auditDialog.status === "running"
+                ? "系统正在对上传的 Excel 进行字段完整性与规则检查。"
+                : auditDialog.status === "success"
+                  ? "审核通过，可继续后续流程。"
+                  : "审核发现问题，请先修正再继续。"}
+            </DialogDescription>
+          </DialogHeader>
+
+          {auditDialog.status === "running" ? (
+            <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-700">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              正在审核，请稍候...
+            </div>
+          ) : null}
+
+          {auditDialog.status === "error" && auditDialog.issues.length > 0 ? (
+            <div className="max-h-[360px] space-y-2 overflow-auto rounded-lg border border-red-200 bg-red-50/50 p-3">
+              {auditDialog.issues.map((issue, index) => (
+                <div key={`${issue.field}-${index}`} className="rounded-md border border-red-200 bg-white px-3 py-2 text-sm">
+                  <div className="font-medium text-red-700">
+                    {index + 1}. {issue.field}
+                  </div>
+                  <div className="mt-1 text-gray-700">{issue.message}</div>
+                  {issue.value ? <div className="mt-1 text-xs text-gray-500">当前值：{issue.value}</div> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button onClick={() => setAuditDialog(emptyAuditDialog)}>
+              {auditDialog.status === "error" ? "我知道了，去修正" : "确定"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
@@ -1864,6 +2304,13 @@ function getTodayInputDate() {
   const month = String(now.getMonth() + 1).padStart(2, "0")
   const day = String(now.getDate()).padStart(2, "0")
   return `${year}-${month}-${day}`
+}
+
+function excelColumnMinWidthClass(cellIndex: number) {
+  if (cellIndex === 0) return "min-w-[min(22rem,34vw)]"
+  if (cellIndex === 1) return "min-w-[min(15rem,24vw)]"
+  if (cellIndex === 2) return "min-w-[min(12rem,20vw)]"
+  return "min-w-[7rem]"
 }
 
 function SlotTimeField({

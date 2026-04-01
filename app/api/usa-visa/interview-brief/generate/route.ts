@@ -6,7 +6,11 @@ import { getServerSession } from "next-auth"
 import { NextRequest, NextResponse } from "next/server"
 
 import { authOptions } from "@/lib/auth"
-import { getApplicantProfile, getApplicantProfileFileByCandidates } from "@/lib/applicant-profiles"
+import {
+  getApplicantProfile,
+  getApplicantProfileFileByCandidates,
+  saveApplicantProfileFileFromBuffer,
+} from "@/lib/applicant-profiles"
 import { writeOutputAccessMetadata } from "@/lib/task-route-access"
 import { buildUsVisaInterviewBrief } from "@/lib/us-visa-interview-brief"
 import { resolveUsVisaInterviewBriefTemplatePath } from "@/lib/us-visa-interview-brief-template"
@@ -149,6 +153,30 @@ export async function POST(request: NextRequest) {
         { success: false, error: generation.error || "生成面试材料失败。" },
         { status: 500 },
       )
+    }
+
+    const docxBuffer = await fs.readFile(path.join(outputDir, generation.docx_file))
+    await saveApplicantProfileFileFromBuffer({
+      userId: session.user.id,
+      id: applicantProfileId,
+      slot: "usVisaInterviewBriefDocx",
+      buffer: docxBuffer,
+      originalName: generation.docx_file,
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      role: session.user.role,
+    })
+
+    if (generation.pdf_file) {
+      const pdfBuffer = await fs.readFile(path.join(outputDir, generation.pdf_file))
+      await saveApplicantProfileFileFromBuffer({
+        userId: session.user.id,
+        id: applicantProfileId,
+        slot: "usVisaInterviewBriefPdf",
+        buffer: pdfBuffer,
+        originalName: generation.pdf_file,
+        mimeType: "application/pdf",
+        role: session.user.role,
+      })
     }
 
     return NextResponse.json({
