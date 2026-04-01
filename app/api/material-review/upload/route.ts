@@ -35,6 +35,29 @@ const VISA_TYPE_LABELS: Record<string, string> = {
   other: "其他签证",
 }
 
+async function cacheWordDownloadToTaskOutput(taskId: string, remoteUrl: string) {
+  const normalizedUrl = remoteUrl.startsWith("http")
+    ? remoteUrl
+    : `${MATERIAL_REVIEW_URL}${remoteUrl.startsWith("/") ? remoteUrl : `/${remoteUrl}`}`
+  const filename = decodeURIComponent(path.basename(normalizedUrl))
+  const safeFilename = path.basename(filename).replace(/\.\./g, "")
+  const response = await fetch(normalizedUrl)
+  if (!response.ok) {
+    throw new Error(`Failed to cache OCR result: ${response.status}`)
+  }
+
+  const outputDir = getMaterialTaskOutputDir(taskId)
+  await fs.mkdir(outputDir, { recursive: true })
+  const targetPath = path.join(outputDir, safeFilename)
+  const content = Buffer.from(await response.arrayBuffer())
+  await fs.writeFile(targetPath, content)
+
+  return {
+    filename: safeFilename,
+    downloadUrl: `/api/material-tasks/download/${taskId}/${encodeURIComponent(safeFilename)}`,
+  }
+}
+
 function getFileNamePrefix(name: string, maxChars = 4): string {
   const base = path.basename(name, path.extname(name))
   return base.slice(0, maxChars) || name.slice(0, maxChars)
@@ -145,10 +168,12 @@ export async function POST(request: NextRequest) {
           return
         }
 
-        let wordDownloadUrl = data.word_download_url
-        if (wordDownloadUrl) {
-          const filename = wordDownloadUrl.replace("/download-ocr-result/", "")
-          wordDownloadUrl = `/api/material-review/download-ocr-result/${filename}`
+        let wordDownloadUrl: string | undefined
+        let wordDownloadFilename: string | undefined
+        if (data.word_download_url) {
+          const cached = await cacheWordDownloadToTaskOutput(task.task_id, data.word_download_url)
+          wordDownloadUrl = cached.downloadUrl
+          wordDownloadFilename = cached.filename
         }
 
         await updateMaterialTask(task.task_id, {
@@ -157,6 +182,7 @@ export async function POST(request: NextRequest) {
           result: {
             success: true,
             word_download_url: wordDownloadUrl,
+            word_download_filename: wordDownloadFilename,
             analysis_result: data.analysis_result,
             document_type: documentType,
             file_name: file.name,

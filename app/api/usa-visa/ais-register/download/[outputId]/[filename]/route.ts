@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import path from 'path'
 import fs from 'fs/promises'
+import { canAccessUsVisaTaskOutput, sanitizeDownloadFilename } from '@/lib/task-route-access'
 
 /** GET /api/usa-visa/ais-register/download/[outputId]/[filename] - 返回 AIS 注册错误截图 */
 export async function GET(
@@ -20,11 +21,17 @@ export async function GET(
     if (!outputId || !filename) {
       return NextResponse.json({ error: 'Missing parameters' }, { status: 400 })
     }
-    if (outputId.includes('..') || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    if (outputId.includes('..')) {
       return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 })
     }
 
-    const filePath = path.join(process.cwd(), 'temp', 'ais-register-outputs', outputId, filename)
+    const canAccess = await canAccessUsVisaTaskOutput(session.user.id, outputId, 'ais-')
+    if (!canAccess) {
+      return NextResponse.json({ error: 'File not found' }, { status: 404 })
+    }
+
+    const safeName = sanitizeDownloadFilename(filename)
+    const filePath = path.join(process.cwd(), 'temp', 'ais-register-outputs', outputId, safeName)
 
     const stats = await fs.stat(filePath)
     if (!stats.isFile()) {
@@ -32,7 +39,7 @@ export async function GET(
     }
 
     const fileBuffer = await fs.readFile(filePath)
-    const ext = path.extname(filename).toLowerCase()
+    const ext = path.extname(safeName).toLowerCase()
     const mimeTypes: Record<string, string> = {
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
@@ -42,7 +49,7 @@ export async function GET(
 
     const headers = new Headers()
     headers.set('Content-Type', contentType)
-    headers.set('Content-Disposition', `inline; filename="${filename}"`)
+    headers.set('Content-Disposition', `inline; filename="${safeName}"`)
 
     return new NextResponse(fileBuffer, { status: 200, headers })
   } catch (error) {

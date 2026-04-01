@@ -6,6 +6,7 @@ import fs from "fs/promises"
 import { authOptions } from "@/lib/auth"
 import { getApplicantProfile, saveApplicantProfileFileFromAbsolutePath } from "@/lib/applicant-profiles"
 import { createTask, updateTask } from "@/lib/usa-visa-tasks"
+import { writeOutputAccessMetadata } from "@/lib/task-route-access"
 
 export async function POST(request: NextRequest) {
   try {
@@ -54,6 +55,12 @@ export async function POST(request: NextRequest) {
     })
     await updateTask(task.task_id, { status: "running", progress: 5, message: "正在提交 DS-160..." })
 
+    await writeOutputAccessMetadata(outputDir, {
+      userId,
+      taskId: task.task_id,
+      outputId,
+    })
+
     const scriptPath = path.join(process.cwd(), "services", "ds160-submitter", "ds160_submitter_cli.py")
     const captchaKey = process.env.CAPTCHA_API_KEY || process.env["2CAPTCHA_API_KEY"] || ""
     const args = [
@@ -97,6 +104,12 @@ export async function POST(request: NextRequest) {
         let archivedProfilePdfUrl: string | undefined
 
         if (data.success && data.pdf_file) {
+          await writeOutputAccessMetadata(outputDir, {
+            userId,
+            taskId: task.task_id,
+            outputId,
+            preferredFilename: data.pdf_file,
+          })
           data.download_url = `/api/usa-visa/ds160/submit/download/${outputId}/${encodeURIComponent(data.pdf_file)}`
           data.download_url_simple = `/api/usa-visa/ds160/submit/download/${outputId}`
 

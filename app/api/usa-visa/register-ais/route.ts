@@ -6,6 +6,7 @@ import { spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs/promises'
 import { getApplicantProfile, getApplicantProfileFileByCandidates } from '@/lib/applicant-profiles'
+import { writeOutputAccessMetadata } from '@/lib/task-route-access'
 
 /** 当 Python 未返回 screenshot 时，扫描输出目录查找最新错误截图 */
 async function findLatestAisErrorScreenshot(outputDir: string) {
@@ -202,6 +203,11 @@ export async function POST(request: NextRequest) {
       const outputId = `ais-${task.task_id}`
       const outputDir = path.join(process.cwd(), 'temp', 'ais-register-outputs', outputId)
       await fs.mkdir(outputDir, { recursive: true })
+      await writeOutputAccessMetadata(outputDir, {
+        userId: session.user.id,
+        taskId: task.task_id,
+        outputId,
+      })
       const excelPath = path.join(outputDir, name.replace(/[^a-zA-Z0-9._-]/g, '_') || 'data.xlsx')
       await fs.writeFile(excelPath, Buffer.from(await file.arrayBuffer()))
       await updateTask(task.task_id, { status: 'running', progress: 1, message: `[${name}] 准备中...` })

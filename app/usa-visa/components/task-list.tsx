@@ -549,7 +549,7 @@ function ResultSummary({ result, taskType }: { result: Record<string, unknown>; 
     const simpleUrl = outputId || extractOutputId
       ? `/api/usa-visa/ds160/submit/download/${outputId || extractOutputId}`
       : undefined
-    const downloadUrl = (result.download_url_simple as string) || simpleUrl || (fullUrl as string)
+    const downloadUrl = (fullUrl as string) || (result.download_url_simple as string) || simpleUrl
     const appId = result.application_id as string | undefined
     const pdfFile = result.pdf_file as string | undefined
     if (!downloadUrl) return null

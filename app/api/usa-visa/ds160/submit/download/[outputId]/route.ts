@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import path from 'path'
 import fs from 'fs/promises'
+import { getAuthorizedDs160SubmitOutput } from '@/lib/task-route-access'
 
 /** GET /api/usa-visa/ds160/submit/download/[outputId] - 返回目录下第一个 PDF 或 PNG，无需文件名 */
 export async function GET(
@@ -20,26 +21,13 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 })
     }
 
-    const dirPath = path.join(process.cwd(), 'temp', 'ds160-submit-outputs', outputId)
-    const files = await fs.readdir(dirPath)
-    const pdfs = files.filter((f) => f.toLowerCase().endsWith('.pdf'))
-    const pngs = files.filter((f) => f.toLowerCase().endsWith('.png'))
-    let found: string | null = null
-    for (const f of pdfs) {
-      const fp = path.join(dirPath, f)
-      const buf = await fs.readFile(fp)
-      const valid = buf.length >= 100 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46
-      if (valid) {
-        found = f
-        break
-      }
-    }
-    if (!found && pngs.length > 0) found = pngs[0]
-    if (!found && pdfs.length > 0) found = pdfs[0]
-    if (!found) {
+    const authorized = await getAuthorizedDs160SubmitOutput(session.user.id, outputId)
+    if (!authorized?.preferredFilename) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 })
     }
 
+    const dirPath = authorized.dirPath
+    const found = authorized.preferredFilename
     const filePath = path.join(dirPath, found)
     const stats = await fs.stat(filePath)
     if (!stats.isFile()) {

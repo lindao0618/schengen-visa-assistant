@@ -1,47 +1,39 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
-import path from 'path'
 import fs from 'fs/promises'
+import path from 'path'
+
+import { getServerSession } from 'next-auth'
+import { NextRequest, NextResponse } from 'next/server'
+
+import { authOptions } from '@/lib/auth'
+import { getAuthorizedDs160SubmitOutput, sanitizeDownloadFilename } from '@/lib/task-route-access'
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ outputId: string; filename: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
-      return NextResponse.json({ error: '请先登录' }, { status: 401 })
+      return NextResponse.json({ error: '璇峰厛鐧诲綍' }, { status: 401 })
     }
 
-    let { outputId, filename } = await params
-    const decodedFilename = decodeURIComponent(filename || '')
-    if (!outputId || !filename || outputId.includes('..') || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    const { outputId, filename } = await params
+    if (!outputId || !filename || outputId.includes('..')) {
       return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 })
     }
-    const dirPath = path.join(process.cwd(), 'temp', 'ds160-submit-outputs', outputId)
-    let filePath = path.join(dirPath, decodedFilename)
-    let actualFilename = decodedFilename
 
-    try {
-      const stats = await fs.stat(filePath)
-      if (!stats.isFile()) throw new Error('Not a file')
-    } catch {
-      // 精确匹配失败时，列出目录查找任意 PDF 或 PNG
-      try {
-        const files = await fs.readdir(dirPath)
-        const found = files.find((f) => f.endsWith('.pdf') || f.endsWith('.png'))
-        if (found) {
-          filePath = path.join(dirPath, found)
-          actualFilename = found
-        } else {
-          return NextResponse.json({ error: 'File not found' }, { status: 404 })
-        }
-      } catch {
-        return NextResponse.json({ error: 'File not found' }, { status: 404 })
-      }
+    const authorized = await getAuthorizedDs160SubmitOutput(session.user.id, outputId)
+    if (!authorized) {
+      return NextResponse.json({ error: 'File not found' }, { status: 404 })
     }
 
+    const requestedName = sanitizeDownloadFilename(filename)
+    if (authorized.preferredFilename && requestedName !== authorized.preferredFilename) {
+      return NextResponse.json({ error: 'File not found' }, { status: 404 })
+    }
+
+    const actualFilename = authorized.preferredFilename || requestedName
+    const filePath = path.join(authorized.dirPath, actualFilename)
     const buffer = await fs.readFile(filePath)
     const isPdf = actualFilename.toLowerCase().endsWith('.pdf') &&
       buffer.length >= 100 && buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46

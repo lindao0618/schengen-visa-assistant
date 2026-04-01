@@ -55,6 +55,15 @@ function extractTaskMeta(result: unknown): TaskMeta {
   }
 }
 
+function getResultPathValue(result: unknown, pathSegments: string[]) {
+  let current: unknown = result
+  for (const segment of pathSegments) {
+    if (!current || typeof current !== "object") return undefined
+    current = (current as Record<string, unknown>)[segment]
+  }
+  return current
+}
+
 function mergeMetaIntoResult(result: unknown, meta?: TaskMeta) {
   if (!meta?.applicantProfileId && !meta?.applicantName && !meta?.caseId) {
     return result as Record<string, unknown> | undefined
@@ -283,6 +292,72 @@ export async function getTask(userId: string, taskId: string): Promise<UsVisaTas
       const task = tasks[taskId]
       if (belongsToUser(task, userId)) return { ...task }
       return null
+    })
+  } catch {
+    fromFile = null
+  }
+
+  if (!fromPrisma && !fromFile) return null
+  if (!fromPrisma && fromFile) {
+    const enriched = await attachCaseLabels([fromFile])
+    return enriched[0] ?? null
+  }
+  if (!fromFile && fromPrisma) {
+    const enriched = await attachCaseLabels([fromPrisma])
+    return enriched[0] ?? null
+  }
+
+  if (fromPrisma && fromFile) {
+    const a = fromPrisma.updated_at ?? fromPrisma.created_at
+    const b = fromFile.updated_at ?? fromFile.created_at
+    const enriched = await attachCaseLabels([a >= b ? fromPrisma : fromFile])
+    return enriched[0] ?? null
+  }
+
+  return null
+}
+
+export async function findTaskByResultField(
+  userId: string,
+  pathSegments: string[],
+  expectedValue: string,
+): Promise<UsVisaTaskResponse | null> {
+  let fromPrisma: UsVisaTaskResponse | null = null
+  let fromFile: UsVisaTaskResponse | null = null
+
+  try {
+    const row = await prisma.usVisaTask.findFirst({
+      where: {
+        userId,
+        result: {
+          path: pathSegments,
+          equals: expectedValue,
+        },
+      },
+      orderBy: { updatedAt: "desc" },
+      include: {
+        applicantProfile: {
+          select: { name: true },
+        },
+      },
+    })
+    if (row) fromPrisma = toResponse(row)
+  } catch (e) {
+    if (!isPrismaConnectionError(e)) return null
+  }
+
+  try {
+    fromFile = await taskStore.runExclusive(async () => {
+      const tasks = await taskStore.readRecords()
+      const matches = Object.values(tasks)
+        .filter((task) => belongsToUser(task, userId))
+        .filter((task) => getResultPathValue(task.result, pathSegments) === expectedValue)
+        .sort(
+          (a, b) =>
+            (b.updated_at ?? b.created_at) - (a.updated_at ?? a.created_at),
+        )
+
+      return matches.length > 0 ? { ...matches[0] } : null
     })
   } catch {
     fromFile = null

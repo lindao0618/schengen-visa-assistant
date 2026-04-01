@@ -13,6 +13,7 @@ import {
   getApplicantProfileFileByCandidates,
   updateApplicantProfileUsVisaDetails,
 } from '@/lib/applicant-profiles'
+import { canAccessOutputDirectoryByMetadata, writeOutputAccessMetadata } from '@/lib/task-route-access'
 
 const DS160_CC_EMAIL = 'ukvisa20242024@163.com'
 
@@ -602,6 +603,10 @@ export async function POST(request: NextRequest) {
     
     await fs.mkdir(tempDir, { recursive: true })
     await fs.mkdir(outputPath, { recursive: true })
+    await writeOutputAccessMetadata(tempDir, {
+      userId: session.user.id,
+      tempId,
+    })
 
     const excelPath = path.join(tempDir, 'ds160_data.xlsx')
     const photoPath = path.join(tempDir, 'photo.jpg')
@@ -899,6 +904,11 @@ export async function POST(request: NextRequest) {
 // GET方法：获取处理状态
 export async function GET(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: '璇峰厛鐧诲綍' }, { status: 401 })
+    }
+
     const { searchParams } = new URL(request.url)
     const tempId = searchParams.get('tempId')
     
@@ -908,6 +918,13 @@ export async function GET(request: NextRequest) {
 
     const tempDir = path.join(process.cwd(), 'temp', tempId)
     const outputPath = path.join(tempDir, 'output')
+    const canAccess = await canAccessOutputDirectoryByMetadata(session.user.id, tempDir)
+    if (!canAccess) {
+      return NextResponse.json({
+        success: false,
+        error: '鏂囦欢鐩綍涓嶅瓨鍦ㄦ垨鏃犳硶璁块棶'
+      }, { status: 404 })
+    }
     
     try {
       const files = await fs.readdir(outputPath)

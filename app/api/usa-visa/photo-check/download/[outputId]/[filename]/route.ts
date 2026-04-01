@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import path from 'path'
 import fs from 'fs/promises'
+import { canAccessUsVisaOutputId, sanitizeDownloadFilename } from '@/lib/task-route-access'
 
 export async function GET(
   request: NextRequest,
@@ -19,11 +20,18 @@ export async function GET(
     if (!outputId || !filename) {
       return NextResponse.json({ error: 'Missing parameters' }, { status: 400 })
     }
-    if (outputId.includes('..') || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    if (outputId.includes('..')) {
       return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 })
     }
 
-    const filePath = path.join(process.cwd(), 'temp', 'photo-check-outputs', outputId, filename)
+    const safeName = sanitizeDownloadFilename(filename)
+    const outputDir = path.join(process.cwd(), 'temp', 'photo-check-outputs', outputId)
+    const canAccess = await canAccessUsVisaOutputId(session.user.id, outputId, outputDir)
+    if (!canAccess) {
+      return NextResponse.json({ error: 'File not found' }, { status: 404 })
+    }
+
+    const filePath = path.join(outputDir, safeName)
 
     const stats = await fs.stat(filePath)
     if (!stats.isFile()) {
@@ -31,7 +39,7 @@ export async function GET(
     }
 
     const fileBuffer = await fs.readFile(filePath)
-    const ext = path.extname(filename).toLowerCase()
+    const ext = path.extname(safeName).toLowerCase()
     const mimeTypes: Record<string, string> = {
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
@@ -41,7 +49,7 @@ export async function GET(
 
     const headers = new Headers()
     headers.set('Content-Type', contentType)
-    headers.set('Content-Disposition', `attachment; filename="${filename}"`)
+    headers.set('Content-Disposition', `attachment; filename="${safeName}"`)
 
     return new NextResponse(fileBuffer, { status: 200, headers })
   } catch (error) {

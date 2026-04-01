@@ -30,12 +30,15 @@ export async function GET(
 ) {
   try {
     const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "璇峰厛鐧诲綍" }, { status: 401 })
+    }
     const { taskId, filename: rawFilename } = await params
     if (!taskId || !rawFilename) {
       return NextResponse.json({ error: "缺少参数" }, { status: 400 })
     }
 
-    const task = await getAuthorizedMaterialTask(taskId, session?.user?.id)
+    const task = await getAuthorizedMaterialTask(taskId, session.user.id)
     if (!task) {
       return NextResponse.json({ error: "文件不存在或无权访问" }, { status: 404 })
     }

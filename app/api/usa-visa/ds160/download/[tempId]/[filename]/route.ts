@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import path from 'path'
 import fs from 'fs/promises'
+import { canAccessOutputDirectoryByMetadata, sanitizeDownloadFilename } from '@/lib/task-route-access'
 
 export async function GET(
   request: NextRequest,
@@ -22,12 +23,19 @@ export async function GET(
     }
     
     // 安全检查：防止目录遍历攻击
-    if (tempId.includes('..') || filename.includes('..')) {
+    if (tempId.includes('..')) {
       return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 })
+    }
+
+    const tempDir = path.join(process.cwd(), 'temp', tempId)
+    const canAccess = await canAccessOutputDirectoryByMetadata(session.user.id, tempDir)
+    if (!canAccess) {
+      return NextResponse.json({ error: 'File not found' }, { status: 404 })
     }
     
     // 构建文件路径
-    const filePath = path.join(process.cwd(), 'temp', tempId, 'output', filename)
+    const safeName = sanitizeDownloadFilename(filename)
+    const filePath = path.join(tempDir, 'output', safeName)
     
     try {
       // 检查文件是否存在
@@ -41,9 +49,9 @@ export async function GET(
       
       // 设置响应头
       const headers = new Headers()
-      headers.set('Content-Type', getContentType(filename))
+      headers.set('Content-Type', getContentType(safeName))
       headers.set('Content-Length', stats.size.toString())
-      headers.set('Content-Disposition', `attachment; filename="${filename}"`)
+      headers.set('Content-Disposition', `attachment; filename="${safeName}"`)
       headers.set('Cache-Control', 'private, no-cache')
       
       return new NextResponse(fileBuffer, {

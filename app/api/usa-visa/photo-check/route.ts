@@ -8,6 +8,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { createTask, updateTask } from '@/lib/usa-visa-tasks';
 import { getApplicantProfile, getApplicantProfileFileByCandidates, saveApplicantProfileFileFromAbsolutePath } from '@/lib/applicant-profiles';
+import { writeOutputAccessMetadata } from '@/lib/task-route-access';
 
 const execAsync = promisify(exec);
 
@@ -185,6 +186,10 @@ export async function POST(request: NextRequest) {
     const tempDir = path.join(outputDir, 'input');
     await fs.mkdir(tempDir, { recursive: true });
     await fs.mkdir(outputDir, { recursive: true });
+    await writeOutputAccessMetadata(outputDir, {
+      userId: session.user.id,
+      outputId,
+    });
 
     const originalFilename = photo instanceof File ? photo.name : 'photo.jpg';
     const photoBuffer = await photo.arrayBuffer();
@@ -199,6 +204,11 @@ export async function POST(request: NextRequest) {
         applicantName: applicantProfile?.name || applicantProfile?.label,
       });
       await updateTask(task.task_id, { status: 'running', progress: 5, message: `准备中 · ${originalFilename}` });
+      await writeOutputAccessMetadata(outputDir, {
+        userId: session.user.id,
+        taskId: task.task_id,
+        outputId,
+      });
       runPhotoCheckInBackground(task.task_id, {
         userId: session.user.id,
         applicantProfileId: applicantProfileId || undefined,

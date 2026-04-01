@@ -289,7 +289,7 @@ export function FranceTaskList({
                   <p className="text-xs text-red-600 dark:text-red-400">{task.error}</p>
                 )}
                 {task.result && (
-                  <FranceResultSummary result={task.result} />
+                  <FranceResultSummary taskType={task.type} result={task.result} />
                 )}
                 <div className="flex flex-wrap gap-2">
                   <Dialog>
@@ -349,9 +349,12 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function FranceResultSummary({ result }: { result: Record<string, unknown> }) {
+function FranceResultSummary({ taskType, result }: { taskType: string; result: Record<string, unknown> }) {
   const download_excel = result.download_excel as string | undefined
-  const download_json = result.download_json as string | undefined
+  const rawDownloadJson = result.download_json as string | undefined
+  const download_json = ["extract", "extract-register", "create-application"].includes(taskType)
+    ? rawDownloadJson
+    : undefined
   const download_pdf = result.download_pdf as string | undefined
   const download_log = result.download_log as string | undefined
   const download_artifacts = Array.isArray(result.download_artifacts)
