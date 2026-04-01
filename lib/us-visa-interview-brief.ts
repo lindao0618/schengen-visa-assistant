@@ -182,19 +182,40 @@ function findAdjacentValue(row: string[], aliases: string[]) {
   return ""
 }
 
+function createValidDate(year: number, month: number, day: number) {
+  const parsed = new Date(year, month - 1, day)
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return null
+  }
+  return parsed
+}
+
 function parseDate(value?: string) {
   const text = normalizeText(value)
   if (!text) return null
+
+  const dayFirst = text.match(/^(\d{1,2})[/. -](\d{1,2})[/. -](\d{4})$/)
+  if (dayFirst) {
+    const parsed = createValidDate(Number(dayFirst[3]), Number(dayFirst[2]), Number(dayFirst[1]))
+    if (parsed) return parsed
+  }
+
+  const yearFirst = text.match(/^(\d{4})[/. -](\d{1,2})[/. -](\d{1,2})$/)
+  if (yearFirst) {
+    const parsed = createValidDate(Number(yearFirst[1]), Number(yearFirst[2]), Number(yearFirst[3]))
+    if (parsed) return parsed
+  }
 
   const normalized = text.replace(/[./]/g, "-")
   const direct = new Date(normalized)
   if (!Number.isNaN(direct.getTime())) return direct
 
-  const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
-  if (!match) return null
-
-  const parsed = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
-  return Number.isNaN(parsed.getTime()) ? null : parsed
+  return null
 }
 
 function formatDateCn(value?: string) {

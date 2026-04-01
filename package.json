@@ -14,6 +14,7 @@
     "migrate:applicants": "node scripts/import-applicant-profiles-to-db.js",
     "setup:us-visa": "python scripts/setup-us-visa.py",
     "size:report": "node scripts/report-large-paths.js",
+    "test:dates": "tsc -p tsconfig.test.json && node --test .test-dist/tests/date-regressions.test.js",
     "clean:generated": "node scripts/cleanup-generated-files.js",
     "clean:runtime": "node scripts/cleanup-generated-files.js --include-runtime"
   },
