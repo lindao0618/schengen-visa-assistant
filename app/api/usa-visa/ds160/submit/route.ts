@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     const userId = session.user.id
 
     const body = await request.json()
-    let { application_id, surname, birth_year, passport_number, test_mode, applicantProfileId } = body
+    let { application_id, surname, birth_year, passport_number, test_mode, applicantProfileId, caseId } = body
 
     let applicantProfile = null
     if (applicantProfileId) {
@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
 
     const task = await createTask(userId, "submit-ds160", `提交 DS160 · ${application_id}`, {
       applicantProfileId: applicantProfileId || undefined,
+      caseId: caseId || undefined,
       applicantName: applicantProfile?.name || applicantProfile?.label,
     })
     await updateTask(task.task_id, { status: "running", progress: 5, message: "正在提交 DS-160..." })

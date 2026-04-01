@@ -26,6 +26,8 @@ export interface FranceVisaTask {
   error?: string
   applicantProfileId?: string
   applicantName?: string
+  caseId?: string
+  caseLabel?: string
 }
 
 function getTaskFilename(task: FranceVisaTask): string {
@@ -98,7 +100,10 @@ export function FranceTaskList({
     try {
       const params = new URLSearchParams({ limit: "50", t: String(Date.now()) })
       if (statusFilter !== "all") params.set("status", statusFilter)
-      if (onlyCurrentApplicant && activeApplicant?.id) params.set("applicantProfileId", activeApplicant.id)
+      if (onlyCurrentApplicant && activeApplicant?.id) {
+        params.set("applicantProfileId", activeApplicant.id)
+        if (activeApplicant.activeCaseId) params.set("caseId", activeApplicant.activeCaseId)
+      }
       const res = await fetch("/api/schengen/france/tasks-list?" + params.toString(), {
         cache: "no-store",
         headers: { "Cache-Control": "no-cache" },
@@ -219,6 +224,11 @@ export function FranceTaskList({
             </label>
           </div>
         )}
+        {activeApplicant?.id && activeApplicant.activeCaseId && onlyCurrentApplicant && (
+          <p className="text-xs text-amber-600 dark:text-amber-300">
+            当前已按所选案件过滤任务列表。
+          </p>
+        )}
         {(tasks.length === 0 || displayedTasks.length === 0) && (
           <div className="py-4 text-center">
             {needsLogin ? (
@@ -259,6 +269,9 @@ export function FranceTaskList({
                 {task.applicantName && (
                   <p className="text-xs text-blue-600 dark:text-blue-300">申请人: {task.applicantName}</p>
                 )}
+                {task.caseLabel && (
+                  <p className="text-xs text-violet-600 dark:text-violet-300">所属案件: {task.caseLabel}</p>
+                )}
                 <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
                   <span>创建时间: {formatTimestamp(task.created_at)}</span>
                   <span>最近更新时间: {formatTimestamp(task.updated_at || task.created_at)}</span>
@@ -291,6 +304,7 @@ export function FranceTaskList({
                         <DialogTitle>任务详情</DialogTitle>
                       </DialogHeader>
                       <div className="space-y-2 text-xs text-gray-700 dark:text-gray-300">
+                        {task.caseLabel && <p>所属案件: {task.caseLabel}</p>}
                         <p>任务ID: {task.task_id}</p>
                         <p>任务类型: {TYPE_LABELS[task.type] || task.type}</p>
                         <p>状态: {task.status}</p>

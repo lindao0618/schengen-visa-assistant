@@ -1,8 +1,16 @@
 import { Prisma } from "@prisma/client"
+import * as fs from "fs/promises"
+import * as path from "path"
 
 import prisma from "@/lib/db"
 import { ApplicantProfile, getApplicantProfile, listApplicantProfiles } from "@/lib/applicant-profiles"
-import { CRM_PRIORITY_FILTER_VALUES } from "@/lib/applicant-crm-labels"
+import {
+  CRM_PRIORITY_FILTER_VALUES,
+  CRM_REGION_FILTER_VALUES,
+  CRM_VISA_TYPE_FILTER_VALUES,
+  normalizeApplicantCrmRegion,
+  normalizeApplicantCrmVisaType,
+} from "@/lib/applicant-crm-labels"
 import {
   DEFAULT_FRANCE_CASE_MAIN_STATUS,
   DEFAULT_FRANCE_CASE_SUB_STATUS,
@@ -99,6 +107,7 @@ export interface ApplicantCrmFilters {
   statuses?: string[]
   regions?: string[]
   priorities?: string[]
+  includeSelectorCases?: boolean
 }
 
 export interface ApplicantCrmRow {
@@ -142,6 +151,9 @@ export interface ApplicantCaseSummary {
   visaType?: string | null
   applyRegion?: string | null
   tlsCity?: string | null
+  bookingWindow?: string | null
+  acceptVip?: string | null
+  slotTime?: string | null
   mainStatus: string
   subStatus?: string | null
   exceptionCode?: string | null
@@ -153,6 +165,10 @@ export interface ApplicantCaseSummary {
   isActive: boolean
   updatedAt: string
   createdAt: string
+  ds160PrecheckFile?: {
+    originalName: string
+    uploadedAt: string
+  } | null
   owner: {
     id: string
     name?: string | null
@@ -217,6 +233,9 @@ export interface VisaCaseInput {
   visaType?: string
   applyRegion?: string
   tlsCity?: string
+  bookingWindow?: string
+  acceptVip?: string
+  slotTime?: string | null
   priority?: string
   travelDate?: string | null
   submissionDate?: string | null
@@ -228,6 +247,9 @@ export interface VisaCasePatch {
   visaType?: string | null
   applyRegion?: string | null
   tlsCity?: string | null
+  bookingWindow?: string | null
+  acceptVip?: string | null
+  slotTime?: string | null
   priority?: string | null
   travelDate?: string | null
   submissionDate?: string | null
@@ -359,9 +381,35 @@ function matchesArrayFilter(value: string | null | undefined, selected: string[]
   return selected.includes(value)
 }
 
+function mapSelectorCase(caseRecord: ApplicantWithCasesRecord["visaCases"][number]) {
+  return {
+    id: caseRecord.id,
+    caseType: caseRecord.caseType,
+    visaType: caseRecord.visaType,
+    applyRegion: caseRecord.applyRegion,
+    tlsCity: caseRecord.tlsCity,
+    bookingWindow: caseRecord.bookingWindow,
+    acceptVip: caseRecord.acceptVip,
+    slotTime: toIsoString(caseRecord.slotTime),
+    mainStatus: caseRecord.mainStatus,
+    subStatus: caseRecord.subStatus,
+    exceptionCode: caseRecord.exceptionCode,
+    priority: caseRecord.priority,
+    travelDate: toIsoString(caseRecord.travelDate),
+    submissionDate: toIsoString(caseRecord.submissionDate),
+    assignedToUserId: caseRecord.assignedToUserId,
+    assignedRole: caseRecord.assignedRole,
+    isActive: caseRecord.isActive,
+    updatedAt: caseRecord.updatedAt.toISOString(),
+    createdAt: caseRecord.createdAt.toISOString(),
+  }
+}
+
 function mapApplicantRow(item: ApplicantWithCasesRecord): ApplicantCrmRow {
   const primaryCase = getPrimaryCase(item.visaCases)
   const crmStatus = mapCaseToCrmStatus(primaryCase ?? undefined)
+  const normalizedVisaType = normalizeApplicantCrmVisaType(primaryCase?.visaType ?? primaryCase?.caseType)
+  const normalizedRegion = normalizeApplicantCrmRegion(primaryCase?.applyRegion)
 
   return {
     id: item.id,
@@ -370,9 +418,9 @@ function mapApplicantRow(item: ApplicantWithCasesRecord): ApplicantCrmRow {
     email: item.email ?? undefined,
     wechat: item.wechat ?? undefined,
     passportNumber: item.passportNumber ?? item.usVisaPassportNumber ?? undefined,
-    visaType: primaryCase?.visaType ?? primaryCase?.caseType ?? undefined,
+    visaType: normalizedVisaType,
     caseType: primaryCase?.caseType ?? undefined,
-    region: primaryCase?.applyRegion ?? undefined,
+    region: normalizedRegion,
     currentStatusKey: crmStatus.key,
     currentStatusLabel: crmStatus.label,
     priority: primaryCase?.priority ?? undefined,
@@ -401,6 +449,9 @@ function mapCaseSummary(caseRecord: VisaCaseRecord): ApplicantCaseSummary {
     visaType: caseRecord.visaType,
     applyRegion: caseRecord.applyRegion,
     tlsCity: caseRecord.tlsCity,
+    bookingWindow: caseRecord.bookingWindow,
+    acceptVip: caseRecord.acceptVip,
+    slotTime: toIsoString(caseRecord.slotTime),
     mainStatus: caseRecord.mainStatus,
     subStatus: caseRecord.subStatus,
     exceptionCode: caseRecord.exceptionCode,
@@ -412,6 +463,7 @@ function mapCaseSummary(caseRecord: VisaCaseRecord): ApplicantCaseSummary {
     isActive: caseRecord.isActive,
     updatedAt: caseRecord.updatedAt.toISOString(),
     createdAt: caseRecord.createdAt.toISOString(),
+    ds160PrecheckFile: null,
     owner: {
       id: caseRecord.user.id,
       name: caseRecord.user.name,
@@ -474,6 +526,7 @@ export async function listApplicantCrmData(
   const statuses = (filters.statuses ?? []).filter(Boolean)
   const regions = (filters.regions ?? []).filter(Boolean)
   const priorities = (filters.priorities ?? []).filter(Boolean)
+  const includeSelectorCases = Boolean(filters.includeSelectorCases)
 
   const applicants = await prisma.applicantProfile.findMany({
     where: buildApplicantAccessWhere(userId, isAdmin),
@@ -517,7 +570,7 @@ export async function listApplicantCrmData(
 
   const filteredRows = rows.filter((row) => {
     if (!matchesKeyword(row, keyword)) return false
-    if (!matchesArrayFilter(row.visaType ?? row.caseType, visaTypes)) return false
+    if (!matchesArrayFilter(row.visaType, visaTypes)) return false
     if (!matchesArrayFilter(row.currentStatusKey, statuses)) return false
     if (!matchesArrayFilter(row.region, regions)) return false
     if (!matchesArrayFilter(row.priority, priorities)) return false
@@ -525,19 +578,34 @@ export async function listApplicantCrmData(
   })
 
   const profiles = await listApplicantProfiles(userId, role)
+  const availableAssignees = isAdmin
+    ? await prisma.user.findMany({
+        where: { status: "active" },
+        orderBy: [{ role: "asc" }, { createdAt: "asc" }],
+        select: { id: true, name: true, email: true, role: true },
+      })
+    : []
 
   const filterOptions = {
-    visaTypes: Array.from(new Set(rows.map((item) => item.visaType || item.caseType).filter(Boolean))) as string[],
-    regions: Array.from(new Set(rows.map((item) => item.region).filter(Boolean))) as string[],
+    visaTypes: [...CRM_VISA_TYPE_FILTER_VALUES],
+    regions: [...CRM_REGION_FILTER_VALUES],
     priorities: [...CRM_PRIORITY_FILTER_VALUES],
     statuses: CRM_STATUS_OPTIONS,
   }
+
+  const selectorCasesByApplicantId = includeSelectorCases
+    ? Object.fromEntries(
+        applicants.map((item) => [item.id, item.visaCases.map(mapSelectorCase)]),
+      )
+    : undefined
 
   return {
     profiles,
     rows: filteredRows,
     stats,
     filterOptions,
+    availableAssignees,
+    selectorCasesByApplicantId,
   }
 }
 
@@ -619,7 +687,7 @@ export async function getApplicantCrmDetail(userId: string, role: string | undef
 
   return {
     profile,
-    cases: cases.map(mapCaseSummary),
+    cases: await Promise.all(cases.map(mapCaseSummaryWithArtifacts)),
     activeCaseId: cases.find((item) => item.isActive)?.id ?? cases[0]?.id ?? null,
     availableAssignees,
   } satisfies ApplicantCrmDetail
@@ -734,6 +802,9 @@ export async function createVisaCaseForApplicant(
         visaType: normalizeOptionalText(input.visaType),
         applyRegion: normalizeOptionalText(input.applyRegion),
         tlsCity: normalizeOptionalText(input.tlsCity),
+        bookingWindow: normalizeOptionalText(input.bookingWindow),
+        acceptVip: normalizeOptionalText(input.acceptVip),
+        slotTime: parseDateValue(input.slotTime ?? null),
         mainStatus,
         subStatus,
         priority: normalizePriority(input.priority),
@@ -766,7 +837,113 @@ export async function createVisaCaseForApplicant(
 
 export async function getVisaCaseDetail(userId: string, role: string | undefined, caseId: string) {
   const visaCase = await loadCaseRecord(userId, role, caseId)
-  return visaCase ? mapCaseSummary(visaCase) : null
+  return visaCase ? mapCaseSummaryWithArtifacts(visaCase) : null
+}
+
+function sanitizeArtifactFilename(name: string) {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_")
+}
+
+function getVisaCaseArtifactDir(visaCase: Pick<VisaCaseRecord, "userId" | "applicantProfileId" | "id">) {
+  return path.join(
+    process.cwd(),
+    "storage",
+    "applicant-profiles",
+    visaCase.userId,
+    visaCase.applicantProfileId,
+    "cases",
+    visaCase.id,
+  )
+}
+
+function getVisaCaseDs160PrecheckPaths(visaCase: Pick<VisaCaseRecord, "userId" | "applicantProfileId" | "id">) {
+  const dir = getVisaCaseArtifactDir(visaCase)
+  return {
+    dir,
+    dataPath: path.join(dir, "ds160-precheck.json"),
+    metaPath: path.join(dir, "ds160-precheck.meta.json"),
+  }
+}
+
+async function readVisaCaseDs160PrecheckMeta(visaCase: Pick<VisaCaseRecord, "userId" | "applicantProfileId" | "id">) {
+  const { metaPath, dataPath } = getVisaCaseDs160PrecheckPaths(visaCase)
+  try {
+    const [metaRaw, stat] = await Promise.all([fs.readFile(metaPath, "utf-8"), fs.stat(dataPath)])
+    const meta = JSON.parse(metaRaw) as { originalName?: string; mimeType?: string; uploadedAt?: string }
+    return {
+      originalName: meta.originalName || `ds160-precheck-${visaCase.id}.json`,
+      mimeType: meta.mimeType || "application/json",
+      uploadedAt: meta.uploadedAt || stat.mtime.toISOString(),
+      absolutePath: dataPath,
+    }
+  } catch {
+    return null
+  }
+}
+
+async function mapCaseSummaryWithArtifacts(caseRecord: VisaCaseRecord): Promise<ApplicantCaseSummary> {
+  const summary = mapCaseSummary(caseRecord)
+  const precheckMeta = await readVisaCaseDs160PrecheckMeta(caseRecord)
+  if (!precheckMeta) return summary
+
+  return {
+    ...summary,
+    ds160PrecheckFile: {
+      originalName: precheckMeta.originalName,
+      uploadedAt: precheckMeta.uploadedAt,
+    },
+  }
+}
+
+export async function saveVisaCaseDs160PrecheckFile(params: {
+  userId: string
+  role?: string
+  caseId: string
+  buffer: Buffer
+  originalName: string
+  mimeType?: string
+}) {
+  const { userId, role, caseId, buffer, originalName, mimeType } = params
+  const visaCase = await loadCaseRecord(userId, role, caseId)
+  if (!visaCase) return null
+
+  const caseDir = getVisaCaseArtifactDir(visaCase)
+  await fs.mkdir(caseDir, { recursive: true })
+
+  const { dataPath, metaPath } = getVisaCaseDs160PrecheckPaths(visaCase)
+  await fs.writeFile(dataPath, buffer)
+  await fs.writeFile(
+    metaPath,
+    JSON.stringify(
+      {
+        originalName: sanitizeArtifactFilename(originalName || `ds160-precheck-${caseId}.json`),
+        mimeType: mimeType || "application/json",
+        uploadedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+    "utf-8",
+  )
+
+  return getVisaCaseDetail(userId, role, caseId)
+}
+
+export async function getVisaCaseDs160PrecheckFile(userId: string, role: string | undefined, caseId: string) {
+  const visaCase = await loadCaseRecord(userId, role, caseId)
+  if (!visaCase) return null
+
+  const file = await readVisaCaseDs160PrecheckMeta(visaCase)
+  if (!file) return null
+
+  return {
+    absolutePath: file.absolutePath,
+    meta: {
+      originalName: file.originalName,
+      mimeType: file.mimeType,
+      uploadedAt: file.uploadedAt,
+    },
+  }
 }
 
 export async function updateVisaCaseBasics(
@@ -814,6 +991,12 @@ export async function updateVisaCaseBasics(
           patch.applyRegion === undefined ? currentCase.applyRegion : normalizeOptionalText(patch.applyRegion),
         tlsCity:
           patch.tlsCity === undefined ? currentCase.tlsCity : normalizeOptionalText(patch.tlsCity),
+        bookingWindow:
+          patch.bookingWindow === undefined ? currentCase.bookingWindow : normalizeOptionalText(patch.bookingWindow),
+        acceptVip:
+          patch.acceptVip === undefined ? currentCase.acceptVip : normalizeOptionalText(patch.acceptVip),
+        slotTime:
+          patch.slotTime === undefined ? currentCase.slotTime : parseDateValue(patch.slotTime),
         priority:
           patch.priority === undefined ? currentCase.priority : normalizePriority(patch.priority),
         travelDate:

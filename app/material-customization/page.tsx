@@ -71,7 +71,7 @@ const services: MaterialService[] = [
     description: "获取符合签证要求的模拟酒店预订单。",
     icon: Hotel,
     actionType: "navigate",
-    link: "/services/hotel-booking",
+    link: "/hotel-booking",
   },
   {
     id: "tickets",
@@ -178,10 +178,12 @@ function storeTaskIds(ids: string[]) {
 function ItineraryForm({
   onBack,
   activeApplicantId,
+  activeApplicantCaseId,
   activeApplicantName,
 }: {
   onBack: () => void
   activeApplicantId?: string
+  activeApplicantCaseId?: string
   activeApplicantName?: string
 }) {
   const [taskIds, setTaskIds] = useState<string[]>(loadStoredTaskIds)
@@ -250,6 +252,7 @@ function ItineraryForm({
       start_date: format(data.start_date, "yyyy-MM-dd"),
       end_date: format(data.end_date, "yyyy-MM-dd"),
       applicantProfileId: activeApplicantId,
+      caseId: activeApplicantCaseId,
     }
 
     try {
@@ -305,7 +308,7 @@ function ItineraryForm({
       </CardHeader>
       <CardContent>
         <div className="mb-6">
-          <ApplicantProfileSelector />
+          <ApplicantProfileSelector scope="france-schengen" />
           <div className="mt-3 rounded-lg border border-dashed border-blue-200 bg-blue-50/60 p-3 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-100">
             {activeApplicantId
               ? `当前申请人：${activeApplicantName || "未命名申请人"}。行程单生成成功后会自动归档到该申请人的材料文档里。`
@@ -599,6 +602,7 @@ export default function MaterialCustomizationPage() {
       <ItineraryForm
         onBack={() => setSelectedServiceId(null)}
         activeApplicantId={activeApplicant?.id}
+        activeApplicantCaseId={activeApplicant?.activeCaseId || undefined}
         activeApplicantName={activeApplicant?.name || activeApplicant?.label}
       />
     )
@@ -607,7 +611,7 @@ export default function MaterialCustomizationPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-300 px-4 py-10 dark:from-neutral-950 dark:to-neutral-800">
       <div className="container mx-auto">
-        <ApplicantProfileSelector />
+        <ApplicantProfileSelector scope="france-schengen" />
 
         <header className="mb-12 text-center">
           <h1 className="text-4xl font-bold tracking-tight text-black dark:text-white sm:text-5xl">

@@ -160,6 +160,10 @@ export function SubmitDS160Form() {
         birth_year: group.birthYear.trim(),
         passport_number: group.passportNumber.trim(),
         applicantProfileId: group.applicantProfileId || undefined,
+        caseId:
+          activeApplicant?.activeCaseId && group.applicantProfileId === activeApplicant.id
+            ? activeApplicant.activeCaseId
+            : undefined,
         test_mode: false,
       }),
     })

@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { MaterialTaskList } from "@/components/MaterialTaskList"
+import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
 import { Upload, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 
@@ -33,6 +34,7 @@ function storeTaskIds(ids: string[]) {
 }
 
 export default function MaterialReviewPage() {
+  const activeApplicant = useActiveApplicantProfile()
   const [file, setFile] = useState<File | null>(null)
   const [category, setCategory] = useState("itinerary")
   const [visaType, setVisaType] = useState("schengen")
@@ -41,7 +43,7 @@ export default function MaterialReviewPage() {
   const [error, setError] = useState("")
   const [bookingVerify, setBookingVerify] = useState(false)
 
-  // 机票/车票、酒店预订补充信息
+  // 机票/车票、酒店预订、保险补充信息
   const [customerName, setCustomerName] = useState("")
   const [departureDate, setDepartureDate] = useState("")
   const [returnDate, setReturnDate] = useState("")
@@ -100,7 +102,6 @@ export default function MaterialReviewPage() {
         return
       }
     }
-
     setLoading(true)
     setError("")
     toast.info("正在创建任务，请在下方的任务列表中查看进度...")
@@ -110,6 +111,12 @@ export default function MaterialReviewPage() {
       formData.append("file", file)
       formData.append("document_type", category)
       formData.append("visa_type", visaType)
+      if (activeApplicant?.id) {
+        formData.append("applicantProfileId", activeApplicant.id)
+        if (activeApplicant.activeCaseId) {
+          formData.append("caseId", activeApplicant.activeCaseId)
+        }
+      }
       if (needsFlightHotelFields || needsInsuranceFields) {
         if (customerName) formData.append("customer_name", customerName)
         if (departureDate) formData.append("departure_date", departureDate)

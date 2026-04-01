@@ -152,6 +152,7 @@ export async function POST(request: NextRequest) {
     const sendActivationEmail = formData.get('send_activation_email') !== 'false'
     const extraEmail = (formData.get('extra_email') as string) || ''
     const applicantProfileId = (formData.get('applicantProfileId') as string | null)?.trim() || ''
+    const caseId = (formData.get('caseId') as string | null)?.trim() || ''
     const applicantProfile = applicantProfileId ? await getApplicantProfile(session.user.id, applicantProfileId) : null
     const testMode = formData.get('test_mode') === 'true'
 
@@ -194,6 +195,7 @@ export async function POST(request: NextRequest) {
       const name = file.name || `data_${i + 1}.xlsx`
       const task = await createTask(session.user.id, 'register-ais', `AIS 注册 · ${name}`, {
         applicantProfileId: applicantProfileId || undefined,
+        caseId: caseId || undefined,
         applicantName: applicantProfile?.name || applicantProfile?.label,
       })
       taskIds.push(task.task_id)

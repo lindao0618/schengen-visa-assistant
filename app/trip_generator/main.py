@@ -16,10 +16,15 @@ import os
 import re
 import base64
 import logging
+from pathlib import Path
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+TRIP_GENERATOR_RUNTIME_DIR = PROJECT_ROOT / "temp" / "trip_generator"
+TRIP_GENERATOR_OUTPUT_DIR = TRIP_GENERATOR_RUNTIME_DIR / "output"
 
 app = FastAPI()
 
@@ -323,13 +328,13 @@ def generate_itinerary(req: ItineraryRequest):
 
             rows.append([str(i + 1), date_str, transport, spots, hotel_info])
 
-        # Create output directory
-        os.makedirs("output", exist_ok=True)
+        # Write generated files outside app/ to avoid Next dev hot-reload loops.
+        TRIP_GENERATOR_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         
         # Generate unique filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_docx = f"output/itinerary_{timestamp}.docx"
-        output_pdf = f"output/itinerary_{timestamp}.pdf"
+        output_docx = str(TRIP_GENERATOR_OUTPUT_DIR / f"itinerary_{timestamp}.docx")
+        output_pdf = str(TRIP_GENERATOR_OUTPUT_DIR / f"itinerary_{timestamp}.pdf")
 
         # Get itinerary analysis
         logger.info("Analyzing itinerary")

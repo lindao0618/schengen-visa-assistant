@@ -240,6 +240,9 @@ model VisaCase {
   visaType           String?
   applyRegion        String?
   tlsCity            String?
+  bookingWindow      String?
+  acceptVip          String?
+  slotTime           DateTime?
   mainStatus         String
   subStatus          String?
   exceptionCode      String?

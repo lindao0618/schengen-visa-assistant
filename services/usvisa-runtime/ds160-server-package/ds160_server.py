@@ -249,19 +249,17 @@ def format_date(date_str):
             return ''
         if isinstance(date_str, (pd.Timestamp, datetime)):
             return date_str.strftime('%Y-%m-%d')
+        s = str(date_str).strip()
+        # 优先处理年份在前的格式（YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD），
+        # 避免 pd.to_datetime 在日≤12时将日和月互换（如 1990/05/06 被误解析为5月6日）
+        if re.match(r'^\d{4}[/\-\.]\d{1,2}[/\-\.]\d{1,2}', s):
+            parts = re.split(r'[/\-\.]', s[:10])
+            if len(parts) >= 3:
+                y, m, d = parts[0], parts[1].zfill(2), parts[2].zfill(2)
+                return f"{y}-{m}-{d}"
         date_obj = pd.to_datetime(date_str)
         return date_obj.strftime('%Y-%m-%d')
     except Exception as e:
-        s = str(date_str).strip()
-        # 尝试解析 YYYY/MM/DD 或 YYYY.MM.DD
-        if re.match(r'^\d{4}[/\-\.]\d{1,2}[/\-\.]\d{1,2}', s):
-            try:
-                parts = re.split(r'[/\-\.]', s[:10])
-                if len(parts) >= 3:
-                    y, m, d = parts[0], parts[1].zfill(2), parts[2].zfill(2)
-                    return f"{y}-{m}-{d}"
-            except Exception:
-                pass
         print(f"Date formatting error: {date_str}, Error: {e}", file=sys.stderr)
         return ''
 
@@ -297,6 +295,265 @@ def _sanitize_ceac_explain(text):
         ' #$*%&();!@^?><.\',-'
     )
     return ''.join(c for c in s if c in allowed)
+
+
+def _normalize_ds160_field_text(value):
+    if value is None:
+        return ''
+    if not isinstance(value, str):
+        value = str(value)
+    text = value.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _truncate_ds160_field_text(value, max_len):
+    text = _normalize_ds160_field_text(value)
+    if not text or len(text) <= max_len:
+        return text
+    candidate = text[:max_len]
+    split_at = candidate.rfind(' ')
+    if split_at >= max_len // 2:
+        candidate = candidate[:split_at]
+    return candidate.strip(" ,;-")
+
+
+def _split_ds160_address_lines(value, line1_max=40, line2_max=40):
+    text = _normalize_ds160_field_text(value)
+    if not text:
+        return '', ''
+    if len(text) <= line1_max:
+        return text, ''
+
+    first = text[:line1_max]
+    split_at = first.rfind(' ')
+    if split_at >= line1_max // 2:
+        line1 = first[:split_at].strip(" ,;-")
+        remainder = text[split_at + 1 :].strip()
+    else:
+        line1 = first.strip(" ,;-")
+        remainder = text[line1_max:].strip()
+
+    if len(remainder) <= line2_max:
+        return line1, remainder
+
+    second = remainder[:line2_max]
+    split_at = second.rfind(' ')
+    if split_at >= line2_max // 2:
+        line2 = second[:split_at].strip(" ,;-")
+    else:
+        line2 = second.strip(" ,;-")
+    return line1, line2
+
+
+def _normalize_ds160_ascii_text(value):
+    if value is None:
+        return ''
+    if not isinstance(value, str):
+        value = str(value)
+    normalized = unicodedata.normalize('NFKD', value)
+    return ''.join(ch for ch in normalized if not unicodedata.combining(ch))
+
+
+def _sanitize_ds160_safe_text(value):
+    """Normalize Excel text into a DS-160 friendly ASCII subset."""
+    if value is None:
+        return ''
+    text = _normalize_ds160_ascii_text(value).upper().strip()
+    if not text:
+        return ''
+
+    replacements = {
+        ',': ' ',
+        '，': ' ',
+        '、': ' ',
+        ';': ' ',
+        '；': ' ',
+        ':': ' ',
+        '：': ' ',
+        '/': ' ',
+        '\\': ' ',
+        '.': ' ',
+        '。': ' ',
+        '·': ' ',
+        '•': ' ',
+        '(': ' ',
+        ')': ' ',
+        '[': ' ',
+        ']': ' ',
+        '{': ' ',
+        '}': ' ',
+        '"': ' ',
+        '“': ' ',
+        '”': ' ',
+        '‘': "'",
+        '’': "'",
+        '`': "'",
+        '´': "'",
+        '—': '-',
+        '–': '-',
+        '－': '-',
+        '_': '-',
+        '#': ' ',
+        '@': ' ',
+        '!': ' ',
+        '?': ' ',
+        '*': ' ',
+        '%': ' ',
+        '$': ' ',
+        '+': ' ',
+        '=': ' ',
+        '|': ' ',
+        '<': ' ',
+        '>': ' ',
+        '^': ' ',
+        '~': ' ',
+        '\n': ' ',
+        '\r': ' ',
+        '\t': ' ',
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"[^A-Z0-9&' -]", ' ', text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s*-\s*", "-", text)
+    text = re.sub(r"\s*&\s*", " & ", text)
+    text = re.sub(r"\s*'\s*", "'", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _sanitize_ds160_phone(value):
+    if value is None:
+        return ''
+    text = _normalize_ds160_ascii_text(value).upper()
+    text = re.sub(r"[^0-9 -]", ' ', text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s*-\s*", "-", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _sanitize_ds160_country_text(value):
+    if value is None:
+        return ''
+
+    raw = str(value).strip()
+    if not raw:
+        return ''
+
+    raw_upper = _normalize_ds160_ascii_text(raw).upper().strip()
+    compact = re.sub(r"[\s\.\-_,'’`]+", "", raw_upper)
+
+    aliases = {
+        "中国": "CHINA",
+        "中华人民共和国": "CHINA",
+        "中國": "CHINA",
+        "CHINA": "CHINA",
+        "PRC": "CHINA",
+        "PEOPLESREPUBLICOFCHINA": "CHINA",
+        "UNITEDKINGDOM": "UNITED KINGDOM",
+        "UK": "UNITED KINGDOM",
+        "U K": "UNITED KINGDOM",
+        "GREATBRITAIN": "UNITED KINGDOM",
+        "BRITAIN": "UNITED KINGDOM",
+        "ENGLAND": "UNITED KINGDOM",
+        "英国": "UNITED KINGDOM",
+        "英國": "UNITED KINGDOM",
+        "UNITEDSTATES": "UNITED STATES",
+        "UNITEDSTATESOFAMERICA": "UNITED STATES",
+        "USA": "UNITED STATES",
+        "US": "UNITED STATES",
+        "U S A": "UNITED STATES",
+        "美国": "UNITED STATES",
+        "美國": "UNITED STATES",
+        "FRANCE": "FRANCE",
+        "法国": "FRANCE",
+        "法國": "FRANCE",
+        "CANADA": "CANADA",
+        "加拿大": "CANADA",
+        "JAPAN": "JAPAN",
+        "日本": "JAPAN",
+        "SOUTHKOREA": "SOUTH KOREA",
+        "KOREAREPUBLICOF": "SOUTH KOREA",
+        "韩国": "SOUTH KOREA",
+        "韓國": "SOUTH KOREA",
+        "HONGKONG": "HONG KONG",
+        "HONGKONGSAR": "HONG KONG",
+        "香港": "HONG KONG",
+        "TAIWAN": "TAIWAN",
+        "台湾": "TAIWAN",
+        "臺灣": "TAIWAN",
+    }
+
+    if raw in aliases:
+        return aliases[raw]
+    if compact in aliases:
+        return aliases[compact]
+    if raw_upper in aliases:
+        return aliases[raw_upper]
+
+    sanitized = _sanitize_ds160_safe_text(raw_upper)
+    return sanitized
+
+
+def _sanitize_ds160_excel_fields(result):
+    text_fields = (
+        'home_address',
+        'home_city',
+        'home_state',
+        'home_zip',
+        'Present Employer or School Name',
+        'Present Employer or School Address',
+        'Present Employer or School City',
+        'Present Employer or School State',
+        'Present Employer or School Zip',
+        'Previous Employer or School Name',
+        'Previous Employer or School Address',
+        'Previous Employer or School City',
+        'Previous Employer or School State',
+        'Previous Employer or School Zip',
+        'Name of the educational institution',
+        'Educational Institution Address',
+        'Educational Institution City',
+        'Educational Institution State',
+        'Educational Institution Zip',
+        'Job Title',
+        'Briefly describe your duties',
+        'previous_employer_describe_duties',
+        'Course of Study',
+        'Previous Employer or School Supervisor Surname',
+        'Previous Employer or School Supervisor Given Name',
+        'Language Name 1',
+        'Language Name 2',
+    )
+    country_fields = (
+        'Present Employer or School Country',
+        'Previous Employer or School Country',
+        'Educational Institution Country',
+        'home_country',
+        'birth_country',
+        'trip_payer_country',
+        'hotel_country',
+    )
+    phone_fields = (
+        'Present Employer or School Phone',
+        'Previous Employer or School Phone',
+        'Educational Institution Phone',
+    )
+
+    for field_name in text_fields:
+        if field_name in result and result[field_name]:
+            result[field_name] = _sanitize_ds160_safe_text(result[field_name])
+
+    for field_name in country_fields:
+        if field_name in result and result[field_name]:
+            result[field_name] = _sanitize_ds160_country_text(result[field_name])
+
+    for field_name in phone_fields:
+        if field_name in result and result[field_name]:
+            result[field_name] = _sanitize_ds160_phone(result[field_name])
+
+    return result
 
 
 def _parse_month_to_int(month_str):
@@ -1216,6 +1473,198 @@ class DS160Filler:
                     guide_capture_index += 1
                 except Exception as capture_err:
                     print(f"[WARN] Failed to save guide screenshot {screenshot_name}: {capture_err}", file=sys.stderr)
+
+            def save_debug_snapshot(label):
+                safe_label = re.sub(r'[^A-Za-z0-9]+', '_', str(label or '').strip()).strip('_') or 'debug'
+                ts = int(time.time())
+                screenshot_name = f"debug_{ts}_{safe_label}.png"
+                html_name = f"debug_{ts}_{safe_label}.html"
+                screenshot_path = os.path.join(new_folder_path, screenshot_name)
+                html_path = os.path.join(new_folder_path, html_name)
+                try:
+                    page.screenshot(path=screenshot_path, full_page=True)
+                except Exception as shot_err:
+                    print(f"[WARN] Failed to save debug screenshot {screenshot_name}: {shot_err}", file=sys.stderr)
+                try:
+                    with open(html_path, "w", encoding="utf-8") as f:
+                        f.write(page.content())
+                except Exception as html_err:
+                    print(f"[WARN] Failed to save debug html {html_name}: {html_err}", file=sys.stderr)
+                return screenshot_name, html_name
+
+            def save_debug_json(label, data):
+                safe_label = re.sub(r'[^A-Za-z0-9]+', '_', str(label or '').strip()).strip('_') or 'debug'
+                ts = int(time.time())
+                json_name = f"debug_{ts}_{safe_label}.json"
+                json_path = os.path.join(new_folder_path, json_name)
+                try:
+                    with open(json_path, "w", encoding="utf-8") as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+                except Exception as json_err:
+                    print(f"[WARN] Failed to save debug json {json_name}: {json_err}", file=sys.stderr)
+                return json_name
+
+            def save_work_education_previous_values(label):
+                try:
+                    data = page.evaluate(
+                        """() => {
+                            const getField = (selector) => {
+                                const el = document.querySelector(selector);
+                                if (!el) return null;
+                                const tag = (el.tagName || '').toLowerCase();
+                                if (tag === 'select') {
+                                    const selected = el.options && el.selectedIndex >= 0 ? el.options[el.selectedIndex] : null;
+                                    return {
+                                        selector,
+                                        tag,
+                                        value: el.value || '',
+                                        text: selected ? (selected.text || '').trim() : '',
+                                    };
+                                }
+                                return {
+                                    selector,
+                                    tag,
+                                    value: 'value' in el ? (el.value || '') : ((el.innerText || el.textContent || '').trim()),
+                                };
+                            };
+                            return {
+                                previousEmployerName: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerName'),
+                                previousEmployerAddress1: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerStreetAddress1'),
+                                previousEmployerAddress2: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerStreetAddress2'),
+                                previousEmployerCity: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerCity'),
+                                previousEmployerState: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbxPREV_EMPL_ADDR_STATE'),
+                                previousEmployerPostalCode: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbxPREV_EMPL_ADDR_POSTAL_CD'),
+                                previousEmployerCountry: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_DropDownList2'),
+                                previousEmployerPhone: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerPhone'),
+                                previousEmployerJobTitle: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbJobTitle'),
+                                previousEmployerDuties: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbDescribeDuties'),
+                                schoolName: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolName'),
+                                schoolAddress1: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolAddr1'),
+                                schoolAddress2: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolAddr2'),
+                                schoolCity: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolCity'),
+                                schoolState: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxEDUC_INST_ADDR_STATE'),
+                                schoolPostalCode: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxEDUC_INST_POSTAL_CD'),
+                                schoolCountry: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolCountry'),
+                                courseOfStudy: getField('#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolCourseOfStudy'),
+                                validationSummary: (document.querySelector('#ctl00_SiteContentPlaceHolder_FormView1_ValidationSummary')?.innerText || '').trim(),
+                            };
+                        }"""
+                    )
+                except Exception as dump_err:
+                    data = {"error": str(dump_err)}
+                return save_debug_json(label, data)
+
+            def is_application_error_page():
+                try:
+                    html = page.content() or ""
+                except Exception:
+                    html = ""
+                if "Application Error" in html:
+                    return True
+                try:
+                    title = (page.title() or "").strip()
+                    if "Application Error" in title:
+                        return True
+                except Exception:
+                    pass
+                return False
+
+            def extract_ceac_error_text():
+                selectors = [
+                    ".error",
+                    ".ErrorLabel",
+                    ".validation-summary-errors",
+                    "span[id*='lblError']",
+                    "span[style*='color:Red']",
+                    "span[style*='color:red']",
+                    "td.errorMessage",
+                    "span.errorMessage",
+                    "[id*='ValidationSummary']",
+                ]
+                texts = []
+                for selector in selectors:
+                    try:
+                        locator = page.locator(selector)
+                        count = min(locator.count(), 8)
+                        for idx in range(count):
+                            try:
+                                txt = (locator.nth(idx).inner_text(timeout=500) or "").strip()
+                            except Exception:
+                                txt = ""
+                            if txt and txt not in texts:
+                                texts.append(txt)
+                    except Exception:
+                        continue
+                return " | ".join(texts[:5]).strip()
+
+            def recover_from_application_error(aa_code, personal_info):
+                try:
+                    page.wait_for_selector(
+                        "#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_tbxApplicationID",
+                        state="visible",
+                        timeout=8000,
+                    )
+                except Exception as recover_entry_err:
+                    raise RuntimeError("检测到 CEAC Application Error，但未找到恢复表单") from recover_entry_err
+
+                surname_val = re.sub(r"[^A-Z]", "", str(personal_info.get("surname", "") or "").upper())[:5]
+                birth_date_raw = personal_info.get("birth_date") or ""
+                birth_date_fmt = format_date(birth_date_raw) if birth_date_raw else ""
+                birth_year = birth_date_fmt.split("-")[0] if birth_date_fmt else ""
+
+                if not surname_val or not birth_year:
+                    raise RuntimeError("恢复申请缺少姓氏前5位或出生年份，无法自动 Retrieve Application")
+
+                page.fill("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_tbxApplicationID", aa_code)
+                page.click("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_btnBarcodeSubmit")
+                page.wait_for_timeout(1200)
+
+                if page.locator("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_btnRequestSubmit").count() > 0:
+                    try:
+                        page.click("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_btnRequestSubmit")
+                        page.wait_for_timeout(1200)
+                    except Exception:
+                        pass
+
+                page.wait_for_selector(
+                    "#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_txbAnswer1",
+                    state="visible",
+                    timeout=15000,
+                )
+                try:
+                    page.select_option("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_ddlLocation", value="LND")
+                except Exception:
+                    pass
+                page.fill("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_txbSname", surname_val)
+                page.fill("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_txbYear", birth_year)
+                page.fill("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_txbAnswer1", "MOTHER")
+                with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
+                    page.click("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_Button1")
+                page.wait_for_timeout(1500)
+
+            def is_save_confirmation_page():
+                try:
+                    return page.locator("#ctl00_btnContinueApp").count() > 0
+                except Exception:
+                    return False
+
+            def continue_from_save_confirmation():
+                if not is_save_confirmation_page():
+                    return False
+                try:
+                    with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
+                        page.click("#ctl00_btnContinueApp")
+                except Exception:
+                    try:
+                        page.click("#ctl00_btnContinueApp")
+                        page.wait_for_timeout(1500)
+                    except Exception:
+                        return False
+                try:
+                    page.wait_for_selector("#ctl00_SiteContentPlaceHolder_FormView1_rblPreviouslyEmployed_0", state="visible", timeout=15000)
+                except Exception:
+                    return False
+                return True
             
             try:
                 # Enable JavaScript console logging if in debug mode
@@ -2265,8 +2714,9 @@ class DS160Filler:
                 # 先选择开始日期下拉，再填开始年份
                 emp_start = (format_date(personal_info.get('Present Employer or School Start Date', '') or '') or '').split('-')
                 if len(emp_start) >= 3:
-                    page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_ddlEmpDateFromMonth", value=format_month(emp_start[1]))
-                    page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_ddlEmpDateFromDay", value=format_day(emp_start[2]))
+                    # CEAC 日期下拉 option value 为纯数字（月 '1'-'12'，日 '1'-'31'）
+                    page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_ddlEmpDateFromMonth", value=str(_parse_month_to_int(emp_start[1]) or ''))
+                    page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_ddlEmpDateFromDay", value=str(int(float(emp_start[2]))))
                     page.wait_for_timeout(100)
                     page.fill("#ctl00_SiteContentPlaceHolder_FormView1_tbxEmpDateFromYear", emp_start[0])
                 page.wait_for_timeout(100)  # 等待页面响应
@@ -2354,8 +2804,14 @@ class DS160Filler:
                         page.locator(sel_prev_input).first.wait_for(state="visible", timeout=250)
                     except Exception:
                         pass
+                    prev_employer_addr_1, prev_employer_addr_2 = _split_ds160_address_lines(
+                        personal_info.get('Previous Employer or School Address', ''),
+                        40,
+                        40,
+                    )
                     _prev_eval("tbEmployerName", personal_info.get('Previous Employer or School Name'))
-                    _prev_eval("tbEmployerStreetAddress1", personal_info.get('Previous Employer or School Address'))
+                    _prev_eval("tbEmployerStreetAddress1", prev_employer_addr_1)
+                    _prev_eval("tbEmployerStreetAddress2", prev_employer_addr_2)
                     _prev_eval("tbEmployerCity", personal_info.get('Previous Employer or School City'))
                     _prev_eval("tbxPREV_EMPL_ADDR_STATE", personal_info.get('Previous Employer or School State'))
                     _prev_eval("tbxPREV_EMPL_ADDR_POSTAL_CD", personal_info.get('Previous Employer or School Zip'))
@@ -2382,21 +2838,24 @@ class DS160Filler:
                     if len(prev_start) >= 3:
                         try:
                             _prev_eval("tbxEmpDateFromYear", prev_start[0])
-                            page.select_option("[id*='ddlEmpDateFromMonth']", value=format_month(prev_start[1]))
-                            page.select_option("[id*='ddlEmpDateFromDay']", value=format_day(prev_start[2]))
+                            # CEAC ddlEmpDateFromMonth option values 为纯数字 '1'-'12'，非三字母缩写
+                            page.select_option("[id*='ddlEmpDateFromMonth']", value=str(_parse_month_to_int(prev_start[1]) or ''))
+                            # CEAC ddlEmpDateFromDay option values 为纯数字 '1'-'31'，无前导零
+                            page.select_option("[id*='ddlEmpDateFromDay']", value=str(int(float(prev_start[2]))))
                         except Exception:
                             pass
                     if len(prev_end) >= 3:
                         try:
                             _prev_eval("tbxEmpDateToYear", prev_end[0])
-                            page.select_option("[id*='ddlEmpDateToMonth']", value=format_month(prev_end[1]))
-                            page.select_option("[id*='ddlEmpDateToDay']", value=format_day(prev_end[2]))
+                            page.select_option("[id*='ddlEmpDateToMonth']", value=str(_parse_month_to_int(prev_end[1]) or ''))
+                            page.select_option("[id*='ddlEmpDateToDay']", value=str(int(float(prev_end[2]))))
                         except Exception:
                             pass
                     page.wait_for_timeout(80)
                     # 文本字段只填一次（CEAC: tbEmployerName, tbEmployerStreetAddress1, tbJobTitle 等）
                     _prev_eval("tbEmployerName", personal_info.get('Previous Employer or School Name'))
-                    _prev_eval("tbEmployerStreetAddress1", personal_info.get('Previous Employer or School Address'))
+                    _prev_eval("tbEmployerStreetAddress1", prev_employer_addr_1)
+                    _prev_eval("tbEmployerStreetAddress2", prev_employer_addr_2)
                     _prev_eval("tbEmployerCity", personal_info.get('Previous Employer or School City'))
                     _prev_eval("tbxPREV_EMPL_ADDR_STATE", personal_info.get('Previous Employer or School State'))
                     _prev_eval("tbxPREV_EMPL_ADDR_POSTAL_CD", personal_info.get('Previous Employer or School Zip'))
@@ -2433,6 +2892,15 @@ class DS160Filler:
                 educ_raw = str(personal_info.get(educ_key, '') or 'Yes').strip().upper()
                 is_educ_yes = educ_raw in ('YES', 'Y', '1') or str(personal_info.get(educ_key, '')).strip() in ('是', '有')
                 if is_educ_yes:
+                    school_addr_1, school_addr_2 = _split_ds160_address_lines(
+                        personal_info.get('Educational Institution Address', ''),
+                        40,
+                        40,
+                    )
+                    course_of_study_value = _truncate_ds160_field_text(
+                        personal_info.get('Course of Study', ''),
+                        66,
+                    )
                     page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblOtherEduc_0")
                     try:
                         page.wait_for_selector("[id*='dtlPrevEduc'][id*='tbxSchoolName'], [id*='tbxSchoolName']", state="visible", timeout=10000)
@@ -2447,7 +2915,8 @@ class DS160Filler:
                             except Exception:
                                 pass
                     _try_fill(["#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolName", "[id*='dtlPrevEduc'][id*='tbxSchoolName']"], personal_info.get('Name of the educational institution', ''))
-                    _try_fill(["#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolAddr1", "[id*='tbxSchoolAddr1']"], personal_info.get('Educational Institution Address', ''))
+                    _try_fill(["#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolAddr1", "[id*='tbxSchoolAddr1']"], school_addr_1)
+                    _try_fill(["#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolAddr2", "[id*='tbxSchoolAddr2']"], school_addr_2)
                     _try_fill(["#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolCity", "[id*='tbxSchoolCity']"], personal_info.get('Educational Institution City', ''))
                     _try_fill(["#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxEDUC_INST_ADDR_STATE", "[id*='EDUC_INST_ADDR_STATE']"], personal_info.get('Educational Institution State', ''))
                     _try_fill(["#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxEDUC_INST_POSTAL_CD", "[id*='EDUC_INST_POSTAL_CD']"], personal_info.get('Educational Institution Zip', ''))
@@ -2483,7 +2952,7 @@ class DS160Filler:
                         print("未找到教育机构国家信息，跳过选择。")
                     # 填写所学专业/课程及日期
                     try:
-                        page.locator("#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolCourseOfStudy").fill(str(personal_info.get('Course of Study', '') or ''))
+                        page.locator("#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolCourseOfStudy").fill(str(course_of_study_value or ''))
                     except Exception:
                         pass
                     edu_start = (format_date(personal_info.get('Educational Institution Start Date', '') or '') or '').split('-')
@@ -2491,31 +2960,514 @@ class DS160Filler:
                     if len(edu_start) >= 3:
                         try:
                             page.locator("#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolFromYear").fill(edu_start[0])
-                            page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolFromMonth", value=format_month(edu_start[1]))
-                            page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolFromDay", value=format_day(edu_start[2]))
+                            # CEAC ddlSchoolFromMonth option values 为纯数字 '1'-'12'，非三字母缩写
+                            page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolFromMonth", value=str(_parse_month_to_int(edu_start[1]) or ''))
+                            # CEAC ddlSchoolFromDay option values 为纯数字 '1'-'31'，无前导零
+                            page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolFromDay", value=str(int(float(edu_start[2]))))
                         except Exception:
                             pass
                     if len(edu_end) >= 3:
                         try:
                             page.locator("#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolToYear").fill(edu_end[0])
-                            page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolToMonth", value=format_month(edu_end[1]))
-                            page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolToDay", value=format_day(edu_end[2]))
+                            page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolToMonth", value=str(_parse_month_to_int(edu_end[1]) or ''))
+                            page.select_option("#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolToDay", value=str(int(float(edu_end[2]))))
                         except Exception:
                             pass
+                try:
+                    page.evaluate(
+                        """() => {
+                            const active = document.activeElement;
+                            if (active && typeof active.blur === 'function') {
+                                active.blur();
+                            }
+                        }"""
+                    )
+                except Exception:
+                    pass
+                page.wait_for_timeout(1000)
+                try:
+                    page.wait_for_load_state("networkidle", timeout=5000)
+                except Exception:
+                    pass
+                missing_fields = []
+
+                def _read_input_value(selector):
+                    try:
+                        return (page.locator(selector).first.input_value(timeout=800) or "").strip()
+                    except Exception:
+                        return ""
+
+                def _ensure_text_value(label, selector, value):
+                    normalized = str(value or "").strip()
+                    if not normalized:
+                        return
+                    if _read_input_value(selector):
+                        return
+                    try:
+                        page.locator(selector).first.fill(normalized)
+                    except Exception:
+                        pass
+                    page.wait_for_timeout(100)
+                    if not _read_input_value(selector):
+                        missing_fields.append(label)
+
+                def _ensure_textarea_value(label, selector, value):
+                    normalized = str(value or "").strip()
+                    if not normalized:
+                        return
+                    if _read_input_value(selector):
+                        return
+                    try:
+                        page.locator(selector).first.fill(normalized)
+                    except Exception:
+                        try:
+                            page.evaluate(
+                                """(args) => {
+                                    const selector = args[0];
+                                    const val = args[1];
+                                    const el = document.querySelector(selector);
+                                    if (el) {
+                                        el.value = val;
+                                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                                    }
+                                }""",
+                                [selector, normalized],
+                            )
+                        except Exception:
+                            pass
+                    page.wait_for_timeout(100)
+                    if not _read_input_value(selector):
+                        missing_fields.append(label)
+
+                def _ensure_select_value(label, selector, value):
+                    normalized = str(value or "").strip()
+                    if not normalized:
+                        return
+                    if _read_input_value(selector) == normalized:
+                        return
+                    try:
+                        page.select_option(selector, value=normalized)
+                    except Exception:
+                        pass
+                    page.wait_for_timeout(100)
+                    if _read_input_value(selector) != normalized:
+                        missing_fields.append(label)
+
+                def _dispatch_control_events(selector):
+                    try:
+                        page.evaluate(
+                            """(selector) => {
+                                const el = document.querySelector(selector);
+                                if (!el) return false;
+                                el.dispatchEvent(new Event('input', { bubbles: true }));
+                                el.dispatchEvent(new Event('change', { bubbles: true }));
+                                if (typeof el.blur === 'function') {
+                                    el.blur();
+                                }
+                                return true;
+                            }""",
+                            selector,
+                        )
+                    except Exception:
+                        pass
+
+                def _collect_validator_failures():
+                    try:
+                        return page.evaluate(
+                            """() => {
+                                const result = {
+                                    valid: true,
+                                    summary: "",
+                                    failed: [],
+                                };
+                                try {
+                                    if (typeof Page_ClientValidate === 'function') {
+                                        result.valid = !!Page_ClientValidate();
+                                    }
+                                } catch (err) {
+                                    result.valid = false;
+                                    result.failed.push({
+                                        id: 'Page_ClientValidate',
+                                        control: '',
+                                        message: String(err),
+                                    });
+                                }
+
+                                const summary = document.getElementById('ctl00_SiteContentPlaceHolder_FormView1_ValidationSummary');
+                                if (summary) {
+                                    result.summary = (summary.innerText || summary.textContent || '').trim();
+                                }
+
+                                const validators = Array.isArray(window.Page_Validators) ? window.Page_Validators : [];
+                                for (const validator of validators) {
+                                    if (!validator || validator.isvalid !== false) continue;
+                                    result.failed.push({
+                                        id: validator.id || '',
+                                        control: validator.controltovalidate || '',
+                                        message: validator.errormessage || validator.innerText || validator.textContent || '',
+                                        visible: validator.style ? validator.style.visibility || validator.style.display || '' : '',
+                                    });
+                                }
+                                return result;
+                            }"""
+                        )
+                    except Exception as err:
+                        return {
+                            "valid": True,
+                            "summary": "",
+                            "failed": [],
+                            "warn": str(err),
+                        }
+
+                if is_prev_emp_yes:
+                    prev_employer_addr_1, prev_employer_addr_2 = _split_ds160_address_lines(
+                        personal_info.get("Previous Employer or School Address"),
+                        40,
+                        40,
+                    )
+                    _ensure_text_value(
+                        "前学校/单位",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerName",
+                        personal_info.get("Previous Employer or School Name"),
+                    )
+                    _ensure_text_value(
+                        "前学校/单位地址",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerStreetAddress1",
+                        prev_employer_addr_1,
+                    )
+                    _ensure_text_value(
+                        "鍓嶅鏍?鍗曚綅鍦板潃2",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerStreetAddress2",
+                        prev_employer_addr_2,
+                    )
+                    _ensure_text_value(
+                        "前城市",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerCity",
+                        personal_info.get("Previous Employer or School City"),
+                    )
+                    _ensure_text_value(
+                        "前州/省",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbxPREV_EMPL_ADDR_STATE",
+                        personal_info.get("Previous Employer or School State"),
+                    )
+                    _ensure_text_value(
+                        "前邮编",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbxPREV_EMPL_ADDR_POSTAL_CD",
+                        personal_info.get("Previous Employer or School Zip"),
+                    )
+                    _ensure_text_value(
+                        "前单位电话",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerPhone",
+                        personal_info.get("Previous Employer or School Phone"),
+                    )
+                    _ensure_text_value(
+                        "前单位职位",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbJobTitle",
+                        personal_info.get("Job Title", ""),
+                    )
+                    _ensure_textarea_value(
+                        "前单位职责",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbDescribeDuties",
+                        prev_duties,
+                    )
+                    _ensure_text_value(
+                        "前主管姓",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbSupervisorSurname",
+                        personal_info.get("Previous Employer or School Supervisor Surname"),
+                    )
+                    _ensure_text_value(
+                        "前主管名",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbSupervisorGivenName",
+                        personal_info.get("Previous Employer or School Supervisor Given Name"),
+                    )
+                    if prev_country:
+                        _ensure_select_value(
+                            "前单位国家",
+                            "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_DropDownList2",
+                            previous_country_code,
+                        )
+                    else:
+                        missing_fields.append("前单位国家")
+                    if len(prev_start) >= 3:
+                        _ensure_text_value(
+                            "前单位开始年份",
+                            "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbxEmpDateFromYear",
+                            prev_start[0],
+                        )
+                        _ensure_select_value(
+                            "前单位开始月份",
+                            "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_ddlEmpDateFromMonth",
+                            str(_parse_month_to_int(prev_start[1]) or ''),
+                        )
+                        _ensure_select_value(
+                            "前单位开始日期",
+                            "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_ddlEmpDateFromDay",
+                            str(int(float(prev_start[2]))),
+                        )
+                    if len(prev_end) >= 3:
+                        _ensure_text_value(
+                            "前单位结束年份",
+                            "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbxEmpDateToYear",
+                            prev_end[0],
+                        )
+                        _ensure_select_value(
+                            "前单位结束月份",
+                            "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_ddlEmpDateToMonth",
+                            str(_parse_month_to_int(prev_end[1]) or ''),
+                        )
+                        _ensure_select_value(
+                            "前单位结束日期",
+                            "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_ddlEmpDateToDay",
+                            str(int(float(prev_end[2]))),
+                        )
+
+                    for selector in (
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerName",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerStreetAddress1",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerStreetAddress2",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerCity",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbxPREV_EMPL_ADDR_STATE",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbxPREV_EMPL_ADDR_POSTAL_CD",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_DropDownList2",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbEmployerPhone",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbJobTitle",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbSupervisorSurname",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbSupervisorGivenName",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbxEmpDateFromYear",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_ddlEmpDateFromMonth",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_ddlEmpDateFromDay",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbxEmpDateToYear",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_ddlEmpDateToMonth",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_ddlEmpDateToDay",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEmpl_ctl00_tbDescribeDuties",
+                    ):
+                        _dispatch_control_events(selector)
+
+                if is_educ_yes:
+                    school_addr_1, school_addr_2 = _split_ds160_address_lines(
+                        personal_info.get("Educational Institution Address", ""),
+                        40,
+                        40,
+                    )
+                    course_of_study_value = _truncate_ds160_field_text(
+                        personal_info.get("Course of Study", ""),
+                        66,
+                    )
+                    _ensure_text_value(
+                        "学校名称",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolName",
+                        personal_info.get("Name of the educational institution", ""),
+                    )
+                    _ensure_text_value(
+                        "学校地址",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolAddr1",
+                        school_addr_1,
+                    )
+                    _ensure_text_value(
+                        "瀛︽牎鍦板潃2",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolAddr2",
+                        school_addr_2,
+                    )
+                    _ensure_text_value(
+                        "学校城市",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolCity",
+                        personal_info.get("Educational Institution City", ""),
+                    )
+                    _ensure_text_value(
+                        "学校州/省",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxEDUC_INST_ADDR_STATE",
+                        personal_info.get("Educational Institution State", ""),
+                    )
+                    _ensure_text_value(
+                        "学校邮编",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxEDUC_INST_POSTAL_CD",
+                        personal_info.get("Educational Institution Zip", ""),
+                    )
+                    if school_country:
+                        _ensure_select_value(
+                            "学校国家",
+                            "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolCountry",
+                            country_code,
+                        )
+                    else:
+                        missing_fields.append("学校国家")
+                    _ensure_text_value(
+                        "所学专业/课程",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolCourseOfStudy",
+                        course_of_study_value,
+                    )
+                    if len(edu_start) >= 3:
+                        _ensure_text_value(
+                            "学校开始年份",
+                            "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolFromYear",
+                            edu_start[0],
+                        )
+                        _ensure_select_value(
+                            "学校开始月份",
+                            "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolFromMonth",
+                            str(_parse_month_to_int(edu_start[1]) or ''),
+                        )
+                        _ensure_select_value(
+                            "学校开始日期",
+                            "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolFromDay",
+                            str(int(float(edu_start[2]))),
+                        )
+                    if len(edu_end) >= 3:
+                        _ensure_text_value(
+                            "学校结束年份",
+                            "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolToYear",
+                            edu_end[0],
+                        )
+                        _ensure_select_value(
+                            "学校结束月份",
+                            "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolToMonth",
+                            str(_parse_month_to_int(edu_end[1]) or ''),
+                        )
+                        _ensure_select_value(
+                            "学校结束日期",
+                            "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolToDay",
+                            str(int(float(edu_end[2]))),
+                        )
+
+                    for selector in (
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolName",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolAddr1",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolAddr2",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolCity",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxEDUC_INST_ADDR_STATE",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxEDUC_INST_POSTAL_CD",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolCountry",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolCourseOfStudy",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolFromYear",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolFromMonth",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolFromDay",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_tbxSchoolToYear",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolToMonth",
+                        "#ctl00_SiteContentPlaceHolder_FormView1_dtlPrevEduc_ctl00_ddlSchoolToDay",
+                    ):
+                        _dispatch_control_events(selector)
+
+                if missing_fields:
+                    debug_screenshot, debug_html = save_debug_snapshot("work_education_previous_missing_fields")
+                    raise RuntimeError(
+                        f"WorkEducationPrev 页面关键字段未稳定写入: {', '.join(dict.fromkeys(missing_fields))}。调试文件: {debug_screenshot}, {debug_html}"
+                    )
+                page.wait_for_timeout(300)
+                validation_result = _collect_validator_failures()
+                if not validation_result.get("valid", True):
+                    debug_screenshot, debug_html = save_debug_snapshot("work_education_previous_client_validation")
+                    failed = validation_result.get("failed") or []
+                    failed_labels = []
+                    for item in failed:
+                        control = item.get("control") or item.get("id") or "unknown"
+                        message = item.get("message") or ""
+                        failed_labels.append(f"{control}{f' ({message})' if message else ''}")
+                    summary = validation_result.get("summary") or ""
+                    raise RuntimeError(
+                        f"WorkEducationPrev 页面前端校验未通过: {'; '.join(failed_labels) or '未知字段'}"
+                        f"{f'。摘要: {summary}' if summary else ''}。调试文件: {debug_screenshot}, {debug_html}"
+                    )
                 capture_guide_page("work_education_previous")
-                # 点击"Next: Work/Education: Additional"按钮
+                pre_next_screenshot, pre_next_html = save_debug_snapshot("work_education_previous_before_next")
+                pre_next_json = save_work_education_previous_values("work_education_previous_before_next_values")
+                post_save_screenshot = post_save_html = None
+                post_save_json = None
                 try:
                     with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
-                        page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
+                        page.click("#ctl00_SiteContentPlaceHolder_UpdateButton2")
                 except Exception:
-                    # CEAC 验证失败时不会跳转，捕获后继续等目标元素
-                    pass
+                    try:
+                        page.click("#ctl00_SiteContentPlaceHolder_UpdateButton2")
+                        page.wait_for_timeout(1500)
+                    except Exception:
+                        pass
                 try:
-                    page.wait_for_selector("#ctl00_SiteContentPlaceHolder_FormView1_rblCLAN_TRIBE_IND_1", state="visible", timeout=15000)
+                    page.wait_for_selector("#ctl00_SiteContentPlaceHolder_FormView1_rblPreviouslyEmployed_0", state="visible", timeout=15000)
+                    post_save_screenshot, post_save_html = save_debug_snapshot("work_education_previous_after_save")
+                    post_save_json = save_work_education_previous_values("work_education_previous_after_save_values")
                 except Exception:
-                    # 检查是否因验证错误停留在原页面
-                    err_text = page.locator(".error, .ErrorLabel, span[style*='color:Red']").first.inner_text() if page.locator(".error, .ErrorLabel, span[style*='color:Red']").count() > 0 else ""
-                    raise RuntimeError(f"WorkEducationPrev → Additional 页面跳转失败，CEAC 可能有验证错误: {err_text or '未知'}")
+                    pass
+                if is_save_confirmation_page():
+                    save_continue_screenshot, save_continue_html = save_debug_snapshot("work_education_previous_save_confirmation")
+                    save_continue_json = save_work_education_previous_values("work_education_previous_save_confirmation_values")
+                    if not continue_from_save_confirmation():
+                        raise RuntimeError(
+                            f"WorkEducationPrev 保存后停在 Save Confirmation，且无法继续返回表单。调试文件: "
+                            f"{save_continue_screenshot}, {save_continue_html}, {save_continue_json}"
+                        )
+                    post_save_screenshot, post_save_html = save_debug_snapshot("work_education_previous_after_save_continue")
+                    post_save_json = save_work_education_previous_values("work_education_previous_after_save_continue_values")
+
+                def _attempt_go_work_education_additional():
+                    if is_save_confirmation_page():
+                        if not continue_from_save_confirmation():
+                            return False
+                    try:
+                        with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
+                            page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
+                    except Exception:
+                        # CEAC 验证失败时不会跳转，捕获后继续等目标元素
+                        pass
+                    page.wait_for_timeout(1500)
+                    if is_application_error_page():
+                        return False
+                    page.wait_for_selector("#ctl00_SiteContentPlaceHolder_FormView1_rblCLAN_TRIBE_IND_1", state="visible", timeout=15000)
+                    return True
+
+                # 点击"Next: Work/Education: Additional"按钮
+                try:
+                    if not _attempt_go_work_education_additional():
+                        first_error_screenshot, first_error_html = save_debug_snapshot("work_education_previous_application_error")
+                        first_error_json = save_work_education_previous_values("work_education_previous_application_error_values")
+                        _step_log("step=WorkEducationPrev_Next 检测到 CEAC Application Error 页，尝试自动恢复")
+                        recover_from_application_error(aa_code, personal_info)
+                        recovered_screenshot, recovered_html = save_debug_snapshot("work_education_previous_after_recover")
+                        recovered_json = save_work_education_previous_values("work_education_previous_after_recover_values")
+                        try:
+                            page.wait_for_selector("#ctl00_SiteContentPlaceHolder_FormView1_rblPreviouslyEmployed_0", state="visible", timeout=15000)
+                        except Exception:
+                            pass
+                        if not _attempt_go_work_education_additional():
+                            debug_screenshot, debug_html = save_debug_snapshot("work_education_previous_application_error_after_recover")
+                            debug_json = save_work_education_previous_values("work_education_previous_application_error_after_recover_values")
+                            _step_log(
+                                "step=WorkEducationPrev_Next 自动恢复后再次检测到 CEAC Application Error 页"
+                            )
+                            _error_log(
+                                "WorkEducationPrev_Enter",
+                                "CEAC Application Error，从 Work/Education: Previous 进入 Additional 失败",
+                                f"AA码 {aa_code} 已保存，可在官网 Retrieve Application 恢复申请。"
+                                f" 点 Next 前文件: {pre_next_screenshot}, {pre_next_html}。"
+                                f"{f' Save 后文件: {post_save_screenshot}, {post_save_html}。' if post_save_screenshot and post_save_html else ''}"
+                                f" 首次错误页文件: {first_error_screenshot}, {first_error_html}。"
+                                f" 恢复后页面文件: {recovered_screenshot}, {recovered_html}。"
+                                f" 再次错误页文件: {debug_screenshot}, {debug_html}",
+                            )
+                            raise RuntimeError(
+                                f"CEAC Application Error（WorkEducationPrev → Additional，自动恢复后仍失败）。AA码 {aa_code} 已保存，请至官网恢复申请后重试。"
+                            )
+                except Exception as wait_err:
+                    debug_screenshot, debug_html = save_debug_snapshot("work_education_previous_transition_failure")
+                    if is_application_error_page():
+                        _step_log(
+                            "step=WorkEducationPrev_Next 等待 Additional 页时检测到 CEAC Application Error 页"
+                        )
+                        _error_log(
+                            "WorkEducationPrev_Enter",
+                            "CEAC Application Error，从 Work/Education: Previous 进入 Additional 失败",
+                            f"AA码 {aa_code} 已保存，可在官网 Retrieve Application 恢复申请。点 Next 前文件: {pre_next_screenshot}, {pre_next_html}。"
+                            f"{f' Save 后文件: {post_save_screenshot}, {post_save_html}。' if post_save_screenshot and post_save_html else ''}"
+                            f"错误页文件: {debug_screenshot}, {debug_html}",
+                        )
+                        raise RuntimeError(
+                            f"CEAC Application Error（WorkEducationPrev → Additional）。AA码 {aa_code} 已保存，请至官网恢复申请后重试。"
+                        ) from wait_err
+                    err_text = extract_ceac_error_text()
+                    raise RuntimeError(
+                        f"WorkEducationPrev → Additional 页面跳转失败，CEAC 可能有验证错误: {err_text or '未知'}。点 Next 前文件: {pre_next_screenshot}, {pre_next_html}。"
+                        f"{f' Save 后文件: {post_save_screenshot}, {post_save_html}。' if post_save_screenshot and post_save_html else ''}"
+                        f"错误页文件: {debug_screenshot}, {debug_html}"
+                    ) from wait_err
                 _step_log("step=WorkEducationAdd_Enter 进入 Work/Education: Additional 页面")
                 print("成功进入Work/Education: Additional页面")
                 _progress(45, "进入Work/Education: Additional页面...")
@@ -2611,6 +3563,30 @@ class DS160Filler:
                         return Array.from(selects).map(el => ({ id: el.id, val: el.value }));
                     }
                 """) or []
+                if countries_to_add:
+                    final_ids = page.evaluate("""
+                        () => {
+                            const selects = document.querySelectorAll('select[id*="dtlCountriesVisited"][id*="ddlCOUNTRIES_VISITED"]');
+                            return Array.from(selects).map(el => el.id);
+                        }
+                    """) or []
+                    if len(final_ids) >= len(countries_to_add):
+                        for i, country in enumerate(countries_to_add):
+                            target_selector = f"#{final_ids[i]}"
+                            try:
+                                log.info(f"[鍥藉] 鏈€缁堟牎姝?{i+1}/{len(countries_to_add)}: {country} -> {target_selector}")
+                                page.wait_for_selector(target_selector, state="visible", timeout=10000)
+                                _do_select_country(page, target_selector, country, log, i + 1, len(countries_to_add))
+                                page.wait_for_timeout(200)
+                            except Exception as e:
+                                log.warning(f"[鍥藉] 鏈€缁堟牎姝ュけ璐?{i+1}/{len(countries_to_add)} {country}: {e}")
+                    capture_guide_page("work_education_additional_country_review")
+                    ids = page.evaluate("""
+                        () => {
+                            const selects = document.querySelectorAll('select[id*="dtlCountriesVisited"][id*="ddlCOUNTRIES_VISITED"]');
+                            return Array.from(selects).map(el => ({ id: el.id, val: el.value }));
+                        }
+                    """) or []
                 empty = [x for x in ids if not x.get("val") or "-SELECT" in str(x.get("val", "")).upper()]
                 if empty and countries_to_add:
                     failed_msg = f"国家下拉框 {len(empty)}/{len(countries_to_add)} 个未选中，请检查 country_map.xlsx 是否包含: {countries_to_add}"
@@ -2703,6 +3679,23 @@ class DS160Filler:
                     page.wait_for_timeout(500)
                 capture_guide_page("security_part_1")
 
+                def _check_radio_no_if_present(radio_id):
+                    selector = f"#ctl00_SiteContentPlaceHolder_FormView1_{radio_id}_1"
+                    if page.locator(selector).count() == 0:
+                        _get_logger().info(f"[Security] 跳过未渲染题目: {radio_id}")
+                        return False
+                    return _check_radio_no(radio_id)
+
+                def _fill_security_no_options(radio_ids, part_label):
+                    checked_count = 0
+                    for radio_id in radio_ids:
+                        if _check_radio_no_if_present(radio_id):
+                            checked_count += 1
+                            page.wait_for_timeout(120)
+                    if checked_count == 0:
+                        raise RuntimeError(f"{part_label} 页面未找到任何可填写的 No 选项")
+                    return checked_count
+
                 # 点击"Next: Security/Background Part 2"按钮（CEAC postback 较慢，需等待导航完成）
                 with page.expect_navigation(timeout=45000, wait_until="domcontentloaded"):
                     page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
@@ -2712,20 +3705,21 @@ class DS160Filler:
                 _progress(52, "进入Security/Background Part 2页面...")
 
                 # 点击"No"选项 - 是否被逮捕过
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblArrested_1")
+                _check_radio_no_if_present("rblArrested")
                 # 点击"No"选项 - 是否违反过毒品法
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblControlledSubstances_1")
+                _check_radio_no_if_present("rblControlledSubstances")
                 # 点击"No"选项 - 是否从事过卖淫活动
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblProstitution_1")
+                _check_radio_no_if_present("rblProstitution")
                 # 点击"No"选项 - 是否参与过洗钱活动
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblMoneyLaundering_1")
+                _check_radio_no_if_present("rblMoneyLaundering")
                 # 点击"No"选项 - 是否参与过人口贩卖
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblHumanTrafficking_1")
+                _check_radio_no_if_present("rblHumanTrafficking")
                 # 点击"No"选项 - 是否协助过严重的人口贩卖
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblAssistedSevereTrafficking_1")
+                _check_radio_no_if_present("rblAssistedSevereTrafficking")
                 # 点击"No"选项 - 是否参与过人口贩卖相关活动
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblHumanTraffickingRelated_1")
+                _check_radio_no_if_present("rblHumanTraffickingRelated")
                 capture_guide_page("security_part_2")
+                save_debug_snapshot("security_part_2_before_next")
                 # 点击"Next: Security/Background Part 3"按钮
                 with page.expect_navigation(timeout=45000, wait_until="domcontentloaded"):
                     page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
@@ -2735,31 +3729,32 @@ class DS160Filler:
                 _progress(54, "进入Security/Background Part 3页面...")
 
                 # 点击"No"选项 - 是否参与过非法活动
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblIllegalActivity_1")
+                _check_radio_no_if_present("rblIllegalActivity")
 
                 # 点击"No"选项 - 是否参与过恐怖活动
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblTerroristActivity_1")
+                _check_radio_no_if_present("rblTerroristActivity")
                 # 点击"No"选项 - 是否支持过恐怖活动
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblTerroristSupport_1")
+                _check_radio_no_if_present("rblTerroristSupport")
                 # 点击"No"选项 - 是否属于恐怖组织
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblTerroristOrg_1")
+                _check_radio_no_if_present("rblTerroristOrg")
                 # 点击"No"选项 - 是否与恐怖组织有关联
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblTerroristRel_1")
+                _check_radio_no_if_present("rblTerroristRel")
                 # 点击"No"选项 - 是否参与过种族灭绝活动
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblGenocide_1")
+                _check_radio_no_if_present("rblGenocide")
                 # 点击"No"选项 - 是否参与过酷刑活动
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblTorture_1")
+                _check_radio_no_if_present("rblTorture")
                 # 点击"No"选项 - 是否参与过极端暴力活动
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblExViolence_1")
+                _check_radio_no_if_present("rblExViolence")
                 # 点击"No"选项 - 是否参与过儿童兵役活动
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblChildSoldier_1")
+                _check_radio_no_if_present("rblChildSoldier")
                 # 点击"No"选项 - 是否参与过宗教自由相关活动
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblReligiousFreedom_1")
+                _check_radio_no_if_present("rblReligiousFreedom")
                 # 点击"No"选项 - 是否参与过人口控制相关活动
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblPopulationControls_1")
+                _check_radio_no_if_present("rblPopulationControls")
                 # 点击"No"选项 - 是否参与过器官移植相关活动
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblTransplant_1")
+                _check_radio_no_if_present("rblTransplant")
                 capture_guide_page("security_part_3")
+                save_debug_snapshot("security_part_3_before_next")
 
 
                 # 点击"Next: Security/Background Part 4"按钮
@@ -2771,24 +3766,32 @@ class DS160Filler:
                 _progress(57, "进入Security/Background Part 4页面...")
 
                 # Security Part 4 所有必答项选 No（CEAC 校验：未选中会报错）
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblRemovalHearing_1")    # removal/deportation hearing
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblImmigrationFraud_1")  # 移民欺诈
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblFailToAttend_1")      # failed to attend hearing
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblVisaViolation_1")     # unlawfully present/overstayed
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblDeport_1")            # 被驱逐出境
+                _fill_security_no_options([
+                    "rblRemovalHearing",
+                    "rblImmigrationFraud",
+                    "rblFailToAttend",
+                    "rblVisaViolation",
+                    "rblDeport",
+                ], "Security Part 4")
                 capture_guide_page("security_part_4")
+                save_debug_snapshot("security_part_4_before_next")
                 # 点击"Next: Security/Background Part 5"按钮
                 with page.expect_navigation(timeout=45000, wait_until="domcontentloaded"):
                     page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
-                page.wait_for_selector("#ctl00_SiteContentPlaceHolder_FormView1_rblChildCustody_1", state="visible", timeout=30000)
+                page.wait_for_function(
+                    "() => document.querySelectorAll(\"input[type=radio][id*='FormView1_']\").length > 0",
+                    timeout=30000
+                )
                 page.wait_for_timeout(500)
                 print("成功进入Security/Background Part 5页面")
                 _progress(59, "进入Security/Background Part 5页面...")
                 # Security Part 5 所有必答项选 No（CEAC 校验：未选中会报错）
                 # 已知：ChildCustody, VotingViolation, RenounceExp；另有 public school/F status 等可能遗漏
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblChildCustody_1")      # 儿童监护权
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblVotingViolation_1")   # 投票违规
-                page.click("#ctl00_SiteContentPlaceHolder_FormView1_rblRenounceExp_1")       # 放弃美国国籍
+                _fill_security_no_options([
+                    "rblChildCustody",
+                    "rblVotingViolation",
+                    "rblRenounceExp",
+                ], "Security Part 5")
                 # 补点可能遗漏的 No（如 public elementary school on F status 等）
                 try:
                     page.evaluate("""() => {
@@ -2800,6 +3803,7 @@ class DS160Filler:
                 except Exception:
                     pass
                 capture_guide_page("security_part_5")
+                save_debug_snapshot("security_part_5_before_next")
                 # 点击"Next: PHOTO"按钮
                 with page.expect_navigation(timeout=45000, wait_until="domcontentloaded"):
                     page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")

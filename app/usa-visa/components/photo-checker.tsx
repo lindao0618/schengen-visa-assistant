@@ -107,6 +107,9 @@ export function PhotoChecker() {
     const formData = new FormData()
     if (group.applicantProfileId) {
       formData.append("applicantProfileId", group.applicantProfileId)
+      if (activeApplicant?.activeCaseId && group.applicantProfileId === activeApplicant.id) {
+        formData.append("caseId", activeApplicant.activeCaseId)
+      }
     }
     if (group.photoFile) {
       formData.append("photo", group.photoFile)

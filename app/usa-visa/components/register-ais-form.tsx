@@ -118,6 +118,9 @@ export function RegisterAISForm() {
     }
     if (group.applicantProfileId) {
       formData.append("applicantProfileId", group.applicantProfileId)
+      if (activeApplicant?.activeCaseId && group.applicantProfileId === activeApplicant.id) {
+        formData.append("caseId", activeApplicant.activeCaseId)
+      }
     }
     formData.append("password", password)
     formData.append("send_activation_email", String(sendEmail))

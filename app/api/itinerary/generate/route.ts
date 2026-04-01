@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const applicantProfileId =
       typeof body?.applicantProfileId === "string" ? body.applicantProfileId.trim() : ""
+    const caseId = typeof body?.caseId === "string" ? body.caseId.trim() : ""
 
     const requiredFields = [
       "country",
@@ -136,6 +137,7 @@ export async function POST(request: NextRequest) {
         ? {
             applicantProfileId,
             applicantName: applicantProfile.name || applicantProfile.label,
+            caseId: caseId || undefined,
           }
         : undefined
     )

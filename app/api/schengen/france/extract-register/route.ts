@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
     }
 
     const applicantProfileId = (formData.get("applicantProfileId") as string | null)?.trim() || ""
+    const caseId = (formData.get("caseId") as string | null)?.trim() || ""
     const applicantProfile = applicantProfileId ? await getApplicantProfile(userId, applicantProfileId) : null
 
     if (files.length === 0 && applicantProfileId) {
@@ -132,6 +133,7 @@ export async function POST(request: NextRequest) {
 
     const task = await createTask(userId, "extract-register", `提取+注册 · ${files.length} 个文件`, {
       applicantProfileId: applicantProfileId || undefined,
+      caseId: caseId || undefined,
       applicantName: applicantProfile?.name || applicantProfile?.label,
     })
 

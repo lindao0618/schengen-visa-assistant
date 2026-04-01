@@ -1,12 +1,43 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { ACTIVE_APPLICANT_PROFILE_KEY } from "@/components/applicant-profile-selector"
+import {
+  ACTIVE_APPLICANT_CASE_KEY,
+  ACTIVE_APPLICANT_PROFILE_KEY,
+} from "@/components/applicant-profile-selector"
+
+export interface ActiveApplicantCase {
+  id: string
+  caseType: string
+  visaType?: string | null
+  applyRegion?: string | null
+  tlsCity?: string | null
+  bookingWindow?: string | null
+  acceptVip?: string | null
+  slotTime?: string | null
+  mainStatus: string
+  subStatus?: string | null
+  exceptionCode?: string | null
+  priority: string
+  travelDate?: string | null
+  submissionDate?: string | null
+  assignedToUserId?: string | null
+  assignedRole?: string | null
+  isActive: boolean
+  updatedAt: string
+  createdAt: string
+}
 
 export interface ActiveApplicantProfile {
   id: string
   label: string
   name?: string
+  phone?: string
+  email?: string
+  wechat?: string
+  passportNumber?: string
+  passportLast4?: string
+  updatedAt?: string
   usVisa?: {
     aaCode?: string
     surname?: string
@@ -18,15 +49,57 @@ export interface ActiveApplicantProfile {
     city?: string
   }
   files?: Record<string, { originalName: string }>
+  cases?: ActiveApplicantCase[]
+  activeCaseId?: string | null
+  activeCase?: ActiveApplicantCase | null
 
   // Legacy fields preserved for old flows that still read them.
   fullName?: string
   surname?: string
   givenName?: string
-  email?: string
-  passportNumber?: string
   birthYear?: string
   birthDate?: string
+}
+
+type ApplicantDetailResponse = {
+  profile?: ActiveApplicantProfile | null
+  cases?: ActiveApplicantCase[]
+  activeCaseId?: string | null
+}
+
+function getApplicantCaseStorageKey(applicantProfileId: string) {
+  return `${ACTIVE_APPLICANT_CASE_KEY}:${applicantProfileId}`
+}
+
+function readStoredCaseId(applicantProfileId: string) {
+  if (typeof window === "undefined") return ""
+  return (
+    window.localStorage.getItem(getApplicantCaseStorageKey(applicantProfileId)) ||
+    window.localStorage.getItem(ACTIVE_APPLICANT_CASE_KEY) ||
+    ""
+  )
+}
+
+function writeStoredCaseId(applicantProfileId: string, caseId?: string | null) {
+  if (typeof window === "undefined") return
+  if (caseId) {
+    window.localStorage.setItem(ACTIVE_APPLICANT_CASE_KEY, caseId)
+    window.localStorage.setItem(getApplicantCaseStorageKey(applicantProfileId), caseId)
+    return
+  }
+
+  window.localStorage.removeItem(ACTIVE_APPLICANT_CASE_KEY)
+  window.localStorage.removeItem(getApplicantCaseStorageKey(applicantProfileId))
+}
+
+function resolveActiveCaseId(cases: ActiveApplicantCase[], preferredCaseId?: string | null, fallbackCaseId?: string | null) {
+  if (preferredCaseId && cases.some((item) => item.id === preferredCaseId)) {
+    return preferredCaseId
+  }
+  if (fallbackCaseId && cases.some((item) => item.id === fallbackCaseId)) {
+    return fallbackCaseId
+  }
+  return cases.find((item) => item.isActive)?.id ?? cases[0]?.id ?? null
 }
 
 export function useActiveApplicantProfile() {
@@ -39,14 +112,34 @@ export function useActiveApplicantProfile() {
         setProfile(null)
         return
       }
+
       try {
         const res = await fetch(`/api/applicants/${id}`, { cache: "no-store" })
         if (!res.ok) {
           setProfile(null)
           return
         }
-        const data = await res.json()
-        setProfile((data.profile || null) as ActiveApplicantProfile | null)
+
+        const data = (await res.json()) as ApplicantDetailResponse
+        const nextProfile = data.profile || null
+        if (!nextProfile) {
+          setProfile(null)
+          return
+        }
+
+        const cases = Array.isArray(data.cases) ? data.cases : []
+        const savedCaseId = readStoredCaseId(id)
+        const activeCaseId = resolveActiveCaseId(cases, savedCaseId, data.activeCaseId)
+        const activeCase = activeCaseId ? cases.find((item) => item.id === activeCaseId) ?? null : null
+
+        writeStoredCaseId(id, activeCaseId)
+
+        setProfile({
+          ...(nextProfile as ActiveApplicantProfile),
+          cases,
+          activeCaseId,
+          activeCase,
+        })
       } catch {
         setProfile(null)
       }
@@ -62,12 +155,14 @@ export function useActiveApplicantProfile() {
     window.addEventListener("focus", onStorage)
     window.addEventListener("active-applicant-profile-changed", onCustom as EventListener)
     window.addEventListener("active-applicant-profile-refresh", onCustom as EventListener)
+    window.addEventListener("active-applicant-case-changed", onCustom as EventListener)
     return () => {
       window.clearInterval(intervalId)
       window.removeEventListener("storage", onStorage)
       window.removeEventListener("focus", onStorage)
       window.removeEventListener("active-applicant-profile-changed", onCustom as EventListener)
       window.removeEventListener("active-applicant-profile-refresh", onCustom as EventListener)
+      window.removeEventListener("active-applicant-case-changed", onCustom as EventListener)
     }
   }, [])
 

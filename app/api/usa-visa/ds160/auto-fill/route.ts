@@ -214,14 +214,19 @@ function extractErrorSnippet(stdout: string, stderr: string): string {
   return last || ''
 }
 
-async function findLatestErrorScreenshot(pythonServicePath: string, outputPath: string, tempDir: string) {
+async function findLatestErrorArtifact(
+  pythonServicePath: string,
+  outputPath: string,
+  tempDir: string,
+  pattern: RegExp,
+) {
   try {
     const files = await fs.readdir(pythonServicePath)
-    const errorShots = files.filter((f) => /^error_\d+\.png$/.test(f))
-    if (errorShots.length === 0) return null
-    let latestFile = errorShots[0]
+    const matches = files.filter((f) => pattern.test(f))
+    if (matches.length === 0) return null
+    let latestFile = matches[0]
     let latestMtime = 0
-    for (const file of errorShots) {
+    for (const file of matches) {
       const stat = await fs.stat(path.join(pythonServicePath, file))
       if (stat.mtimeMs > latestMtime) {
         latestMtime = stat.mtimeMs
@@ -239,6 +244,14 @@ async function findLatestErrorScreenshot(pythonServicePath: string, outputPath: 
   } catch {
     return null
   }
+}
+
+async function findLatestErrorScreenshot(pythonServicePath: string, outputPath: string, tempDir: string) {
+  return findLatestErrorArtifact(pythonServicePath, outputPath, tempDir, /^error_\d+\.png$/)
+}
+
+async function findLatestErrorHtml(pythonServicePath: string, outputPath: string, tempDir: string) {
+  return findLatestErrorArtifact(pythonServicePath, outputPath, tempDir, /^error_html_\d+\.html$/)
 }
 
 interface DownloadableArtifact {
@@ -390,6 +403,7 @@ async function runDs160FillInBackground(taskId: string, params: Ds160BackgroundP
     proc.on('close', async (code) => {
       if (code !== 0) {
         const screenshot = await findLatestErrorScreenshot(pythonServicePath, outputPath, tempDir)
+        const errorHtml = await findLatestErrorHtml(pythonServicePath, outputPath, tempDir)
         const errSnippet = extractErrorSnippet(stdout, stderr)
         const baseError = screenshot ? '已生成错误截图' : '执行失败'
         const fullError = errSnippet ? `${baseError}：${errSnippet}` : baseError
@@ -398,7 +412,7 @@ async function runDs160FillInBackground(taskId: string, params: Ds160BackgroundP
           progress: 0,
           message: '填表失败，请查看错误信息',
           error: fullError,
-          result: screenshot ? { screenshot } : undefined
+          result: screenshot || errorHtml ? { screenshot, errorHtml } : undefined
         })
         console.error('[DS160] Python 进程退出码:', code)
         if (errSnippet) console.error('[DS160] 错误详情:', errSnippet)
@@ -515,19 +529,20 @@ async function runDs160FillInBackground(taskId: string, params: Ds160BackgroundP
       void updateTask(taskId, { status: 'failed', progress: 0, message: '进程启动失败', error: String(e) })
       reject(e)
     })
-    const timeoutId = setTimeout(async () => {
-      proc.kill()
-      const screenshot = await findLatestErrorScreenshot(pythonServicePath, outputPath, tempDir)
-      const errMsg = screenshot ? '执行超时（15分钟），已生成错误截图' : '执行超时（15分钟）'
-      void updateTask(taskId, {
-        status: 'failed',
-        progress: 0,
-        message: errMsg,
-        error: errMsg,
-        result: screenshot ? { screenshot } : undefined,
-      })
-      reject(new Error('Timeout'))
-    }, 900000)
+      const timeoutId = setTimeout(async () => {
+        proc.kill()
+        const screenshot = await findLatestErrorScreenshot(pythonServicePath, outputPath, tempDir)
+        const errorHtml = await findLatestErrorHtml(pythonServicePath, outputPath, tempDir)
+        const errMsg = screenshot ? '执行超时（15分钟），已生成错误截图' : '执行超时（15分钟）'
+        void updateTask(taskId, {
+          status: 'failed',
+          progress: 0,
+          message: errMsg,
+          error: errMsg,
+          result: screenshot || errorHtml ? { screenshot, errorHtml } : undefined,
+        })
+        reject(new Error('Timeout'))
+      }, 900000)
     proc.on('close', () => clearTimeout(timeoutId))
     proc.on('error', () => clearTimeout(timeoutId))
   })
@@ -546,6 +561,7 @@ export async function POST(request: NextRequest) {
     let email = (formData.get('email') as string) || ''
     const extraEmail = (formData.get('extra_email') as string) || ''
     const applicantProfileId = (formData.get('applicantProfileId') as string | null)?.trim() || ''
+    const caseId = (formData.get('caseId') as string | null)?.trim() || ''
     const asyncMode = formData.get('async') === 'true' || formData.get('async') === '1'
     let profile = null
 
@@ -597,6 +613,7 @@ export async function POST(request: NextRequest) {
       const excelFileName = excelFile.name || 'ds160_data.xlsx'
       const task = await createTask(session.user.id, 'fill-ds160', excelFileName, {
         applicantProfileId: applicantProfileId || undefined,
+        caseId: caseId || undefined,
         applicantName: profile?.name || profile?.label,
       })
       await updateTask(task.task_id, { status: 'running', progress: 1, message: `[${excelFileName}] 准备中...` })
@@ -657,6 +674,7 @@ export async function POST(request: NextRequest) {
       guideScreenshots?: Array<{filename: string, path: string, size: number, downloadUrl: string}>
       guideScreenshotsZip?: { filename: string; path: string; size: number; downloadUrl: string }
       screenshot?: { filename: string; path: string; downloadUrl: string } | null
+      errorHtml?: { filename: string; path: string; downloadUrl: string } | null
       summary: any
       logs: any
     }>((resolve, reject) => {
@@ -699,11 +717,13 @@ export async function POST(request: NextRequest) {
           
           if (code !== 0) {
             const screenshot = await findLatestErrorScreenshot(pythonServicePath, outputPath, tempDir)
+            const errorHtml = await findLatestErrorHtml(pythonServicePath, outputPath, tempDir)
             resolve({
               success: false,
               message: '填表失败，请查看错误截图',
               files: [],
               screenshot: screenshot || undefined,
+              errorHtml: errorHtml || undefined,
               summary: {
                 processedAt: new Date().toISOString(),
                 tempId: path.basename(tempDir)

@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getServerSession } from "next-auth"
 import {
   createMaterialTask,
   updateMaterialTask,
   getMaterialTaskOutputDir,
 } from "@/lib/material-tasks"
+import { authOptions } from "@/lib/auth"
+import { getApplicantProfile } from "@/lib/applicant-profiles"
 import * as fs from "fs/promises"
 import * as path from "path"
 
@@ -51,6 +54,22 @@ export async function POST(request: NextRequest) {
     const documentType = (formData.get("document_type") as string) || "itinerary"
     const visaType = (formData.get("visa_type") as string) || "schengen"
     const bookingVerify = (formData.get("booking_verify") as string) === "true"
+    const applicantProfileId = String(formData.get("applicantProfileId") || "").trim()
+    const caseId = String(formData.get("caseId") || "").trim()
+
+    const session = applicantProfileId ? await getServerSession(authOptions) : null
+    if (applicantProfileId && !session?.user?.id) {
+      return NextResponse.json({ error: "请先登录后再关联申请人档案" }, { status: 401 })
+    }
+
+    const applicantProfile =
+      applicantProfileId && session?.user?.id
+        ? await getApplicantProfile(session.user.id, applicantProfileId, session.user.role)
+        : null
+
+    if (applicantProfileId && !applicantProfile) {
+      return NextResponse.json({ error: "当前申请人档案不存在或无权访问" }, { status: 404 })
+    }
 
     if (documentType === "hotel") {
       const customerName = (formData.get("customer_name") as string)?.trim()
@@ -71,7 +90,11 @@ export async function POST(request: NextRequest) {
     const visaLabel = VISA_TYPE_LABELS[visaType] || visaType
     const filePrefix = getFileNamePrefix(file.name)
     const taskMessage = `材料审核 · ${visaLabel} · ${docLabel} · ${filePrefix}`
-    const task = await createMaterialTask("material-review", taskMessage)
+    const task = await createMaterialTask("material-review", taskMessage, {
+      applicantProfileId: applicantProfileId || undefined,
+      applicantName: applicantProfile?.name || applicantProfile?.label,
+      caseId: caseId || undefined,
+    })
 
     const outputDir = getMaterialTaskOutputDir(task.task_id)
     await fs.mkdir(outputDir, { recursive: true })

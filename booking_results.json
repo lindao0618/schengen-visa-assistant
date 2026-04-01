@@ -1,0 +1,14 @@
+{
+  "success": true,
+  "paused_before_payment": true,
+  "hotel_name": "Chic apartment - 1BR 4P - near the Palais Garnier\nOpens in new window",
+  "city": "Paris",
+  "checkin_date": "2026-04-15",
+  "checkout_date": "2026-04-18",
+  "guest_name": "San Zhang",
+  "confirmation_number": "",
+  "confirmation_url": "https://secure.booking.com/book.html?hotel_id=15073726&occupancy_setup_issue_flags=&aid=304142&label=gen173nr-10CAQoggJCDHNlYXJjaF9wYXJpc0gJWARoyQGIAQGYATO4ARfIAQzYAQPoAQH4AQGIAgGoAgG4ArrsqM4GwAIB0gIkYWI2YzQ2NjgtMDYzMS00MzEzLWFlMmQtYWM3ODI5NDM2MGE32AIB4AIB&sid=69e4a233d76957c3cc13bea513d1bbd0&room1=A&error_url=%2Fhotel%2Ffr%2Fchic-apartment-1br-4p-near-the-palais-garnier-paris.en-gb.html%3Faid%3D304142%26label%3Dgen173nr-10CAQoggJCDHNlYXJjaF9wYXJpc0gJWARoyQGIAQGYATO4ARfIAQzYAQPoAQH4AQGIAgGoAgG4ArrsqM4GwAIB0gIkYWI2YzQ2NjgtMDYzMS00MzEzLWFlMmQtYWM3ODI5NDM2MGE32AIB4AIB%26sid%3D69e4a233d76957c3cc13bea513d1bbd0%26srpvid%3D91353c9db80901fd%26%26&hostname=www.booking.com&stage=1&checkin=2026-04-15&interval=3&children_extrabeds=&srpvid=91353c9db80901fd&hp_visits_num=1&rt_pos_selected=1&rt_pos_selected_within_room=1&rt_selected_block_position=1&rt_num_blocks=2&rt_num_rooms=1&rt_num_blocks_per_room=%7B%221507372601%22%3A2%7D&rt_selected_blocks_info=&rt_relevance_metric_id=2aca6f4b-702f-40d8-9306-7eeaf20d3b38&rt_pageview_id=6c453ca2ff6e031d&rt_pos_final=1.1&rt_selected_total_price=727&rt_cheapest_search_price=727&rt_with_no_dimensions=&from_source=hotel&rt_fetch_room_table_time=&nr_rooms_1507372601_422490707_2_0_0=1&basket_id=085b499a-ce5b-4a9e-a213-112cde9e8836",
+  "payment_url": "https://secure.booking.com/book.html?hotel_id=15073726&occupancy_setup_issue_flags=&aid=304142&label=gen173nr-10CAQoggJCDHNlYXJjaF9wYXJpc0gJWARoyQGIAQGYATO4ARfIAQzYAQPoAQH4AQGIAgGoAgG4ArrsqM4GwAIB0gIkYWI2YzQ2NjgtMDYzMS00MzEzLWFlMmQtYWM3ODI5NDM2MGE32AIB4AIB&sid=69e4a233d76957c3cc13bea513d1bbd0&room1=A&error_url=%2Fhotel%2Ffr%2Fchic-apartment-1br-4p-near-the-palais-garnier-paris.en-gb.html%3Faid%3D304142%26label%3Dgen173nr-10CAQoggJCDHNlYXJjaF9wYXJpc0gJWARoyQGIAQGYATO4ARfIAQzYAQPoAQH4AQGIAgGoAgG4ArrsqM4GwAIB0gIkYWI2YzQ2NjgtMDYzMS00MzEzLWFlMmQtYWM3ODI5NDM2MGE32AIB4AIB%26sid%3D69e4a233d76957c3cc13bea513d1bbd0%26srpvid%3D91353c9db80901fd%26%26&hostname=www.booking.com&stage=1&checkin=2026-04-15&interval=3&children_extrabeds=&srpvid=91353c9db80901fd&hp_visits_num=1&rt_pos_selected=1&rt_pos_selected_within_room=1&rt_selected_block_position=1&rt_num_blocks=2&rt_num_rooms=1&rt_num_blocks_per_room=%7B%221507372601%22%3A2%7D&rt_selected_blocks_info=&rt_relevance_metric_id=2aca6f4b-702f-40d8-9306-7eeaf20d3b38&rt_pageview_id=6c453ca2ff6e031d&rt_pos_final=1.1&rt_selected_total_price=727&rt_cheapest_search_price=727&rt_with_no_dimensions=&from_source=hotel&rt_fetch_room_table_time=&nr_rooms_1507372601_422490707_2_0_0=1&basket_id=085b499a-ce5b-4a9e-a213-112cde9e8836",
+  "pdf_path": "",
+  "message": "已到达支付页并暂停，可人工继续支付。"
+}

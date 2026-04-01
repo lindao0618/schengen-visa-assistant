@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from "react"
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Loader2, Plus, Save, Trash2 } from "lucide-react"
@@ -26,7 +26,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { ACTIVE_APPLICANT_PROFILE_KEY } from "@/components/applicant-profile-selector"
+import { ACTIVE_APPLICANT_CASE_KEY, ACTIVE_APPLICANT_PROFILE_KEY } from "@/components/applicant-profile-selector"
+import {
+  CRM_PRIORITY_OPTIONS,
+  CRM_REGION_OPTIONS,
+  CRM_VISA_TYPE_OPTIONS,
+  deriveApplicantCaseTypeFromVisaType,
+  getApplicantCrmRegionLabel,
+  getApplicantCrmVisaTypeLabel,
+} from "@/lib/applicant-crm-labels"
+import { formatFranceStatusLabel } from "@/lib/france-case-labels"
 import { FRANCE_TLS_CITY_OPTIONS, getFranceTlsCityLabel } from "@/lib/france-tls-city"
 
 type ApplicantProfileDetail = {
@@ -86,6 +95,9 @@ type VisaCaseRecord = {
   visaType?: string | null
   applyRegion?: string | null
   tlsCity?: string | null
+  bookingWindow?: string | null
+  acceptVip?: string | null
+  slotTime?: string | null
   mainStatus: string
   subStatus?: string | null
   exceptionCode?: string | null
@@ -97,6 +109,10 @@ type VisaCaseRecord = {
   isActive: boolean
   updatedAt: string
   createdAt: string
+  ds160PrecheckFile?: {
+    originalName: string
+    uploadedAt: string
+  } | null
   owner: {
     id: string
     name?: string | null
@@ -153,6 +169,9 @@ type CaseFormState = {
   visaType: string
   applyRegion: string
   tlsCity: string
+  bookingWindow: string
+  acceptVip: string
+  slotTime: string
   priority: string
   travelDate: string
   submissionDate: string
@@ -161,6 +180,11 @@ type CaseFormState = {
 }
 
 type PreviewKind = "pdf" | "image" | "excel" | "word" | "text" | "unknown"
+
+type ExcelPreviewSheet = {
+  name: string
+  rows: string[][]
+}
 
 type PreviewState = {
   open: boolean
@@ -171,6 +195,8 @@ type PreviewState = {
   textContent: string
   htmlContent: string
   tableRows: string[][]
+  excelSheets: ExcelPreviewSheet[]
+  activeExcelSheet: string
   error: string
 }
 
@@ -183,6 +209,8 @@ const emptyPreview: PreviewState = {
   textContent: "",
   htmlContent: "",
   tableRows: [],
+  excelSheets: [],
+  activeExcelSheet: "",
   error: "",
 }
 
@@ -205,11 +233,98 @@ const emptyCaseForm: CaseFormState = {
   visaType: "",
   applyRegion: "",
   tlsCity: "",
+  bookingWindow: "",
+  acceptVip: "",
+  slotTime: "",
   priority: "normal",
   travelDate: "",
   submissionDate: "",
   assignedToUserId: "",
   isActive: true,
+}
+
+const SLOT_TIME_OPTIONS = Array.from({ length: 20 }, (_, index) => {
+  const totalMinutes = 7 * 60 + index * 30
+  const hour = Math.floor(totalMinutes / 60)
+  const minute = totalMinutes % 60
+  const hh = String(hour).padStart(2, "0")
+  const mm = String(minute).padStart(2, "0")
+  const value = `${hh}:${mm}`
+  return { value, label: value }
+})
+
+function normalizeSlashDate(value: string) {
+  return value.replace(/\./g, "/").replace(/-/g, "/").trim()
+}
+
+function toInputDate(value: string) {
+  const normalized = normalizeSlashDate(value)
+  const match = normalized.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/)
+  if (!match) return ""
+  const [, year, month, day] = match
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`
+}
+
+function fromInputDate(value: string) {
+  if (!value) return ""
+  return value.replace(/-/g, "/")
+}
+
+function splitBookingWindow(value?: string | null) {
+  const raw = (value || "").trim()
+  if (!raw) return { start: "", end: "" }
+  const compact = raw.replace(/\s+/g, " ")
+  const exact = compact.match(
+    /(\d{4}[\/\-.]\d{1,2}[\/\-.]\d{1,2})\s*(?:-|~|至|到|—|–)\s*(\d{4}[\/\-.]\d{1,2}[\/\-.]\d{1,2})/,
+  )
+  if (exact) {
+    return { start: toInputDate(exact[1]), end: toInputDate(exact[2]) }
+  }
+
+  const hits = compact.match(/\d{4}[\/\-.]\d{1,2}[\/\-.]\d{1,2}/g) || []
+  return {
+    start: hits[0] ? toInputDate(hits[0]) : "",
+    end: hits[1] ? toInputDate(hits[1]) : "",
+  }
+}
+
+function mergeBookingWindow(start: string, end: string) {
+  const startText = fromInputDate(start)
+  const endText = fromInputDate(end)
+  if (startText && endText) return `${startText} - ${endText}`
+  if (startText) return startText
+  if (endText) return endText
+  return ""
+}
+
+function getApplicantCaseStorageKey(applicantId: string) {
+  return `activeApplicantCaseId:${applicantId}`
+}
+
+function persistSelectedApplicantCase(applicantId: string, caseId?: string | null) {
+  if (typeof window === "undefined") return
+
+  window.localStorage.setItem(ACTIVE_APPLICANT_PROFILE_KEY, applicantId)
+
+  const normalizedCaseId = caseId || ""
+  if (normalizedCaseId) {
+    window.localStorage.setItem(ACTIVE_APPLICANT_CASE_KEY, normalizedCaseId)
+    window.localStorage.setItem(getApplicantCaseStorageKey(applicantId), normalizedCaseId)
+  } else {
+    window.localStorage.removeItem(ACTIVE_APPLICANT_CASE_KEY)
+    window.localStorage.removeItem(getApplicantCaseStorageKey(applicantId))
+  }
+
+  window.dispatchEvent(
+    new CustomEvent("active-applicant-profile-changed", {
+      detail: { applicantProfileId: applicantId },
+    }),
+  )
+  window.dispatchEvent(
+    new CustomEvent("active-applicant-case-changed", {
+      detail: { applicantProfileId: applicantId, caseId: normalizedCaseId || undefined },
+    }),
+  )
 }
 
 const usVisaUploadedSlots = [
@@ -219,6 +334,7 @@ const usVisaUploadedSlots = [
 
 const usVisaSubmissionSlots = [
   { key: "usVisaDs160ConfirmationPdf", label: "DS-160 确认页 PDF", accept: ".pdf,application/pdf" },
+  { key: "usVisaDs160PrecheckJson", label: "DS-160 预检查 JSON", accept: ".json,application/json" },
 ] as const
 
 const schengenUploadedSlots = [
@@ -255,6 +371,14 @@ function formatDateTime(value?: string | null) {
   return date.toLocaleString("zh-CN", { hour12: false })
 }
 
+function toDateTimeLocalValue(value?: string | null) {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  const timezoneOffset = date.getTimezoneOffset() * 60 * 1000
+  return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 16)
+}
+
 function getPriorityLabel(value?: string | null) {
   if (!value) return "-"
   if (value === "urgent") return "紧急"
@@ -273,6 +397,13 @@ function getSendStatusBadge(status?: string | null) {
   if (status === "failed") return "destructive" as const
   if (status === "processing") return "info" as const
   return "outline" as const
+}
+
+function formatCaseStatus(mainStatus?: string | null, subStatus?: string | null, caseType?: string | null) {
+  if (caseType === "france-schengen") {
+    return formatFranceStatusLabel(mainStatus, subStatus)
+  }
+  return `${mainStatus || "-"}${subStatus ? ` / ${subStatus}` : ""}`
 }
 
 function buildBasicForm(profile?: ApplicantProfileDetail | null): BasicFormState {
@@ -299,6 +430,9 @@ function buildCaseForm(visaCase?: VisaCaseRecord | null): CaseFormState {
     visaType: visaCase.visaType || "",
     applyRegion: visaCase.applyRegion || "",
     tlsCity: visaCase.tlsCity || "",
+    bookingWindow: visaCase.bookingWindow || "",
+    acceptVip: visaCase.acceptVip || "",
+    slotTime: toDateTimeLocalValue(visaCase.slotTime),
     priority: visaCase.priority || "normal",
     travelDate: visaCase.travelDate ? visaCase.travelDate.slice(0, 10) : "",
     submissionDate: visaCase.submissionDate ? visaCase.submissionDate.slice(0, 10) : "",
@@ -421,7 +555,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
       const nextCaseId = data.activeCaseId || data.cases[0]?.id || ""
       setSelectedCaseId(nextCaseId)
       setCaseForm(buildCaseForm(data.cases.find((item) => item.id === nextCaseId) || null))
-      window.localStorage.setItem(ACTIVE_APPLICANT_PROFILE_KEY, data.profile.id)
+      persistSelectedApplicantCase(data.profile.id, nextCaseId)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "加载申请人详情失败")
     } finally {
@@ -436,6 +570,21 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
   useEffect(() => {
     setCaseForm(buildCaseForm(selectedCase))
   }, [selectedCase])
+
+  useEffect(() => {
+    if (caseForm.caseType !== "france-schengen") return
+    if (caseForm.tlsCity) return
+    if (!basicForm.schengenVisaCity) return
+    setCaseForm((prev) => {
+      if (prev.caseType !== "france-schengen" || prev.tlsCity) return prev
+      return { ...prev, tlsCity: basicForm.schengenVisaCity }
+    })
+  }, [basicForm.schengenVisaCity, caseForm.caseType, caseForm.tlsCity])
+
+  useEffect(() => {
+    if (!detail?.profile.id) return
+    persistSelectedApplicantCase(detail.profile.id, selectedCaseId)
+  }, [detail?.profile.id, selectedCaseId])
 
   const saveProfile = async () => {
     setSavingProfile(true)
@@ -547,6 +696,18 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
     })
   }
 
+  const selectExcelSheet = (sheetName: string) => {
+    setPreview((prev) => {
+      const targetSheet = prev.excelSheets.find((sheet) => sheet.name === sheetName)
+      if (!targetSheet) return prev
+      return {
+        ...prev,
+        activeExcelSheet: sheetName,
+        tableRows: targetSheet.rows,
+      }
+    })
+  }
+
   const openPreview = async (slot: string, meta: { originalName: string; uploadedAt: string }) => {
     setPreview({
       ...emptyPreview,
@@ -576,15 +737,28 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
 
       if (/\.(xlsx|xls)$/.test(filename) || mime.includes("spreadsheet") || mime.includes("excel")) {
         const workbook = read(await blob.arrayBuffer(), { type: "array" })
-        const sheetName = workbook.SheetNames[0]
-        const sheet = sheetName ? workbook.Sheets[sheetName] : undefined
-        const rows = sheet
-          ? (utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" }) as unknown[][])
-              .slice(0, 80)
-              .map((row) => (row as unknown[]).slice(0, 20).map((cell) => String(cell ?? "")))
-          : []
+        const excelSheets = workbook.SheetNames.map((sheetName) => {
+          const sheet = workbook.Sheets[sheetName]
+          const rows = sheet
+            ? (utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" }) as unknown[][]).map((row) =>
+                (row as unknown[]).map((cell) => String(cell ?? "")),
+              )
+            : []
+          return {
+            name: sheetName,
+            rows,
+          }
+        })
+        const firstSheet = excelSheets[0]
         URL.revokeObjectURL(objectUrl)
-        setPreview((prev) => ({ ...prev, loading: false, kind: "excel", tableRows: rows }))
+        setPreview((prev) => ({
+          ...prev,
+          loading: false,
+          kind: "excel",
+          excelSheets,
+          activeExcelSheet: firstSheet?.name || "",
+          tableRows: firstSheet?.rows || [],
+        }))
         return
       }
 
@@ -858,10 +1032,36 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                 {savingProfile ? "保存中..." : "保存申请人"}
               </Button>
             </div>
-          </TabsContent>
+        </TabsContent>
 
-          <TabsContent value="cases" className="space-y-6">
-            <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
+        <TabsContent value="cases" className="space-y-6">
+          {detail.cases.length > 0 ? (
+            <Section
+              title="案件切换"
+              description="同一个申请人可同时办理多个签证案件，点击标签即可切换当前工作案件。"
+            >
+              <div className="flex flex-wrap gap-3">
+                {detail.cases.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setSelectedCaseId(item.id)}
+                    className={[
+                      "rounded-full border px-4 py-2 text-sm font-medium transition-colors",
+                      selectedCaseId === item.id
+                        ? "border-gray-900 bg-gray-900 text-white"
+                        : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50",
+                    ].join(" ")}
+                  >
+                    {getApplicantCrmVisaTypeLabel(item.visaType || item.caseType)}
+                    {item.applyRegion ? ` · ${getApplicantCrmRegionLabel(item.applyRegion)}` : ""}
+                  </button>
+                ))}
+              </div>
+            </Section>
+          ) : null}
+
+          <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
               <Section title="Case 列表" description="一个申请人可以挂多个 Case。当前激活中的 France Case 会驱动法签自动化和提醒。">
                 <div className="space-y-3">
                   <Button onClick={() => setCreateCaseOpen(true)} className="w-full">
@@ -888,8 +1088,12 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <div className="text-sm font-semibold">{item.visaType || item.caseType}</div>
-                            <div className="mt-1 text-xs opacity-80">{item.applyRegion || "未设置地区"}</div>
+                            <div className="text-sm font-semibold">
+                              {getApplicantCrmVisaTypeLabel(item.visaType || item.caseType)}
+                            </div>
+                            <div className="mt-1 text-xs opacity-80">
+                              {item.applyRegion ? getApplicantCrmRegionLabel(item.applyRegion) : "未设置地区"}
+                            </div>
                           </div>
                           {item.isActive && <Badge variant={selectedCaseId === item.id ? "secondary" : "info"}>当前案件</Badge>}
                         </div>
@@ -916,58 +1120,170 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                   <div className="space-y-5">
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                       <ReadOnlyField label="Case ID" value={selectedCase.id} />
-                      <ReadOnlyField label="当前状态" value={`${selectedCase.mainStatus}${selectedCase.subStatus ? ` / ${selectedCase.subStatus}` : ""}`} />
+                      <ReadOnlyField
+                        label="当前状态"
+                        value={formatCaseStatus(selectedCase.mainStatus, selectedCase.subStatus, selectedCase.caseType)}
+                      />
                       <ReadOnlyField label="最近更新" value={formatDateTime(selectedCase.updatedAt)} />
-                      <Field
+                      <ReadOnlyField
                         label="案件类型"
-                        value={caseForm.caseType}
-                        onChange={(value) => setCaseForm((prev) => ({ ...prev, caseType: value }))}
+                        value={getApplicantCrmVisaTypeLabel(caseForm.visaType || caseForm.caseType)}
                       />
-                      <Field
-                        label="签证类型"
-                        value={caseForm.visaType}
-                        onChange={(value) => setCaseForm((prev) => ({ ...prev, visaType: value }))}
-                        placeholder="例如：France Schengen / B1/B2"
-                      />
-                      <Field
-                        label="地区"
-                        value={caseForm.applyRegion}
-                        onChange={(value) => setCaseForm((prev) => ({ ...prev, applyRegion: value }))}
-                      />
-                      <Field
-                        label="TLS 城市"
-                        value={caseForm.tlsCity}
-                        onChange={(value) => setCaseForm((prev) => ({ ...prev, tlsCity: value }))}
-                        placeholder="例如：EDI"
-                      />
+                      <div className="space-y-2">
+                        <Label>签证类型</Label>
+                        <Select
+                          value={caseForm.visaType || caseForm.caseType}
+                          onValueChange={(value) =>
+                            setCaseForm((prev) => ({
+                              ...prev,
+                              visaType: value,
+                              caseType: deriveApplicantCaseTypeFromVisaType(value),
+                              tlsCity: value === "france-schengen" ? prev.tlsCity : "",
+                            }))
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择签证类型" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CRM_VISA_TYPE_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>DS-160 预检查 JSON</Label>
+                        {selectedCase.ds160PrecheckFile ? (
+                          <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/80 p-3">
+                            <div className="text-sm text-gray-700">{selectedCase.ds160PrecheckFile.originalName}</div>
+                            <div className="text-xs text-gray-500">
+                              上传时间：{formatDateTime(selectedCase.ds160PrecheckFile.uploadedAt)}
+                            </div>
+                            <Button variant="outline" size="sm" asChild>
+                              <a
+                                href={`/api/cases/${selectedCase.id}/precheck-file`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                查看预检查 JSON
+                              </a>
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="rounded-xl border border-dashed p-3 text-sm text-gray-500">
+                            当前案件还没有保存 DS-160 预检查结果。
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label>地区</Label>
+                        <Select
+                          value={caseForm.applyRegion || "__unset__"}
+                          onValueChange={(value) =>
+                            setCaseForm((prev) => ({
+                              ...prev,
+                              applyRegion: value === "__unset__" ? "" : value,
+                            }))
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择地区" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__unset__">暂不设置</SelectItem>
+                            {CRM_REGION_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {caseForm.caseType === "france-schengen" ? (
+                        <div className="space-y-2">
+                          <Label>TLS 城市</Label>
+                          <Select
+                            value={caseForm.tlsCity || "__unset__"}
+                            onValueChange={(value) =>
+                              setCaseForm((prev) => ({
+                                ...prev,
+                                tlsCity: value === "__unset__" ? "" : value,
+                              }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="选择 TLS 城市" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__unset__">暂不设置</SelectItem>
+                              {FRANCE_TLS_CITY_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : (
+                        <ReadOnlyField label="TLS 城市" value="-" />
+                      )}
+                      {caseForm.caseType === "france-schengen" ? (
+                        <BookingWindowRangeField
+                          label="抢号区间"
+                          value={caseForm.bookingWindow}
+                          onChange={(value) => setCaseForm((prev) => ({ ...prev, bookingWindow: value }))}
+                        />
+                      ) : (
+                        <ReadOnlyField label="抢号区间" value="-" />
+                      )}
+                      {caseForm.caseType !== "france-schengen" ? (
+                        <ReadOnlyField label="是否接受 VIP" value="-" />
+                      ) : null}
                       <div className="space-y-2">
                         <Label>优先级</Label>
                         <Select
                           value={caseForm.priority}
                           onValueChange={(value) => setCaseForm((prev) => ({ ...prev, priority: value }))}
                         >
-                          <SelectTrigger>
+                          <SelectTrigger
+                            className={
+                              caseForm.priority === "urgent"
+                                ? "border-red-300 bg-red-50 text-red-700"
+                                : caseForm.priority === "high"
+                                  ? "border-amber-300 bg-amber-50 text-amber-700"
+                                  : "border-gray-200 bg-gray-50 text-gray-700"
+                            }
+                          >
                             <SelectValue placeholder="选择优先级" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="normal">普通</SelectItem>
-                            <SelectItem value="high">高优先级</SelectItem>
-                            <SelectItem value="urgent">紧急</SelectItem>
+                            {CRM_PRIORITY_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
-                      <Field
-                        label="出行时间"
-                        type="date"
-                        value={caseForm.travelDate}
-                        onChange={(value) => setCaseForm((prev) => ({ ...prev, travelDate: value }))}
-                      />
-                      <Field
-                        label="递签时间"
-                        type="date"
-                        value={caseForm.submissionDate}
-                        onChange={(value) => setCaseForm((prev) => ({ ...prev, submissionDate: value }))}
-                      />
+                      {caseForm.caseType !== "france-schengen" ? (
+                        <Field
+                          label="出行时间"
+                          type="date"
+                          value={caseForm.travelDate}
+                          onChange={(value) => setCaseForm((prev) => ({ ...prev, travelDate: value }))}
+                        />
+                      ) : null}
+                      {caseForm.caseType !== "france-schengen" ? (
+                        <Field
+                          label="递签时间"
+                          type="date"
+                          value={caseForm.submissionDate}
+                          onChange={(value) => setCaseForm((prev) => ({ ...prev, submissionDate: value }))}
+                        />
+                      ) : null}
                       <div className="space-y-2">
                         <Label>分配给</Label>
                         <Select
@@ -986,7 +1302,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                             <SelectItem value="__unset__">未分配</SelectItem>
                             {detail.availableAssignees.map((option) => (
                               <SelectItem key={option.id} value={option.id}>
-                                {(option.name || option.email) + `（${option.role}）`}
+                                {(option.name || option.email) + ` (${option.role})`}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -1010,6 +1326,43 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                         </Select>
                       </div>
                     </div>
+
+                    {caseForm.caseType === "france-schengen" && (
+                      <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50/70 p-4">
+                        <div className="mb-3">
+                          <div className="text-sm font-semibold text-gray-900">slot 信息</div>
+                          <div className="text-xs text-gray-500">单独维护递签时间，方便直接查看和提取。</div>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <SlotTimeField
+                            value={caseForm.slotTime}
+                            onChange={(value) => setCaseForm((prev) => ({ ...prev, slotTime: value }))}
+                          />
+                          <div className="space-y-2">
+                            <Label>是否接受 VIP</Label>
+                            <Select
+                              value={caseForm.acceptVip || "__unset__"}
+                              onValueChange={(value) =>
+                                setCaseForm((prev) => ({
+                                  ...prev,
+                                  acceptVip: value === "__unset__" ? "" : value,
+                                }))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="请选择" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__unset__">未设置</SelectItem>
+                                <SelectItem value="接受">接受</SelectItem>
+                                <SelectItem value="不接受">不接受</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <ReadOnlyField label="当前 slot 展示" value={formatDateTime(caseForm.slotTime || null)} />
+                        </div>
+                      </div>
+                    )}
 
                     <div className="flex justify-end">
                       <Button onClick={() => void saveCase()} disabled={savingCase}>
@@ -1067,7 +1420,10 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                 ) : (
                   <Section title="当前案件进度" description="当前选中的是非 France Case，这里先展示基础案件信息。">
                     <div className="grid gap-4 md:grid-cols-4">
-                      <ReadOnlyField label="状态" value={`${selectedCase.mainStatus}${selectedCase.subStatus ? ` / ${selectedCase.subStatus}` : ""}`} />
+                      <ReadOnlyField
+                        label="状态"
+                        value={formatCaseStatus(selectedCase.mainStatus, selectedCase.subStatus, selectedCase.caseType)}
+                      />
                       <ReadOnlyField label="异常" value={selectedCase.exceptionCode || "-"} />
                       <ReadOnlyField label="优先级" value={getPriorityLabel(selectedCase.priority)} />
                       <ReadOnlyField label="最近更新" value={formatDateTime(selectedCase.updatedAt)} />
@@ -1152,20 +1508,141 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
             <DialogDescription>先创建一条 Case，再去推进状态、归档材料和挂提醒规则。</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="案件类型" value={newCaseForm.caseType} onChange={(value) => setNewCaseForm((prev) => ({ ...prev, caseType: value }))} placeholder="例如：france-schengen / usa-visa" />
-            <Field label="签证类型" value={newCaseForm.visaType} onChange={(value) => setNewCaseForm((prev) => ({ ...prev, visaType: value }))} />
-            <Field label="地区" value={newCaseForm.applyRegion} onChange={(value) => setNewCaseForm((prev) => ({ ...prev, applyRegion: value }))} />
-            <Field label="TLS 城市" value={newCaseForm.tlsCity} onChange={(value) => setNewCaseForm((prev) => ({ ...prev, tlsCity: value }))} />
+            <ReadOnlyField
+              label="案件类型"
+              value={getApplicantCrmVisaTypeLabel(newCaseForm.visaType || newCaseForm.caseType)}
+            />
+            <div className="space-y-2">
+              <Label>签证类型</Label>
+              <Select
+                value={newCaseForm.visaType || newCaseForm.caseType}
+                onValueChange={(value) =>
+                  setNewCaseForm((prev) => ({
+                    ...prev,
+                    visaType: value,
+                    caseType: deriveApplicantCaseTypeFromVisaType(value),
+                    tlsCity: value === "france-schengen" ? prev.tlsCity : "",
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="选择签证类型" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CRM_VISA_TYPE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>地区</Label>
+              <Select
+                value={newCaseForm.applyRegion || "__unset__"}
+                onValueChange={(value) =>
+                  setNewCaseForm((prev) => ({
+                    ...prev,
+                    applyRegion: value === "__unset__" ? "" : value,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="选择地区" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__unset__">暂不设置</SelectItem>
+                  {CRM_REGION_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {newCaseForm.caseType === "france-schengen" ? (
+              <div className="space-y-2">
+                <Label>TLS 城市</Label>
+                <Select
+                  value={newCaseForm.tlsCity || "__unset__"}
+                  onValueChange={(value) =>
+                    setNewCaseForm((prev) => ({
+                      ...prev,
+                      tlsCity: value === "__unset__" ? "" : value,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择 TLS 城市" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__unset__">暂不设置</SelectItem>
+                    {FRANCE_TLS_CITY_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <ReadOnlyField label="TLS 城市" value="-" />
+            )}
+            {newCaseForm.caseType === "france-schengen" ? (
+              <BookingWindowRangeField
+                label="抢号区间"
+                value={newCaseForm.bookingWindow}
+                onChange={(value) => setNewCaseForm((prev) => ({ ...prev, bookingWindow: value }))}
+              />
+            ) : (
+              <ReadOnlyField label="抢号区间" value="-" />
+            )}
+            {newCaseForm.caseType === "france-schengen" ? (
+              <div className="space-y-2">
+                <Label>是否接受 VIP</Label>
+                <Select
+                  value={newCaseForm.acceptVip || "__unset__"}
+                  onValueChange={(value) =>
+                    setNewCaseForm((prev) => ({
+                      ...prev,
+                      acceptVip: value === "__unset__" ? "" : value,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="请选择" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__unset__">未设置</SelectItem>
+                    <SelectItem value="接受">接受</SelectItem>
+                    <SelectItem value="不接受">不接受</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <ReadOnlyField label="是否接受 VIP" value="-" />
+            )}
             <div className="space-y-2">
               <Label>优先级</Label>
               <Select value={newCaseForm.priority} onValueChange={(value) => setNewCaseForm((prev) => ({ ...prev, priority: value }))}>
-                <SelectTrigger>
+                <SelectTrigger
+                  className={
+                    newCaseForm.priority === "urgent"
+                      ? "border-red-300 bg-red-50 text-red-700"
+                      : newCaseForm.priority === "high"
+                        ? "border-amber-300 bg-amber-50 text-amber-700"
+                        : "border-gray-200 bg-gray-50 text-gray-700"
+                  }
+                >
                   <SelectValue placeholder="选择优先级" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="normal">普通</SelectItem>
-                  <SelectItem value="high">高优先级</SelectItem>
-                  <SelectItem value="urgent">紧急</SelectItem>
+                  {CRM_PRIORITY_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -1187,7 +1664,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                   <SelectItem value="__unset__">未分配</SelectItem>
                   {detail.availableAssignees.map((option) => (
                     <SelectItem key={option.id} value={option.id}>
-                      {(option.name || option.email) + `（${option.role}）`}
+                      {(option.name || option.email) + ` (${option.role})`}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1196,6 +1673,12 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
             <Field label="出行时间" type="date" value={newCaseForm.travelDate} onChange={(value) => setNewCaseForm((prev) => ({ ...prev, travelDate: value }))} />
             <Field label="递签时间" type="date" value={newCaseForm.submissionDate} onChange={(value) => setNewCaseForm((prev) => ({ ...prev, submissionDate: value }))} />
           </div>
+            {newCaseForm.caseType === "france-schengen" && (
+              <SlotTimeField
+                value={newCaseForm.slotTime}
+                onChange={(value) => setNewCaseForm((prev) => ({ ...prev, slotTime: value }))}
+              />
+            )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateCaseOpen(false)}>
               取消
@@ -1222,19 +1705,46 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
               <img src={preview.objectUrl} alt={preview.title} className="mx-auto max-h-[70vh] max-w-full object-contain" />
             )}
             {!preview.loading && !preview.error && preview.kind === "excel" && (
-              <table className="min-w-full border-collapse text-xs">
-                <tbody>
-                  {preview.tableRows.map((row, rowIndex) => (
-                    <tr key={`row-${rowIndex}`}>
-                      {row.map((cell, cellIndex) => (
-                        <td key={`cell-${rowIndex}-${cellIndex}`} className="border px-2 py-1 align-top">
-                          {cell}
-                        </td>
+              <div className="space-y-3">
+                {preview.excelSheets.length > 1 && (
+                  <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-3">
+                    {preview.excelSheets.map((sheet) => (
+                      <Button
+                        key={sheet.name}
+                        variant={sheet.name === preview.activeExcelSheet ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => selectExcelSheet(sheet.name)}
+                      >
+                        {sheet.name}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+                <div className="text-xs text-gray-500">
+                  {preview.activeExcelSheet ? `Sheet：${preview.activeExcelSheet}` : "Sheet：-"}
+                  {" · "}
+                  {preview.tableRows.length} 行
+                </div>
+                <div className="overflow-auto rounded-lg border border-gray-200">
+                  <table className="min-w-full border-collapse text-xs">
+                    <tbody>
+                      {preview.tableRows.map((row, rowIndex) => (
+                        <tr key={`row-${rowIndex}`} className={rowIndex === 0 ? "bg-gray-50" : ""}>
+                          <td className="sticky left-0 border bg-white px-2 py-1 text-right text-[11px] text-gray-400">
+                            {rowIndex + 1}
+                          </td>
+                          {row.map((cell, cellIndex) => (
+                            <td key={`cell-${rowIndex}-${cellIndex}`} className="border px-2 py-1 align-top whitespace-pre-wrap">
+                              {cell || ""}
+                            </td>
+                          ))}
+                        </tr>
                       ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                    </tbody>
+                  </table>
+                  {preview.tableRows.length === 0 && <div className="p-4 text-sm text-gray-500">Excel 内容为空。</div>}
+                </div>
+              </div>
             )}
             {!preview.loading && !preview.error && preview.kind === "word" && (
               <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: preview.htmlContent || "<p>暂无可预览内容</p>" }} />
@@ -1281,6 +1791,132 @@ function ReadOnlyField({
     <div className="space-y-2">
       <Label>{label}</Label>
       <Input value={value} readOnly className="bg-gray-50" />
+    </div>
+  )
+}
+
+function BookingWindowRangeField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  const { start, end } = splitBookingWindow(value)
+  const endDateInputRef = useRef<HTMLInputElement | null>(null)
+
+  const openEndDatePicker = () => {
+    const target = endDateInputRef.current
+    if (!target) return
+    target.focus()
+    // Chromium supports showPicker() on date inputs. Fallback is focus only.
+    const picker = (target as HTMLInputElement & { showPicker?: () => void }).showPicker
+    if (typeof picker === "function") {
+      picker.call(target)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        <Input
+          type="date"
+          value={start}
+          onChange={(event) => {
+            const nextStart = event.target.value
+            const nextEnd = end && nextStart && end < nextStart ? "" : end
+            onChange(mergeBookingWindow(nextStart, nextEnd))
+            if (event.target.value) {
+              window.setTimeout(openEndDatePicker, 0)
+            }
+          }}
+        />
+        <Input
+          ref={endDateInputRef}
+          type="date"
+          min={start || undefined}
+          value={end}
+          onChange={(event) => onChange(mergeBookingWindow(start, event.target.value))}
+        />
+      </div>
+      <p className="text-xs text-gray-500">保存格式：YYYY/MM/DD - YYYY/MM/DD</p>
+    </div>
+  )
+}
+
+function splitDateTimeLocal(value: string) {
+  if (!value) return { date: "", time: "" }
+  const [datePart, timePart = ""] = value.split("T")
+  return { date: datePart || "", time: timePart.slice(0, 5) }
+}
+
+function mergeDateTimeLocal(date: string, time: string) {
+  if (!date || !time) return ""
+  return `${date}T${time}`
+}
+
+function getTodayInputDate() {
+  const now = new Date()
+  const year = String(now.getFullYear())
+  const month = String(now.getMonth() + 1).padStart(2, "0")
+  const day = String(now.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function SlotTimeField({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (value: string) => void
+}) {
+  const { date, time } = splitDateTimeLocal(value)
+
+  return (
+    <div className="space-y-2">
+      <Label>slot时间</Label>
+      <div className="grid gap-2 md:grid-cols-2">
+        <Input
+          type="date"
+          value={date}
+          onChange={(event) => {
+            const nextDate = event.target.value
+            if (!nextDate) {
+              onChange("")
+              return
+            }
+            const nextTime = time || "07:00"
+            onChange(mergeDateTimeLocal(nextDate, nextTime))
+          }}
+        />
+        <Select
+          value={time || "__unset__"}
+          onValueChange={(next) => {
+            if (next === "__unset__") {
+              onChange("")
+              return
+            }
+            const targetDate = date || getTodayInputDate()
+            onChange(mergeDateTimeLocal(targetDate, next))
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="选择时间（07:00-16:30）" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__unset__">未设置</SelectItem>
+            {SLOT_TIME_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <p className="text-xs text-gray-500">可选时间：07:00 - 16:30，每 30 分钟一档。</p>
     </div>
   )
 }

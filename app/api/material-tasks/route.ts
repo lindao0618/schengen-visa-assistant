@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { deleteMaterialTasks, listMaterialTasks } from "@/lib/material-tasks"
 import type { MaterialTaskType } from "@/lib/material-tasks"
+import prisma from "@/lib/db"
+import { formatFallbackVisaCaseLabel, formatVisaCaseLabel } from "@/lib/visa-case-labels"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -21,7 +23,30 @@ export async function GET(request: NextRequest) {
         : undefined
 
     const tasks = await listMaterialTasks(taskIds, typeFilter)
-    return NextResponse.json({ tasks })
+    const caseIds = Array.from(new Set(tasks.map((task) => task.caseId).filter((value): value is string => Boolean(value))))
+
+    let labelMap = new Map<string, string>()
+    if (caseIds.length > 0) {
+      try {
+        const cases = await prisma.visaCase.findMany({
+          where: { id: { in: caseIds } },
+          select: { id: true, caseType: true, visaType: true, applyRegion: true },
+        })
+        labelMap = new Map(cases.map((item) => [item.id, formatVisaCaseLabel(item)]))
+      } catch {
+        labelMap = new Map()
+      }
+    }
+
+    const enrichedTasks = tasks.map((task) =>
+      task.caseId
+        ? {
+            ...task,
+            caseLabel: labelMap.get(task.caseId) || formatFallbackVisaCaseLabel(task.caseId),
+          }
+        : task
+    )
+    return NextResponse.json({ tasks: enrichedTasks })
   } catch (e) {
     console.error("Material tasks list error:", e)
     return NextResponse.json(

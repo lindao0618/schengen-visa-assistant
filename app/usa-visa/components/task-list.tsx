@@ -72,6 +72,8 @@ export interface UsVisaTask {
   error?: string
   applicantProfileId?: string
   applicantName?: string
+  caseId?: string
+  caseLabel?: string
 }
 
 interface TaskListProps {
@@ -113,7 +115,10 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
     try {
       const params = new URLSearchParams({ limit: "50", t: String(Date.now()) })
       if (statusFilter !== "all") params.set("status", statusFilter)
-      if (onlyCurrentApplicant && activeApplicant?.id) params.set("applicantProfileId", activeApplicant.id)
+      if (onlyCurrentApplicant && activeApplicant?.id) {
+        params.set("applicantProfileId", activeApplicant.id)
+        if (activeApplicant.activeCaseId) params.set("caseId", activeApplicant.activeCaseId)
+      }
       const res = await fetch("/api/usa-visa/tasks-list?" + params.toString(), {
         cache: "no-store",
         headers: { "Cache-Control": "no-cache" },
@@ -254,6 +259,11 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
             </label>
           </div>
         )}
+        {activeApplicant?.id && activeApplicant.activeCaseId && onlyCurrentApplicant && (
+          <p className="text-xs text-amber-600 dark:text-amber-300">
+            当前已按所选案件过滤任务列表。
+          </p>
+        )}
         {(tasks.length === 0 || displayedTasks.length === 0) && (
           <div className="py-4 text-center">
             {needsLogin ? (
@@ -294,6 +304,9 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
                 {task.applicantName && (
                   <p className="text-xs text-blue-600 dark:text-blue-300">申请人: {task.applicantName}</p>
                 )}
+                {task.caseLabel && (
+                  <p className="text-xs text-violet-600 dark:text-violet-300">所属案件: {task.caseLabel}</p>
+                )}
                 <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
                   <span>创建时间: {formatTimestamp(task.created_at)}</span>
                   <span>最近更新时间: {formatTimestamp(task.updated_at || task.created_at)}</span>
@@ -313,29 +326,46 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
                       <p className="text-xs text-red-600 dark:text-red-400 break-words whitespace-pre-wrap max-h-24 overflow-y-auto">{task.error}</p>
                     )}
                     {(() => {
-                      const screenshot = (task.result as { screenshot?: { downloadUrl?: string; filename?: string } } | undefined)?.screenshot
-                      if (screenshot?.downloadUrl) {
+                      const errorResult = task.result as {
+                        screenshot?: { downloadUrl?: string; filename?: string }
+                        errorHtml?: { downloadUrl?: string; filename?: string }
+                      } | undefined
+                      const screenshot = errorResult?.screenshot
+                      const errorHtml = errorResult?.errorHtml
+                      if (screenshot?.downloadUrl || errorHtml?.downloadUrl) {
                         return (
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
-                                <ImageIcon className="h-3.5 w-3.5" />
-                                查看错误截图
+                          <div className="flex flex-wrap gap-2">
+                            {screenshot?.downloadUrl && (
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
+                                    <ImageIcon className="h-3.5 w-3.5" />
+                                    查看错误截图
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent className="max-w-[90vw] max-h-[90vh] p-2 overflow-hidden flex items-center justify-center">
+                                  <div className="relative h-[85vh] w-full">
+                                    <Image
+                                      src={screenshot.downloadUrl}
+                                      alt={screenshot.filename || "错误截图"}
+                                      fill
+                                      unoptimized
+                                      sizes="100vw"
+                                      className="object-contain rounded"
+                                    />
+                                  </div>
+                                </DialogContent>
+                              </Dialog>
+                            )}
+                            {errorHtml?.downloadUrl && (
+                              <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" asChild>
+                                <a href={errorHtml.downloadUrl} target="_blank" rel="noopener noreferrer">
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                  下载错误 HTML
+                                </a>
                               </Button>
-                            </DialogTrigger>
-                            <DialogContent className="max-w-[90vw] max-h-[90vh] p-2 overflow-hidden flex items-center justify-center">
-                              <div className="relative h-[85vh] w-full">
-                                <Image
-                                src={screenshot.downloadUrl}
-                                alt={screenshot.filename || "错误截图"}
-                                fill
-                                unoptimized
-                                sizes="100vw"
-                                className="object-contain rounded"
-                                />
-                              </div>
-                            </DialogContent>
-                          </Dialog>
+                            )}
+                          </div>
                         )
                       }
                       return null
@@ -361,6 +391,7 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
                         <DialogTitle>任务详情</DialogTitle>
                       </DialogHeader>
                       <div className="space-y-2 text-xs text-gray-700 dark:text-gray-300">
+                        {task.caseLabel && <p>所属案件: {task.caseLabel}</p>}
                         <p>任务ID: {task.task_id}</p>
                         <p>任务类型: {TYPE_LABELS[task.type] || task.type}</p>
                         <p>状态: {task.status}</p>
@@ -373,16 +404,31 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
                               <p className="text-red-600 dark:text-red-400 break-words whitespace-pre-wrap">错误: {task.error}</p>
                             )}
                             {(() => {
-                              const screenshot = (task.result as { screenshot?: { downloadUrl?: string; filename?: string } } | undefined)?.screenshot
-                              if (screenshot?.downloadUrl) {
+                              const errorResult = task.result as {
+                                screenshot?: { downloadUrl?: string; filename?: string }
+                                errorHtml?: { downloadUrl?: string; filename?: string }
+                              } | undefined
+                              const screenshot = errorResult?.screenshot
+                              const errorHtml = errorResult?.errorHtml
+                              if (screenshot?.downloadUrl || errorHtml?.downloadUrl) {
                                 return (
                                   <div className="flex flex-wrap gap-2">
-                                    <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" asChild>
-                                      <a href={screenshot.downloadUrl} target="_blank" rel="noopener noreferrer">
-                                        <ImageIcon className="h-3.5 w-3.5" />
-                                        查看错误截图
-                                      </a>
-                                    </Button>
+                                    {screenshot?.downloadUrl && (
+                                      <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" asChild>
+                                        <a href={screenshot.downloadUrl} target="_blank" rel="noopener noreferrer">
+                                          <ImageIcon className="h-3.5 w-3.5" />
+                                          查看错误截图
+                                        </a>
+                                      </Button>
+                                    )}
+                                    {errorHtml?.downloadUrl && (
+                                      <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" asChild>
+                                        <a href={errorHtml.downloadUrl} target="_blank" rel="noopener noreferrer">
+                                          <ExternalLink className="h-3.5 w-3.5" />
+                                          下载错误 HTML
+                                        </a>
+                                      </Button>
+                                    )}
                                   </div>
                                 )
                               }

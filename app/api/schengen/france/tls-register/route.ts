@@ -167,6 +167,7 @@ export async function POST(request: NextRequest) {
     const excel = formData.get("excel")
     const requestedLocation = normalizeLocation(formData.get("location"))
     const applicantProfileId = String(formData.get("applicantProfileId") || "").trim()
+    const caseId = String(formData.get("caseId") || "").trim()
 
     if (!excel && !applicantProfileId) {
       return NextResponse.json(
@@ -186,7 +187,9 @@ export async function POST(request: NextRequest) {
       userId,
       "tls-register",
       applicantProfileId ? `TLS 账户注册 · ${profileLabel}` : "TLS 账户注册",
-      applicantProfileId ? { applicantProfileId, applicantName: profileLabel } : {},
+      applicantProfileId
+        ? { applicantProfileId, caseId: caseId || undefined, applicantName: profileLabel }
+        : { caseId: caseId || undefined },
     )
     const outputId = `fv-tls-register-${task.task_id}`
     const outputDir = path.join(outputBase, outputId)

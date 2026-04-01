@@ -27,6 +27,7 @@ type FranceWorkflowStage = "registrations" | "create-application" | "tls-apply" 
 
 interface FranceQuickWorkflow {
   applicantProfileId: string
+  caseId?: string
   applicantName?: string
   phase: QuickWorkflowPhase
   stage: FranceWorkflowStage
@@ -43,10 +44,19 @@ interface FranceQuickWorkflow {
 
 const STORAGE_PREFIX = "franceQuickStartWorkflow:"
 
-function createInitialWorkflow(applicantProfileId: string, applicantName?: string): FranceQuickWorkflow {
+function getWorkflowScopeId(profile: ReturnType<typeof useActiveApplicantProfile>) {
+  return profile?.activeCaseId || profile?.id || ""
+}
+
+function createInitialWorkflow(
+  applicantProfileId: string,
+  applicantName?: string,
+  caseId?: string | null,
+): FranceQuickWorkflow {
   const now = Date.now()
   return {
     applicantProfileId,
+    caseId: caseId || undefined,
     applicantName,
     phase: "running",
     stage: "registrations",
@@ -134,7 +144,8 @@ export function FranceQuickStartCard() {
   const [loading, setLoading] = useState(false)
   const launchLockRef = useRef(false)
 
-  const storageKey = activeApplicant?.id ? `${STORAGE_PREFIX}${activeApplicant.id}` : ""
+  const workflowScopeId = getWorkflowScopeId(activeApplicant)
+  const storageKey = workflowScopeId ? `${STORAGE_PREFIX}${workflowScopeId}` : ""
   const canStart = Boolean(activeApplicant?.id && hasFranceExcel(activeApplicant))
 
   const persistWorkflow = useCallback(
@@ -170,6 +181,9 @@ export function FranceQuickStartCard() {
   const startExtractRegister = useCallback(async () => {
     const formData = new FormData()
     formData.append("applicantProfileId", activeApplicant?.id || "")
+    if (activeApplicant?.activeCaseId) {
+      formData.append("caseId", activeApplicant.activeCaseId)
+    }
     const res = await fetch("/api/schengen/france/extract-register", {
       method: "POST",
       body: formData,
@@ -180,11 +194,14 @@ export function FranceQuickStartCard() {
       throw new Error(data.error || data.message || "FV 注册启动失败")
     }
     return data.task_id
-  }, [activeApplicant?.id])
+  }, [activeApplicant?.activeCaseId, activeApplicant?.id])
 
   const startTlsRegister = useCallback(async () => {
     const formData = new FormData()
     formData.append("applicantProfileId", activeApplicant?.id || "")
+    if (activeApplicant?.activeCaseId) {
+      formData.append("caseId", activeApplicant.activeCaseId)
+    }
     const res = await fetch("/api/schengen/france/tls-register", {
       method: "POST",
       body: formData,
@@ -195,11 +212,14 @@ export function FranceQuickStartCard() {
       throw new Error(data.error || data.message || "TLS 注册启动失败")
     }
     return data.task_id
-  }, [activeApplicant?.id])
+  }, [activeApplicant?.activeCaseId, activeApplicant?.id])
 
   const startCreateApplication = useCallback(async () => {
     const formData = new FormData()
     formData.append("applicantProfileId", activeApplicant?.id || "")
+    if (activeApplicant?.activeCaseId) {
+      formData.append("caseId", activeApplicant.activeCaseId)
+    }
     const res = await fetch("/api/schengen/france/create-application", {
       method: "POST",
       body: formData,
@@ -217,11 +237,14 @@ export function FranceQuickStartCard() {
       throw new Error(data.error || data.message || "生成新申请启动失败")
     }
     return taskId
-  }, [activeApplicant?.id])
+  }, [activeApplicant?.activeCaseId, activeApplicant?.id])
 
   const startTlsApply = useCallback(async () => {
     const formData = new FormData()
     formData.append("applicantProfileId", activeApplicant?.id || "")
+    if (activeApplicant?.activeCaseId) {
+      formData.append("caseId", activeApplicant.activeCaseId)
+    }
     const res = await fetch("/api/schengen/france/tls-apply", {
       method: "POST",
       body: formData,
@@ -232,7 +255,7 @@ export function FranceQuickStartCard() {
       throw new Error(data.error || data.message || "TLS 填表提交启动失败")
     }
     return data.task_id
-  }, [activeApplicant?.id])
+  }, [activeApplicant?.activeCaseId, activeApplicant?.id])
 
   const launchCreateApplication = useCallback(
     async (current: FranceQuickWorkflow) => {
@@ -326,7 +349,11 @@ export function FranceQuickStartCard() {
     if (!activeApplicant?.id || !canStart || launchLockRef.current) return
     launchLockRef.current = true
     setLoading(true)
-    const base = createInitialWorkflow(activeApplicant.id, activeApplicant.name || activeApplicant.label)
+    const base = createInitialWorkflow(
+      activeApplicant.id,
+      activeApplicant.name || activeApplicant.label,
+      activeApplicant.activeCaseId,
+    )
     try {
       const [extractResult, tlsResult] = await Promise.allSettled([startExtractRegister(), startTlsRegister()])
       const next = { ...base }
@@ -373,7 +400,7 @@ export function FranceQuickStartCard() {
       launchLockRef.current = false
       setLoading(false)
     }
-  }, [activeApplicant?.id, activeApplicant?.label, activeApplicant?.name, canStart, persistWorkflow, startExtractRegister, startTlsRegister])
+  }, [activeApplicant?.activeCaseId, activeApplicant?.id, activeApplicant?.label, activeApplicant?.name, canStart, persistWorkflow, startExtractRegister, startTlsRegister])
 
   const handleResume = useCallback(async () => {
     if (!workflow || !activeApplicant?.id || launchLockRef.current) return

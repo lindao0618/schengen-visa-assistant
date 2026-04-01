@@ -5,12 +5,18 @@ import fs from "fs/promises"
 import path from "path"
 
 import { authOptions } from "@/lib/auth"
-import { getApplicantProfile, getApplicantProfileFileByCandidates, updateApplicantProfileSchengenDetails } from "@/lib/applicant-profiles"
+import {
+  getApplicantProfile,
+  getApplicantProfileFileByCandidates,
+  saveApplicantProfileFileFromBuffer,
+  updateApplicantProfileSchengenDetails,
+} from "@/lib/applicant-profiles"
 import { extractFranceVisaCredentialsFromExcelBuffer } from "@/lib/france-visa-excel-credentials"
 import { createTask, updateTask } from "@/lib/french-visa-tasks"
 import { extractFranceTlsCityFromExcelBuffer } from "@/lib/france-tls-city-excel"
 import { normalizeFranceTlsCity } from "@/lib/france-tls-city"
 import { advanceFranceCase, setFranceCaseException } from "@/lib/france-cases"
+import { getVisaCaseDetail } from "@/lib/applicant-crm"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -22,6 +28,96 @@ interface DebugDownload {
   label: string
   filename: string
   url: string
+}
+
+interface TlsApplyClipboardPayload {
+  name: string
+  bookingWindow: string
+  acceptVip: string
+  city: string
+  phone: string
+  paymentAccount: string
+  paymentPassword: string
+  paymentLink: string
+}
+
+type TlsApplyResultEntry = {
+  status?: string
+  stage?: string
+  message?: string
+  name?: string
+}
+
+type TlsApplyParsedResults = {
+  results?: TlsApplyResultEntry[]
+}
+
+function formatTlsApplyStage(stage?: string) {
+  switch ((stage || "").toLowerCase()) {
+    case "opening_form":
+      return "opening form"
+    case "waiting_form":
+      return "waiting for form"
+    case "filling_form":
+      return "filling form"
+    case "saving_form":
+      return "saving form"
+    case "review":
+      return "review"
+    case "submit":
+      return "submit"
+    case "post_submit_review":
+      return "post-submit review"
+    case "repairing_form":
+      return "repairing form"
+    case "confirm":
+      return "confirm"
+    case "confirm_verification":
+      return "confirm verification"
+    case "confirmed":
+      return "confirmed"
+    default:
+      return stage || "unknown"
+  }
+}
+
+function buildTlsApplyStageSummary(parsed: unknown) {
+  if (!parsed || typeof parsed !== "object") return []
+
+  const entries = Array.isArray((parsed as TlsApplyParsedResults).results)
+    ? (parsed as TlsApplyParsedResults).results || []
+    : []
+
+  return entries.map((entry, index) => ({
+    index: index + 1,
+    name: entry?.name || `Applicant ${index + 1}`,
+    status: entry?.status || "unknown",
+    stage: entry?.stage || "",
+    stageLabel: formatTlsApplyStage(entry?.stage),
+    message: entry?.message || "",
+  }))
+}
+
+function getTlsApplyFailureFromResults(parsed: unknown) {
+  if (!parsed || typeof parsed !== "object") {
+    return "TLS 填表结果缺失，未能确认是否提交成功。"
+  }
+
+  const entries = Array.isArray((parsed as TlsApplyParsedResults).results)
+    ? (parsed as TlsApplyParsedResults).results || []
+    : []
+  if (entries.length === 0) {
+    return "TLS 填表没有产生申请人结果，未能确认是否提交成功。"
+  }
+
+  const failedEntry = entries.find((entry) => (entry?.status || "").toLowerCase() !== "confirmed")
+  if (!failedEntry) return ""
+
+  const label = failedEntry.name || "申请人"
+  const status = failedEntry.status || "unknown"
+  const message = failedEntry.message || "脚本没有完成最终 Confirm。"
+  const stageLabel = formatTlsApplyStage(failedEntry.stage)
+  return `${label} 未完成确认提交（status=${status}, stage=${stageLabel}）：${message}`
 }
 
 function getCaptchaConfig() {
@@ -152,6 +248,7 @@ export async function POST(request: NextRequest) {
     const applicants = formData.get("applicants")
     const requestedLocation = normalizeLocation(formData.get("location"))
     const applicantProfileId = String(formData.get("applicantProfileId") || "").trim()
+    const caseId = String(formData.get("caseId") || "").trim()
 
     if (!applicants && !applicantProfileId) {
       return NextResponse.json(
@@ -170,6 +267,7 @@ export async function POST(request: NextRequest) {
     if (!applicantProfile) {
       return NextResponse.json({ success: false, error: "申请人档案不存在" }, { status: 400 })
     }
+    const visaCase = caseId ? await getVisaCaseDetail(userId, session.user.role, caseId) : null
 
     const excelStored = await getApplicantProfileFileByCandidates(userId, applicantProfileId, [
       "schengenExcel",
@@ -210,6 +308,7 @@ export async function POST(request: NextRequest) {
     const profileLabel = applicantProfile.name || applicantProfile.label || "申请人"
     const task = await createTask(userId, "tls-apply", `TLS 填表提交 · ${profileLabel}`, {
       applicantProfileId,
+      caseId: caseId || undefined,
       applicantName: profileLabel,
     })
     const outputId = `fv-tls-apply-${task.task_id}`
@@ -238,6 +337,33 @@ export async function POST(request: NextRequest) {
     const applicantsParsed = JSON.parse(await fs.readFile(applicantsPath, "utf-8"))
     if (!Array.isArray(applicantsParsed) || applicantsParsed.length === 0) {
       return NextResponse.json({ success: false, error: "applicants.json 必须是非空数组" }, { status: 400 })
+    }
+
+    try {
+      await saveApplicantProfileFileFromBuffer({
+        userId,
+        id: applicantProfileId,
+        slot: "franceTlsAccountsJson",
+        buffer: Buffer.from(
+          JSON.stringify(
+            [
+              {
+                id: 1,
+                email,
+                password,
+                name: "账号 1",
+              },
+            ],
+            null,
+            2,
+          ),
+          "utf-8",
+        ),
+        originalName: `TLS_accounts_from_apply_${Date.now()}.json`,
+        mimeType: "application/json",
+      })
+    } catch (archiveError) {
+      console.error("archive franceTlsAccountsJson from tls-apply failed", archiveError)
     }
 
     const captchaConfig = getCaptchaConfig()
@@ -363,17 +489,25 @@ export async function POST(request: NextRequest) {
       const failureDetail = didTimeout
         ? `TLS 填表超过 ${Math.round(TLS_APPLY_PROCESS_TIMEOUT_MS / 1000)} 秒仍未完成，系统已自动停止。`
         : parseError || stderrLog.trim().slice(-1200) || stdoutLog.trim().slice(-1200) || `退出码 ${exitCode}`
+      const stageSummary = buildTlsApplyStageSummary(parsed)
+      const logicalFailureDetail = parsed ? getTlsApplyFailureFromResults(parsed) : ""
       const normalizedFailureDetail = refineApplyFailureDetail(failureDetail)
 
-      if (exitCode !== 0 || !parsed) {
+      if (exitCode !== 0 || !parsed || logicalFailureDetail) {
         await updateTask(task.task_id, {
           status: "failed",
           progress: 0,
           message: failureMessage,
-          error: normalizedFailureDetail,
+          error: logicalFailureDetail || normalizedFailureDetail,
           result: {
             success: false,
-            message: didTimeout ? "TLS 填表超时，已自动停止，并保留了调试文件。" : "TLS 填表失败，已保存调试文件。",
+            results: parsed,
+            stage_summary: stageSummary,
+            message: logicalFailureDetail
+              ? "TLS ????????????????????"
+              : didTimeout
+                ? "TLS ????????????????????"
+                : "TLS ?????????????",
             download_log: stderrDownload || stdoutDownload,
             download_artifacts: debugDownloads,
           },
@@ -384,7 +518,7 @@ export async function POST(request: NextRequest) {
           mainStatus: "TLS_PROCESSING",
           subStatus: "PENDING_SUBMISSION",
           exceptionCode: "FV_FILL_FAILED",
-          reason: normalizedFailureDetail,
+          reason: logicalFailureDetail || normalizedFailureDetail,
         }).catch((error) => {
           console.error("Failed to set France case exception after tls-apply failure", error)
         })
@@ -398,6 +532,7 @@ export async function POST(request: NextRequest) {
         result: {
           success: true,
           results: parsed,
+          stage_summary: stageSummary,
           download_log: stderrDownload || stdoutDownload,
           download_artifacts: debugDownloads,
         },
@@ -417,6 +552,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       task_id: task.task_id,
+      clipboard: {
+        name: applicantProfile.name || applicantProfile.label || "",
+        bookingWindow: visaCase?.bookingWindow || "",
+        acceptVip: visaCase?.acceptVip || "",
+        city: visaCase?.tlsCity || location || "",
+        phone: applicantProfile.phone || "",
+        paymentAccount: email,
+        paymentPassword: password,
+        paymentLink: "https://visas-fr.tlscontact.com/en-us/country/gb",
+      },
       message: "已创建 TLS 填表任务，请在下方任务列表查看进度。",
     })
   } catch (error) {

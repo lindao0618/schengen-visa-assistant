@@ -25,6 +25,7 @@ import {
 
 interface UsVisaQuickWorkflow {
   applicantProfileId: string
+  caseId?: string
   applicantName?: string
   phase: QuickWorkflowPhase
   startedAt: number
@@ -36,13 +37,23 @@ interface UsVisaQuickWorkflow {
 const PREP_STORAGE_PREFIX = "usVisaQuickPrepWorkflow:"
 const SUBMIT_STORAGE_PREFIX = "usVisaQuickSubmitWorkflow:"
 
-function createWorkflow(applicantProfileId: string, applicantName: string | undefined, stepKeys: string[]) {
+function getWorkflowScopeId(profile: ReturnType<typeof useActiveApplicantProfile>) {
+  return profile?.activeCaseId || profile?.id || ""
+}
+
+function createWorkflow(
+  applicantProfileId: string,
+  applicantName: string | undefined,
+  stepKeys: string[],
+  caseId?: string | null,
+) {
   const steps = Object.fromEntries(stepKeys.map((key) => [key, { status: "idle" as QuickStepState["status"] }])) as Record<
     string,
     QuickStepState
   >
   return {
     applicantProfileId,
+    caseId: caseId || undefined,
     applicantName,
     phase: "running" as QuickWorkflowPhase,
     startedAt: Date.now(),
@@ -136,8 +147,9 @@ export function UsVisaQuickStartCard() {
   const prepLockRef = useRef(false)
   const submitLockRef = useRef(false)
 
-  const prepStorageKey = activeApplicant?.id ? `${PREP_STORAGE_PREFIX}${activeApplicant.id}` : ""
-  const submitStorageKey = activeApplicant?.id ? `${SUBMIT_STORAGE_PREFIX}${activeApplicant.id}` : ""
+  const workflowScopeId = getWorkflowScopeId(activeApplicant)
+  const prepStorageKey = workflowScopeId ? `${PREP_STORAGE_PREFIX}${workflowScopeId}` : ""
+  const submitStorageKey = workflowScopeId ? `${SUBMIT_STORAGE_PREFIX}${workflowScopeId}` : ""
 
   const canStartPrep = Boolean(activeApplicant?.id && hasUsVisaExcel(activeApplicant) && hasUsVisaPhoto(activeApplicant))
   const canStartSubmit = Boolean(
@@ -201,6 +213,9 @@ export function UsVisaQuickStartCard() {
   const startPhotoCheck = useCallback(async () => {
     const formData = new FormData()
     formData.append("applicantProfileId", activeApplicant?.id || "")
+    if (activeApplicant?.activeCaseId) {
+      formData.append("caseId", activeApplicant.activeCaseId)
+    }
     formData.append("async", "true")
     const res = await fetch("/api/usa-visa/photo-check", {
       method: "POST",
@@ -212,11 +227,14 @@ export function UsVisaQuickStartCard() {
       throw new Error(data.error || data.message || "照片检测启动失败")
     }
     return data.task_id
-  }, [activeApplicant?.id])
+  }, [activeApplicant?.activeCaseId, activeApplicant?.id])
 
   const startDs160Fill = useCallback(async () => {
     const formData = new FormData()
     formData.append("applicantProfileId", activeApplicant?.id || "")
+    if (activeApplicant?.activeCaseId) {
+      formData.append("caseId", activeApplicant.activeCaseId)
+    }
     formData.append("async", "true")
     const res = await fetch("/api/usa-visa/ds160/auto-fill", {
       method: "POST",
@@ -228,25 +246,31 @@ export function UsVisaQuickStartCard() {
       throw new Error(data.error || data.message || "DS-160 填表启动失败")
     }
     return data.task_id
-  }, [activeApplicant?.id])
+  }, [activeApplicant?.activeCaseId, activeApplicant?.id])
 
   const startSubmitDs160 = useCallback(async () => {
     const res = await fetch("/api/usa-visa/ds160/submit", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ applicantProfileId: activeApplicant?.id }),
+      body: JSON.stringify({
+        applicantProfileId: activeApplicant?.id,
+        caseId: activeApplicant?.activeCaseId || undefined,
+      }),
     })
     const data = (await res.json().catch(() => ({}))) as { task_id?: string; message?: string; error?: string }
     if (!res.ok || !data.task_id) {
       throw new Error(data.error || data.message || "提交 DS-160 启动失败")
     }
     return data.task_id
-  }, [activeApplicant?.id])
+  }, [activeApplicant?.activeCaseId, activeApplicant?.id])
 
   const startAisRegister = useCallback(async () => {
     const formData = new FormData()
     formData.append("applicantProfileId", activeApplicant?.id || "")
+    if (activeApplicant?.activeCaseId) {
+      formData.append("caseId", activeApplicant.activeCaseId)
+    }
     const res = await fetch("/api/usa-visa/register-ais", {
       method: "POST",
       body: formData,
@@ -258,7 +282,7 @@ export function UsVisaQuickStartCard() {
       throw new Error(data.error || data.message || "AIS 注册启动失败")
     }
     return taskId
-  }, [activeApplicant?.id])
+  }, [activeApplicant?.activeCaseId, activeApplicant?.id])
 
   const launchDs160Fill = useCallback(
     async (current: UsVisaQuickWorkflow) => {
@@ -373,7 +397,12 @@ export function UsVisaQuickStartCard() {
     prepLockRef.current = true
     setPrepLoading(true)
     try {
-      const workflow = createWorkflow(activeApplicant.id, activeApplicant.name || activeApplicant.label, ["photoCheck", "ds160Fill"])
+      const workflow = createWorkflow(
+        activeApplicant.id,
+        activeApplicant.name || activeApplicant.label,
+        ["photoCheck", "ds160Fill"],
+        activeApplicant.activeCaseId,
+      )
       const photoTaskId = await startPhotoCheck()
       workflow.steps.photoCheck = {
         status: "running",
@@ -384,7 +413,12 @@ export function UsVisaQuickStartCard() {
       persistPrepWorkflow(workflow)
     } catch (error) {
       persistPrepWorkflow({
-        ...createWorkflow(activeApplicant.id, activeApplicant.name || activeApplicant.label, ["photoCheck", "ds160Fill"]),
+        ...createWorkflow(
+          activeApplicant.id,
+          activeApplicant.name || activeApplicant.label,
+          ["photoCheck", "ds160Fill"],
+          activeApplicant.activeCaseId,
+        ),
         phase: "failed",
         updatedAt: Date.now(),
         lastError: error instanceof Error ? error.message : "照片检测启动失败",
@@ -401,7 +435,7 @@ export function UsVisaQuickStartCard() {
       prepLockRef.current = false
       setPrepLoading(false)
     }
-  }, [activeApplicant?.id, activeApplicant?.label, activeApplicant?.name, canStartPrep, persistPrepWorkflow, startPhotoCheck])
+  }, [activeApplicant?.activeCaseId, activeApplicant?.id, activeApplicant?.label, activeApplicant?.name, canStartPrep, persistPrepWorkflow, startPhotoCheck])
 
   const handleResumePrep = useCallback(async () => {
     if (!prepWorkflow || !canResume(prepWorkflow) || prepLockRef.current) return
@@ -419,9 +453,14 @@ export function UsVisaQuickStartCard() {
 
   const handleStartSubmit = useCallback(async () => {
     if (!activeApplicant?.id || !canStartSubmit) return
-    const base = createWorkflow(activeApplicant.id, activeApplicant.name || activeApplicant.label, ["submitDs160", "registerAis"])
+    const base = createWorkflow(
+      activeApplicant.id,
+      activeApplicant.name || activeApplicant.label,
+      ["submitDs160", "registerAis"],
+      activeApplicant.activeCaseId,
+    )
     await launchSubmitTasks(base)
-  }, [activeApplicant?.id, activeApplicant?.label, activeApplicant?.name, canStartSubmit, launchSubmitTasks])
+  }, [activeApplicant?.activeCaseId, activeApplicant?.id, activeApplicant?.label, activeApplicant?.name, canStartSubmit, launchSubmitTasks])
 
   const handleResumeSubmit = useCallback(async () => {
     if (!submitWorkflow || !canResume(submitWorkflow)) return

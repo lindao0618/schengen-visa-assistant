@@ -10,6 +10,7 @@ export type ApplicantProfileFileSlot =
   | "usVisaDs160Excel"
   | "usVisaAisExcel"
   | "usVisaDs160ConfirmationPdf"
+  | "usVisaDs160PrecheckJson"
   | "schengenPhoto"
   | "schengenExcel"
   | "schengenItineraryPdf"
@@ -83,6 +84,7 @@ const VALID_SLOTS: ApplicantProfileFileSlot[] = [
   "usVisaDs160Excel",
   "usVisaAisExcel",
   "usVisaDs160ConfirmationPdf",
+  "usVisaDs160PrecheckJson",
   "schengenPhoto",
   "schengenExcel",
   "schengenItineraryPdf",
@@ -627,6 +629,50 @@ export async function saveApplicantProfileFileFromAbsolutePath(params: {
     relativePath,
     mimeType: mimeType || "image/jpeg",
     size: sourceStat.size,
+  })
+
+  const profile = await findApplicantProfileRecord(userId, id)
+  return profile ? toApplicantProfile(profile) : null
+}
+
+export async function saveApplicantProfileFileFromBuffer(params: {
+  userId: string
+  id: string
+  slot: ApplicantProfileFileSlot
+  buffer: Buffer
+  originalName: string
+  mimeType?: string
+  role?: string
+}) {
+  const { userId, id, slot, buffer, originalName, mimeType, role } = params
+  const current = await findApplicantProfileRecord(userId, id, role)
+  if (!current) return null
+
+  await ensureStorageRoot()
+  const profileDir = path.join(STORAGE_ROOT, userId, id)
+  await fs.mkdir(profileDir, { recursive: true })
+
+  const storedName = `${slot}-${Date.now()}-${sanitizeFilename(originalName || "file")}`
+  const absolutePath = path.join(profileDir, storedName)
+  await fs.writeFile(absolutePath, buffer)
+  const relativePath = path.relative(process.cwd(), absolutePath).replace(/\\/g, "/")
+
+  const existing = current.files.find((file) => file.slot === slot)
+  if (existing) {
+    const oldPath = path.join(process.cwd(), existing.relativePath)
+    if (oldPath !== absolutePath) {
+      await fs.rm(oldPath, { force: true }).catch(() => {})
+    }
+  }
+
+  await upsertApplicantProfileFileRecord({
+    applicantProfileId: current.id,
+    slot,
+    originalName,
+    storedName,
+    relativePath,
+    mimeType: mimeType || "application/octet-stream",
+    size: buffer.byteLength,
   })
 
   const profile = await findApplicantProfileRecord(userId, id)

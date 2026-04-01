@@ -9,6 +9,11 @@ from datetime import datetime, timedelta
 import os
 import re
 from typing import Dict, List, Any
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+TRIP_GENERATOR_RUNTIME_DIR = PROJECT_ROOT / "temp" / "trip_generator"
+TRIP_GENERATOR_OUTPUT_DIR = TRIP_GENERATOR_RUNTIME_DIR / "output"
 
 
 class MailMergeItineraryGenerator:
@@ -22,7 +27,7 @@ class MailMergeItineraryGenerator:
             template_path: 模板文件路径
         """
         self.template_path = template_path
-        self.output_dir = "output"
+        self.output_dir = str(TRIP_GENERATOR_OUTPUT_DIR)
         
         # 确保输出目录存在
         if not os.path.exists(self.output_dir):
@@ -260,7 +265,7 @@ def test_mail_merge():
         
         # 生成时间戳文件名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = f"output/mailmerge_itinerary_{timestamp}.docx"
+        output_file = str(TRIP_GENERATOR_OUTPUT_DIR / f"mailmerge_itinerary_{timestamp}.docx")
         
         # 生成文档
         result_file = generator.generate_document(test_params, output_file)

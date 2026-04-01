@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const applicantProfileId =
       typeof body?.applicantProfileId === "string" ? body.applicantProfileId.trim() : ""
+    const caseId = typeof body?.caseId === "string" ? body.caseId.trim() : ""
 
     const session = applicantProfileId ? await getServerSession(authOptions) : null
     if (applicantProfileId && !session?.user?.id) {
@@ -148,6 +149,7 @@ export async function POST(request: NextRequest) {
         ? {
             applicantProfileId,
             applicantName: applicantProfile.name || applicantProfile.label,
+            caseId: caseId || undefined,
           }
         : undefined
     )

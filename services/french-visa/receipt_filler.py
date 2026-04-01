@@ -163,7 +163,18 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
         marital_status = df['婚姻状况（Civil status）'].iloc[0]
         surname = df['姓氏（Family name）'].iloc[0]
         first_name = df['名字（First name）'].iloc[0]
-        birth_date = pd.to_datetime(df['出生日期（Date of birth）'].iloc[0])
+        _dob_raw = df['出生日期（Date of birth）'].iloc[0]
+        if isinstance(_dob_raw, pd.Timestamp):
+            birth_date = _dob_raw
+        else:
+            _s = str(_dob_raw).strip()
+            # YYYY-first format (unambiguous: 1990-06-05 / 1990/06/05)
+            _m = re.match(r'^(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})', _s)
+            if _m:
+                birth_date = pd.Timestamp(int(_m.group(1)), int(_m.group(2)), int(_m.group(3)))
+            else:
+                # DD/MM/YYYY format (dayfirst=True, consistent with other date fields)
+                birth_date = pd.to_datetime(_dob_raw, dayfirst=True)
         birth_day = birth_date.day
         birth_month = birth_date.month
         birth_year = birth_date.year

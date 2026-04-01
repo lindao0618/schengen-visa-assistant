@@ -726,7 +726,7 @@ def create_new_application(file_path: str, original_filename: str = None, callba
                 "申请城市": [application_city],
                 "姓氏": [df['姓氏（Family name）'].iloc[0]],
                 "名字": [df['名字（First name）'].iloc[0]],
-                "出生日期": [pd.to_datetime(df['出生日期（Date of birth）'].iloc[0])],
+                "出生日期": [pd.to_datetime(df['出生日期（Date of birth）'].iloc[0], dayfirst=True, errors="coerce")],
                 "当前国籍": ["Chinese"],
                 "护照类型": ["Ordinary passport"],
                 "护照编号": [passport_number],

@@ -3,6 +3,7 @@ import prisma from "@/lib/db"
 import * as fs from "fs/promises"
 import * as path from "path"
 import { ensureTempCleanup } from "@/lib/temp-cleanup"
+import { formatFallbackVisaCaseLabel, formatVisaCaseLabel } from "@/lib/visa-case-labels"
 
 export type TaskStatus = "pending" | "running" | "completed" | "failed"
 export type TaskType =
@@ -18,6 +19,7 @@ export type TaskType =
 export interface TaskMeta {
   applicantProfileId?: string
   applicantName?: string
+  caseId?: string
 }
 
 export interface FrenchVisaTaskResponse {
@@ -32,6 +34,8 @@ export interface FrenchVisaTaskResponse {
   error?: string
   applicantProfileId?: string
   applicantName?: string
+  caseId?: string
+  caseLabel?: string
 }
 
 interface FileTask extends FrenchVisaTaskResponse {
@@ -83,16 +87,18 @@ function extractTaskMeta(result: unknown): TaskMeta {
   return {
     applicantProfileId: typeof record?.applicantProfileId === "string" ? record.applicantProfileId : undefined,
     applicantName: typeof record?.applicantName === "string" ? record.applicantName : undefined,
+    caseId: typeof record?.caseId === "string" ? record.caseId : undefined,
   }
 }
 
 function mergeMetaIntoResult(result: unknown, meta?: TaskMeta) {
-  if (!meta?.applicantProfileId && !meta?.applicantName) {
+  if (!meta?.applicantProfileId && !meta?.applicantName && !meta?.caseId) {
     return result as Record<string, unknown> | undefined
   }
   const base = result && typeof result === "object" ? { ...(result as Record<string, unknown>) } : {}
   if (meta.applicantProfileId) base.applicantProfileId = meta.applicantProfileId
   if (meta.applicantName) base.applicantName = meta.applicantName
+  if (meta.caseId) base.caseId = meta.caseId
   return base
 }
 
@@ -127,7 +133,37 @@ function toResponse(row: {
     error: row.error ?? undefined,
     applicantProfileId: row.applicantProfileId ?? meta.applicantProfileId,
     applicantName: row.applicantProfile?.name ?? meta.applicantName,
+    caseId: meta.caseId,
   }
+}
+
+async function attachCaseLabels(tasks: FrenchVisaTaskResponse[]) {
+  const caseIds = Array.from(new Set(tasks.map((task) => task.caseId).filter((value): value is string => Boolean(value))))
+  if (caseIds.length === 0) return tasks
+
+  const labelMap = new Map<string, string>()
+
+  try {
+    const cases = await prisma.visaCase.findMany({
+      where: { id: { in: caseIds } },
+      select: { id: true, caseType: true, visaType: true, applyRegion: true },
+    })
+
+    for (const item of cases) {
+      labelMap.set(item.id, formatVisaCaseLabel(item))
+    }
+  } catch {
+    // Ignore case label lookup errors.
+  }
+
+  return tasks.map((task) =>
+    task.caseId
+      ? {
+          ...task,
+          caseLabel: labelMap.get(task.caseId) || formatFallbackVisaCaseLabel(task.caseId),
+        }
+      : task
+  )
 }
 
 export async function createTask(
@@ -148,6 +184,7 @@ export async function createTask(
     userId,
     applicantProfileId: meta?.applicantProfileId,
     applicantName: meta?.applicantName,
+    caseId: meta?.caseId,
     result: mergeMetaIntoResult(undefined, meta),
   }
 
@@ -229,6 +266,7 @@ export async function updateTask(
         result: mergeMetaIntoResult(updates.result ?? task.result, {
           applicantProfileId: task.applicantProfileId,
           applicantName: task.applicantName,
+          caseId: task.caseId,
         }),
         updated_at: Date.now(),
       })
@@ -242,7 +280,8 @@ export async function listTasks(
   userId: string,
   limit = 50,
   statusFilter?: string,
-  applicantProfileId?: string
+  applicantProfileId?: string,
+  caseId?: string
 ): Promise<FrenchVisaTaskResponse[]> {
   const statusWhere =
     statusFilter === "completed"
@@ -269,6 +308,18 @@ export async function listTasks(
                   result: {
                     path: ["applicantProfileId"],
                     equals: applicantProfileId,
+                  },
+                },
+              ],
+            }
+          : {}),
+        ...(caseId
+          ? {
+              AND: [
+                {
+                  result: {
+                    path: ["caseId"],
+                    equals: caseId,
                   },
                 },
               ],
@@ -323,12 +374,17 @@ export async function listTasks(
   if (applicantProfileId) {
     list = list.filter((task) => task.applicantProfileId === applicantProfileId)
   }
+  if (caseId) {
+    list = list.filter((task) => task.caseId === caseId)
+  }
 
   if (statusFilter === "completed") list = list.filter((task) => task.status === "completed")
   else if (statusFilter === "failed") list = list.filter((task) => task.status === "failed")
   else if (statusFilter === "running") list = list.filter((task) => task.status === "running" || task.status === "pending")
 
-  return list
-    .sort((a, b) => (b.updated_at ?? b.created_at) - (a.updated_at ?? a.created_at))
-    .slice(0, limit)
+  return attachCaseLabels(
+    list
+      .sort((a, b) => (b.updated_at ?? b.created_at) - (a.updated_at ?? a.created_at))
+      .slice(0, limit)
+  )
 }

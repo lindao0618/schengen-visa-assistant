@@ -146,6 +146,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     let photo = formData.get('photo');
     const applicantProfileId = (formData.get('applicantProfileId') as string | null)?.trim() || '';
+    const caseId = (formData.get('caseId') as string | null)?.trim() || '';
     const applicantProfile = applicantProfileId ? await getApplicantProfile(session.user.id, applicantProfileId) : null;
 
     if (!photo && applicantProfileId) {
@@ -194,6 +195,7 @@ export async function POST(request: NextRequest) {
     if (asyncMode) {
       const task = await createTask(session.user.id, 'check-photo', `准备中 · ${originalFilename}`, {
         applicantProfileId: applicantProfileId || undefined,
+        caseId: caseId || undefined,
         applicantName: applicantProfile?.name || applicantProfile?.label,
       });
       await updateTask(task.task_id, { status: 'running', progress: 5, message: `准备中 · ${originalFilename}` });

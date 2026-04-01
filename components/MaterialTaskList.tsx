@@ -17,6 +17,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
 import { useTaskStatusReminder } from "@/hooks/use-task-status-reminder"
 
 function formatTimestamp(ts?: number) {
@@ -43,6 +44,8 @@ export interface MaterialTask {
   message: string
   applicantProfileId?: string
   applicantName?: string
+  caseId?: string
+  caseLabel?: string
   created_at: number
   updated_at?: number
   result?: Record<string, unknown>
@@ -81,6 +84,8 @@ export function MaterialTaskList({
   const [clearingFailed, setClearingFailed] = useState(false)
   const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "failed" | "running">("all")
   const [searchKeyword, setSearchKeyword] = useState("")
+  const [onlyCurrentApplicant, setOnlyCurrentApplicant] = useState(false)
+  const activeApplicant = useActiveApplicantProfile()
   const taskIdsKey = useMemo(() => taskIds.join(","), [taskIds])
   const filterTaskTypesKey = useMemo(() => (filterTaskTypes ?? []).join(","), [filterTaskTypes])
 
@@ -121,6 +126,12 @@ export function MaterialTaskList({
 
   const displayedTasks = useMemo(() => {
     let list = tasks
+    if (onlyCurrentApplicant && activeApplicant?.id) {
+      list = list.filter((task) => {
+        if (activeApplicant.activeCaseId) return task.caseId === activeApplicant.activeCaseId
+        return task.applicantProfileId === activeApplicant.id
+      })
+    }
     if (statusFilter !== "all") {
       list = list.filter((t) => {
         if (statusFilter === "completed") return t.status === "completed"
@@ -146,7 +157,7 @@ export function MaterialTaskList({
       return timeB - timeA
     })
     return sorted
-  }, [tasks, statusFilter, searchKeyword])
+  }, [tasks, statusFilter, searchKeyword, onlyCurrentApplicant, activeApplicant])
 
   const failedTaskIds = useMemo(
     () => tasks.filter((task) => task.status === "failed").map((task) => task.task_id),
@@ -245,6 +256,22 @@ export function MaterialTaskList({
             </SelectContent>
           </Select>
         </div>
+        {activeApplicant?.id && (
+          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+            <input
+              id="material-only-current-applicant"
+              type="checkbox"
+              checked={onlyCurrentApplicant}
+              onChange={(e) => setOnlyCurrentApplicant(e.target.checked)}
+              className="rounded"
+            />
+            <label htmlFor="material-only-current-applicant" className="cursor-pointer">
+              {activeApplicant.activeCaseId
+                ? `只看当前申请人所选案件：${activeApplicant.name || activeApplicant.label}`
+                : `只看当前申请人：${activeApplicant.name || activeApplicant.label}`}
+            </label>
+          </div>
+        )}
         {(tasks.length === 0 || displayedTasks.length === 0) && (
           <div className="py-4 text-center">
             {taskIds.length === 0 ? (
@@ -274,6 +301,9 @@ export function MaterialTaskList({
                 <p className="text-xs text-gray-500 dark:text-gray-400">{task.message}</p>
                 {task.applicantName && (
                   <p className="text-xs text-blue-600 dark:text-blue-300">申请人: {task.applicantName}</p>
+                )}
+                {task.caseLabel && (
+                  <p className="text-xs text-violet-600 dark:text-violet-300">所属案件: {task.caseLabel}</p>
                 )}
                 <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
                   <span>创建时间: {formatTimestamp(task.created_at)}</span>
@@ -307,6 +337,7 @@ export function MaterialTaskList({
                         <DialogTitle>任务详情</DialogTitle>
                       </DialogHeader>
                       <div className="space-y-2 text-xs text-gray-700 dark:text-gray-300">
+                        {task.caseLabel && <p>所属案件: {task.caseLabel}</p>}
                         <p>任务ID: {task.task_id}</p>
                         <p>任务类型: {TYPE_LABELS[task.type] || task.type}</p>
                         <p>状态: {task.status}</p>

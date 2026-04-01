@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     const applicantProfileId = (formData.get("applicantProfileId") as string | null)?.trim() || ""
+    const caseId = (formData.get("caseId") as string | null)?.trim() || ""
     const applicantProfile = applicantProfileId ? await getApplicantProfile(userId, applicantProfileId) : null
 
     if (files.length === 0 && applicantProfileId) {
@@ -93,6 +94,7 @@ export async function POST(request: NextRequest) {
       const fileName = file.name || "application.xlsx"
       const task = await createTask(userId, "create-application", `生成新申请 · ${fileName}`, {
         applicantProfileId: applicantProfileId || undefined,
+        caseId: caseId || undefined,
         applicantName: applicantProfile?.name || applicantProfile?.label,
       })
       taskIds.push(task.task_id)

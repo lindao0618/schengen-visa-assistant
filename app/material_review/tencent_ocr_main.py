@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional
 import json
 import tempfile
 import base64
+from pathlib import Path
 from PIL import Image
 import fitz  # PyMuPDF for PDF processing
 from docx import Document
@@ -27,6 +28,10 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+MATERIAL_REVIEW_RUNTIME_DIR = PROJECT_ROOT / "temp" / "material_review"
+OCR_RESULTS_DIR = MATERIAL_REVIEW_RUNTIME_DIR / "ocr_results"
 
 # 尝试导入腾讯云OCR SDK
 TENCENT_OCR_AVAILABLE = False
@@ -908,8 +913,7 @@ class TencentCloudDocumentAnalyzer:
         """将提取的文本保存为Word文档"""
         try:
             # 创建输出目录
-            output_dir = "ocr_results"
-            os.makedirs(output_dir, exist_ok=True)
+            OCR_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
             
             # 创建Word文档
             doc = Document()
@@ -930,7 +934,7 @@ class TencentCloudDocumentAnalyzer:
             # 生成文件名
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             word_filename = f"ocr_result_{timestamp}.docx"
-            word_path = os.path.join(output_dir, word_filename)
+            word_path = str(OCR_RESULTS_DIR / word_filename)
             
             # 保存文档
             doc.save(word_path)
@@ -1247,7 +1251,7 @@ async def upload_document(
 async def download_ocr_result(filename: str):
     """下载OCR结果Word文档"""
     try:
-        file_path = os.path.join("ocr_results", filename)
+        file_path = str(OCR_RESULTS_DIR / filename)
         
         if not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail="File not found")

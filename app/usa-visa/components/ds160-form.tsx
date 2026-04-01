@@ -34,6 +34,26 @@ interface ApplicationGroup {
   photoFile: File | null
 }
 
+interface Ds160PrecheckField {
+  key: string
+  label: string
+  original: string
+  cleaned: string
+  changed: boolean
+  missing: boolean
+  warnings: string[]
+}
+
+interface Ds160PrecheckResult {
+  sourceName?: string
+  summary: {
+    total: number
+    changed: number
+    missing: number
+  }
+  fields: Ds160PrecheckField[]
+}
+
 function createGroup(applicantProfileId = ""): ApplicationGroup {
   return {
     id: `group-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -64,6 +84,9 @@ export function DS160Form() {
   const [batchMode, setBatchMode] = useState<"parallel" | "sequential">("parallel")
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<{ status: string; message: string } | null>(null)
+  const [precheckResults, setPrecheckResults] = useState<Record<string, Ds160PrecheckResult>>({})
+  const [precheckErrors, setPrecheckErrors] = useState<Record<string, string>>({})
+  const [precheckingId, setPrecheckingId] = useState<string | null>(null)
 
   useEffect(() => {
     const loadProfiles = async () => {
@@ -101,11 +124,33 @@ export function DS160Form() {
 
   const removeGroup = (id: string) => {
     setGroups((current) => current.filter((group) => group.id !== id))
+    setPrecheckResults((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+    setPrecheckErrors((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
     setResult(null)
   }
 
   const updateGroup = (id: string, updates: Partial<ApplicationGroup>) => {
     setGroups((current) => current.map((group) => (group.id === id ? { ...group, ...updates } : group)))
+    setPrecheckResults((current) => {
+      if (!current[id]) return current
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+    setPrecheckErrors((current) => {
+      if (!current[id]) return current
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
     setResult(null)
   }
 
@@ -124,6 +169,62 @@ export function DS160Form() {
     return hasExcel && hasPhoto
   }
 
+  const precheckOne = async (group: ApplicationGroup) => {
+    const hasExcel = !!group.excelFile || !!getGroupExcelMeta(group)
+    if (!hasExcel) {
+      setPrecheckErrors((current) => ({ ...current, [group.id]: "请先为这一组准备 Excel 文件，再做填表前预检查。" }))
+      return
+    }
+
+    setPrecheckingId(group.id)
+    setPrecheckErrors((current) => {
+      const next = { ...current }
+      delete next[group.id]
+      return next
+    })
+
+    try {
+      const formData = new FormData()
+      if (group.applicantProfileId) {
+        formData.append("applicantProfileId", group.applicantProfileId)
+        if (activeApplicant?.activeCaseId && group.applicantProfileId === activeApplicant.id) {
+          formData.append("caseId", activeApplicant.activeCaseId)
+        }
+      }
+      if (group.excelFile) {
+        formData.append("excel", group.excelFile)
+      }
+
+      const res = await fetch("/api/usa-visa/ds160/precheck", {
+        method: "POST",
+        body: formData,
+      })
+
+      if (res.status === 401) {
+        showLoginPrompt()
+        throw new Error("AUTH_REQUIRED")
+      }
+
+      const data = await res.json()
+      if (!res.ok || !data?.result) {
+        throw new Error(data?.error || "DS-160 预检查失败")
+      }
+
+      setPrecheckResults((current) => ({
+        ...current,
+        [group.id]: data.result as Ds160PrecheckResult,
+      }))
+    } catch (error) {
+      if (error instanceof Error && error.message === "AUTH_REQUIRED") return
+      setPrecheckErrors((current) => ({
+        ...current,
+        [group.id]: error instanceof Error ? error.message : "DS-160 预检查失败",
+      }))
+    } finally {
+      setPrecheckingId((current) => (current === group.id ? null : current))
+    }
+  }
+
   const getGroupDisplayName = (group: ApplicationGroup, index: number) => {
     const profile = getGroupProfile(group)
     return profile?.name || profile?.label || `申请组 ${index + 1}`
@@ -135,6 +236,9 @@ export function DS160Form() {
 
     if (group.applicantProfileId) {
       formData.append("applicantProfileId", group.applicantProfileId)
+      if (activeApplicant?.activeCaseId && group.applicantProfileId === activeApplicant.id) {
+        formData.append("caseId", activeApplicant.activeCaseId)
+      }
     }
     if (group.excelFile) {
       formData.append("excel", group.excelFile)
@@ -425,6 +529,114 @@ export function DS160Form() {
                         照片：{hasPhoto ? "已就绪" : "缺少"}
                       </span>
                     </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button type="button" variant="outline" size="sm" onClick={() => precheckOne(group)} disabled={precheckingId === group.id}>
+                        {precheckingId === group.id ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            正在预检查
+                          </>
+                        ) : (
+                          <>
+                            <FileSpreadsheet className="mr-2 h-4 w-4" />
+                            预检查本组 Excel
+                          </>
+                        )}
+                      </Button>
+                      {precheckResults[group.id] ? (
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          已完成预检查：变更 {precheckResults[group.id].summary.changed} 项，缺失 {precheckResults[group.id].summary.missing} 项
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          建议先预检查 Excel，再进入自动填表。
+                        </div>
+                      )}
+                    </div>
+
+                    {precheckErrors[group.id] && (
+                      <Alert variant="destructive">
+                        <AlertTitle>预检查失败</AlertTitle>
+                        <AlertDescription>{precheckErrors[group.id]}</AlertDescription>
+                      </Alert>
+                    )}
+
+                    {precheckResults[group.id] && (
+                      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900/40">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+                          <div>
+                            <div className="text-sm font-semibold text-gray-900 dark:text-white">填表前预检查</div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              来源：{precheckResults[group.id].sourceName || "当前组 Excel"}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                              共 {precheckResults[group.id].summary.total} 项
+                            </span>
+                            <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                              已清洗 {precheckResults[group.id].summary.changed} 项
+                            </span>
+                            <span className="rounded-full bg-red-100 px-3 py-1 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                              缺失 {precheckResults[group.id].summary.missing} 项
+                            </span>
+                          </div>
+                        </div>
+                        <div className="max-h-[420px] overflow-auto">
+                          <table className="min-w-full text-sm">
+                            <thead className="sticky top-0 bg-gray-50 dark:bg-gray-900/80">
+                              <tr className="text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                <th className="px-4 py-3">字段</th>
+                                <th className="px-4 py-3">Excel 原值</th>
+                                <th className="px-4 py-3">清洗后</th>
+                                <th className="px-4 py-3">说明</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {precheckResults[group.id].fields.map((field) => (
+                                <tr key={field.key} className="border-t border-gray-100 align-top dark:border-gray-800">
+                                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{field.label}</td>
+                                  <td className="px-4 py-3 whitespace-pre-wrap break-all text-gray-600 dark:text-gray-300">
+                                    {field.original || <span className="text-red-500">未识别</span>}
+                                  </td>
+                                  <td className="px-4 py-3 whitespace-pre-wrap break-all text-gray-900 dark:text-white">
+                                    {field.cleaned || <span className="text-gray-400">-</span>}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex flex-wrap gap-2">
+                                      {field.changed && (
+                                        <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                          已清洗
+                                        </span>
+                                      )}
+                                      {field.missing && (
+                                        <span className="rounded-full bg-red-100 px-2 py-1 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                                          缺失
+                                        </span>
+                                      )}
+                                      {!field.changed && !field.missing && (
+                                        <span className="rounded-full bg-green-100 px-2 py-1 text-xs text-green-700 dark:bg-green-900/30 dark:text-green-300">
+                                          可直接使用
+                                        </span>
+                                      )}
+                                      {field.warnings.map((warning) => (
+                                        <span
+                                          key={`${field.key}-${warning}`}
+                                          className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                                        >
+                                          {warning}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               )

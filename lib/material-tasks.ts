@@ -15,6 +15,8 @@ export interface MaterialTaskResponse {
   message: string
   applicantProfileId?: string
   applicantName?: string
+  caseId?: string
+  caseLabel?: string
   created_at: number
   updated_at?: number
   result?: Record<string, unknown>
@@ -72,6 +74,7 @@ export async function createMaterialTask(
   meta?: {
     applicantProfileId?: string
     applicantName?: string
+    caseId?: string
   }
 ): Promise<MaterialTaskResponse> {
   await ensureTempCleanup().catch(() => {})
@@ -87,6 +90,7 @@ export async function createMaterialTask(
     message,
     applicantProfileId: meta?.applicantProfileId,
     applicantName: meta?.applicantName,
+    caseId: meta?.caseId,
     created_at: Date.now(),
     outputDir,
   }

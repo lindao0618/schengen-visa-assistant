@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     const applicantProfileId = (formData.get("applicantProfileId") as string | null)?.trim() || ""
+    const caseId = (formData.get("caseId") as string | null)?.trim() || ""
     const applicantProfile = applicantProfileId ? await getApplicantProfile(userId, applicantProfileId) : null
     if (files.length === 0 && applicantProfileId) {
       const stored = await getApplicantProfileFileByCandidates(userId, applicantProfileId, ["schengenExcel", "franceExcel"])
@@ -91,6 +92,7 @@ export async function POST(request: NextRequest) {
       const fileName = file.name || "submit.xlsx"
       const task = await createTask(userId, "submit-final", `提交最终表 · ${fileName}`, {
         applicantProfileId: applicantProfileId || undefined,
+        caseId: caseId || undefined,
         applicantName: applicantProfile?.name || applicantProfile?.label,
       })
       taskIds.push(task.task_id)

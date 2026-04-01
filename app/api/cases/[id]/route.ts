@@ -37,6 +37,24 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       applyRegion:
         typeof body?.applyRegion === "string" ? body.applyRegion : body?.applyRegion === null ? null : undefined,
       tlsCity: typeof body?.tlsCity === "string" ? body.tlsCity : body?.tlsCity === null ? null : undefined,
+      bookingWindow:
+        typeof body?.bookingWindow === "string"
+          ? body.bookingWindow
+          : body?.bookingWindow === null
+            ? null
+            : undefined,
+      acceptVip:
+        typeof body?.acceptVip === "string"
+          ? body.acceptVip
+          : body?.acceptVip === null
+            ? null
+            : undefined,
+      slotTime:
+        typeof body?.slotTime === "string"
+          ? body.slotTime
+          : body?.slotTime === null
+            ? null
+            : undefined,
       priority: typeof body?.priority === "string" ? body.priority : body?.priority === null ? null : undefined,
       travelDate:
         typeof body?.travelDate === "string" ? body.travelDate : body?.travelDate === null ? null : undefined,

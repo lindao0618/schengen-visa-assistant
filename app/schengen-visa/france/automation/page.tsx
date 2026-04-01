@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
   ArrowLeft,
   FileText,
@@ -27,6 +28,7 @@ import {
   RefreshCw,
   Wallet,
 } from "lucide-react"
+import { toast } from "sonner"
 import { AuthPromptProvider, useAuthPrompt } from "@/app/usa-visa/contexts/AuthPromptContext"
 import { FranceTaskList } from "./FranceTaskList"
 import { ApplicantProfileSelector } from "@/components/applicant-profile-selector"
@@ -41,6 +43,7 @@ interface ApplicantProfileOption {
   id: string
   label: string
   name?: string
+  phone?: string
   schengen?: {
     country?: string
     city?: string
@@ -81,6 +84,157 @@ function formatUploadedAt(uploadedAt?: string) {
   const d = new Date(uploadedAt)
   if (Number.isNaN(d.getTime())) return ""
   return d.toLocaleString("zh-CN", { hour12: false })
+}
+
+type TlsApplyClipboardPayload = {
+  name?: string
+  bookingWindow?: string
+  acceptVip?: string
+  city?: string
+  phone?: string
+  paymentAccount?: string
+  paymentPassword?: string
+  paymentLink?: string
+}
+
+type TlsApplyPreviewCase = {
+  id: string
+  tlsCity?: string | null
+  bookingWindow?: string | null
+  acceptVip?: string | null
+  isActive?: boolean
+}
+
+type TlsApplyPreviewResponse = {
+  profile?: {
+    label?: string
+    name?: string
+    phone?: string
+  } | null
+  cases?: TlsApplyPreviewCase[]
+  activeCaseId?: string | null
+}
+
+type FranceReviewApplicant = {
+  familyName?: string
+  firstName?: string
+  dateOfBirth?: string
+  nationality?: string
+  passportType?: string
+  passportNumber?: string
+  passportIssueDate?: string
+  passportExpiryDate?: string
+  mobileNumber?: string
+}
+
+function extractFranceReviewApplicants(input: unknown): FranceReviewApplicant[] {
+  if (!Array.isArray(input)) return []
+  return input.map((item) => {
+    const personalInfo =
+      item && typeof item === "object" && "personalInfo" in item && item.personalInfo && typeof item.personalInfo === "object"
+        ? (item.personalInfo as Record<string, unknown>)
+        : {}
+
+    return {
+      familyName: typeof personalInfo.familyName === "string" ? personalInfo.familyName : "",
+      firstName: typeof personalInfo.firstName === "string" ? personalInfo.firstName : "",
+      dateOfBirth: typeof personalInfo.dateOfBirth === "string" ? personalInfo.dateOfBirth : "",
+      nationality: typeof personalInfo.nationality === "string" ? personalInfo.nationality : "",
+      passportType: typeof personalInfo.passportType === "string" ? personalInfo.passportType : "",
+      passportNumber: typeof personalInfo.passportNumber === "string" ? personalInfo.passportNumber : "",
+      passportIssueDate: typeof personalInfo.passportIssueDate === "string" ? personalInfo.passportIssueDate : "",
+      passportExpiryDate: typeof personalInfo.passportExpiryDate === "string" ? personalInfo.passportExpiryDate : "",
+      mobileNumber: typeof personalInfo.mobileNumber === "string" ? personalInfo.mobileNumber : "",
+    }
+  })
+}
+
+function formatReviewDate(value?: string) {
+  return (value || "").replace(/-/g, "/")
+}
+
+function buildFranceReviewClipboardText(applicants: FranceReviewApplicant[]) {
+  const normalizedApplicants = applicants.length > 0 ? applicants : [{}]
+  const reviewBlocks = normalizedApplicants.map((applicant, index) => {
+    const lines = [
+      normalizedApplicants.length > 1 ? `申请人 ${index + 1} / Applicant ${index + 1}` : "审核信息 / Review Copy",
+      `1. 姓 / Family name: ${applicant.familyName || ""}`,
+      `2. 名 / First name(s): ${applicant.firstName || ""}`,
+      `3. 出生日期 / Date of birth: ${formatReviewDate(applicant.dateOfBirth)}`,
+      `4. 当前国籍 / Current nationality: ${applicant.nationality || ""}`,
+      `5. 护照类型 / Passport type: ${applicant.passportType || ""}`,
+      `6. 护照号 / Travel document number: ${applicant.passportNumber || ""}`,
+      `7. 护照签发日期 / Travel document issue date: ${formatReviewDate(applicant.passportIssueDate)}`,
+      `8. 护照到期日期 / Travel document expiration date: ${formatReviewDate(applicant.passportExpiryDate)}`,
+      `9. 手机号码 / Mobile number: ${applicant.mobileNumber || ""}`,
+    ]
+    return lines.join("\n")
+  })
+
+  const notes = [
+    "审核建议 / Review Notes",
+    "1. 姓和名绝对不能反 / Family name and First name(s) must not be swapped.",
+    "2. 出生日期一定不能错，重点检查月和日有没有反 / Date of birth must be checked carefully, especially month/day order.",
+    "3. 国籍信息不能出错 / Nationality must be correct.",
+    "4. 护照类型统一检查为 Ordinary passport / Passport type should be Ordinary passport.",
+    "5. 护照号重点检查易混字符，例如 I、L、1、O、0 / Carefully check confusing passport characters such as I, L, 1, O, 0.",
+    "6. 签发日期和到期日期要一起核对，通常为签发日后 10 年减 1 天 / Check issue date and expiry date together; it is usually 10 years minus 1 day.",
+    "7. 手机号码格式不要错，应为 10 位且不带前导 0 / Mobile number should be 10 digits without a leading 0.",
+  ]
+
+  return [...reviewBlocks, notes.join("\n")].join("\n\n")
+}
+
+function buildTlsApplyClipboardText(payload: TlsApplyClipboardPayload) {
+  const bookingWindow = payload.bookingWindow?.trim() || "没有填"
+  const acceptVip = payload.acceptVip?.trim() || "没有填"
+  const city = payload.city?.trim() || "没有填"
+  const phone = payload.phone?.trim() || "没有填"
+  const paymentAccount = payload.paymentAccount?.trim() || ""
+  const paymentPassword = payload.paymentPassword?.trim() || ""
+  const paymentLink = payload.paymentLink?.trim() || "https://visas-fr.tlscontact.com/en-us/country/gb"
+
+  return [
+    `1. 姓名：${payload.name?.trim() || ""}`,
+    `2. 抢号区间再次确认：${bookingWindow}`,
+    "⚠注意：这个区间内任意一天都有可能",
+    "抢到后不可更改，有特殊要求现在和我说哦",
+    "以此次汇报为准",
+    `3. 是否接受 VIP：${acceptVip}`,
+    `4. 递签城市：${city}`,
+    "5. 人数：1",
+    `6. 电话：${phone}`,
+    `7. 付款账号：${paymentAccount}`,
+    `8. 付款密码：${paymentPassword}`,
+    `9. 付款链接：${paymentLink}`,
+  ].join("\n")
+}
+
+function hasMissingTlsBookingWindow(payload: TlsApplyClipboardPayload) {
+  return !payload.bookingWindow?.trim()
+}
+
+function selectTlsPreviewCase(
+  cases: TlsApplyPreviewCase[],
+  preferredCaseId?: string | null,
+  fallbackCaseId?: string | null,
+) {
+  if (preferredCaseId) {
+    const preferredCase = cases.find((item) => item.id === preferredCaseId)
+    if (preferredCase) return preferredCase
+  }
+  if (fallbackCaseId) {
+    const fallbackCase = cases.find((item) => item.id === fallbackCaseId)
+    if (fallbackCase) return fallbackCase
+  }
+  return cases.find((item) => item.isActive) || cases[0] || null
+}
+
+async function copyTextToClipboard(text: string) {
+  if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+    throw new Error("当前浏览器不支持自动复制")
+  }
+  await navigator.clipboard.writeText(text)
 }
 
 interface CaptchaBalanceInfo {
@@ -186,10 +340,14 @@ function FranceAutomationContent() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-black">
       <div className="container mx-auto px-4 py-8">
-        <ApplicantProfileSelector />
+        <ApplicantProfileSelector scope="france-schengen" />
         <CaptchaBalanceCard />
         <div className="mb-6">
-          <FranceCaseProgressCard applicantProfileId={activeApplicant?.id} applicantName={activeApplicantName} />
+          <FranceCaseProgressCard
+            applicantProfileId={activeApplicant?.id}
+            applicantName={activeApplicantName}
+            caseId={activeApplicant?.activeCaseId || undefined}
+          />
         </div>
         <FranceQuickStartCard />
 
@@ -285,6 +443,14 @@ function FranceAutomationContent() {
               profiles={profiles}
               canUseApplicantProfile={hasSchengenProfileExcel}
             />
+            <div className="mt-6">
+              <FranceReviewClipboardCard
+                showLoginPrompt={showLoginPrompt}
+                activeApplicantId={activeApplicant?.id}
+                activeApplicantName={activeApplicantName}
+                profiles={profiles}
+              />
+            </div>
             <div id="france-create-application-tasks" className="mt-6">
               <FranceTaskList filterTaskTypes={["create-application"]} title="生成新申请任务" pollInterval={2000} autoRefresh />
             </div>
@@ -382,6 +548,7 @@ function StepCard({
   profiles: ApplicantProfileOption[]
   canUseApplicantProfile: boolean
 }) {
+  const activeApplicant = useActiveApplicantProfile()
   const [groups, setGroups] = useState<FranceApplicantGroup[]>([])
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<{
@@ -438,6 +605,9 @@ function StepCard({
     }
     if (group.applicantProfileId) {
       formData.append("applicantProfileId", group.applicantProfileId)
+      if (activeApplicantId && group.applicantProfileId === activeApplicantId && activeApplicant?.activeCaseId) {
+        formData.append("caseId", activeApplicant.activeCaseId)
+      }
     }
 
     const res = await fetch(apiPath, { method: "POST", body: formData, credentials: "include" })
@@ -457,7 +627,7 @@ function StepCard({
     if (valid.length === 0) {
       setResult({
         success: false,
-        error: "请至少准备一个完整申请组。每组都需要一份 Excel，可以直接复用申请人档案里的申根 Excel。",
+        error: "请至少填写一组任务：上传 Excel，或选择带有可用 Excel 的申请人档案。",
       })
       return
     }
@@ -476,7 +646,7 @@ function StepCard({
           return
         }
         if (response.reason?.message === "AUTH_REQUIRED") return
-        errors.push(`${getGroupDisplayName(group, index)}: ${response.reason?.message || "失败"}`)
+        errors.push(`${getGroupDisplayName(group, index)}: ${response.reason?.message || "未知错误"}`)
       })
 
       if (responses.some((response) => response.status === "rejected" && response.reason?.message === "AUTH_REQUIRED")) {
@@ -486,7 +656,7 @@ function StepCard({
       if (createdTasks > 0 && errors.length === 0) {
         setResult({
           success: true,
-          message: `已创建 ${createdTasks} 个任务，请在下方任务列表查看进度。`,
+          message: `已创建 ${createdTasks} 个任务，可在下方任务列表追踪进度。`,
         })
         return
       }
@@ -494,14 +664,14 @@ function StepCard({
       if (createdTasks > 0) {
         setResult({
           success: false,
-          error: `已成功创建 ${createdTasks} 个任务，但有部分申请组失败：${errors.join("；")}`,
+          error: `已创建 ${createdTasks} 个任务，但部分任务失败：${errors.join("；")}`,
         })
         return
       }
 
       setResult({
         success: false,
-        error: errors.join("；") || "提交失败",
+        error: errors.join("；") || "处理失败",
       })
     } finally {
       setLoading(false)
@@ -514,155 +684,361 @@ function StepCard({
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent className="pt-6 space-y-6">
+      <CardContent className="space-y-5 pt-6">
         {canUseApplicantProfile && activeApplicantId && (
-          <Card className="border-blue-200/30 bg-blue-50/20 p-4 dark:border-blue-900/30 dark:bg-blue-900/10">
-            <div className="space-y-3">
-              <div className="text-sm font-medium">按申请组处理</div>
-              <div className="text-sm text-gray-600 dark:text-gray-300">
-                {activeApplicantName || "当前申请人"} 已归档申根 Excel。你可以直接用当前档案新建一组，也可以继续添加更多申请组。
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <Button type="button" variant="outline" onClick={() => addGroup(activeApplicantId)} className="gap-2">
-                  <UserRound className="h-4 w-4" />
-                  用当前档案新增一组
-                </Button>
-                <Button type="button" variant="outline" onClick={() => addGroup()} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  添加空白申请组
-                </Button>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {!activeApplicantId && (
-          <div className="flex flex-wrap gap-3">
-            <Button type="button" variant="outline" onClick={() => addGroup()} className="gap-2">
-              <Plus className="h-4 w-4" />
-              添加申请组
-            </Button>
-          </div>
+          <Alert className="border-blue-200/50 bg-blue-50/30 dark:border-blue-900/40 dark:bg-blue-950/20">
+            <AlertDescription className="text-sm">
+              当前顶部已选档案“{activeApplicantName || "申请人"}”，不上传文件时会自动使用对应档案里的 Excel。
+            </AlertDescription>
+          </Alert>
         )}
 
         <div className="space-y-4">
-          {groups.length === 0 && (
-            <div className="rounded-xl border-2 border-dashed py-8 text-center text-gray-500 dark:text-gray-400">
-              先添加申请组。每一组就是一个申请人，可以直接选档案，也可以手动上传当前组使用的 Excel。
-            </div>
-          )}
-
           {groups.map((group, index) => {
             const profile = getGroupProfile(group)
-            const profileExcel = getProfileFranceExcel(profile)
-            const hasExcel = groupHasExcel(group)
-
+            const autoExcel = getProfileFranceExcel(profile)
             return (
-              <Card key={group.id} className="border-2 border-[#e5e5ea] dark:border-gray-800">
-                <div className="space-y-4 p-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-base font-semibold">{getGroupDisplayName(group, index)}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">第 {index + 1} 组</div>
-                    </div>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => removeGroup(group.id)} className="text-red-600 hover:text-red-700">
-                      <Trash2 className="mr-1 h-4 w-4" />
-                      移除
-                    </Button>
+              <div key={group.id} className="rounded-2xl border border-gray-200/70 bg-white/80 p-4 shadow-sm">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-gray-900">{title}申请组 {index + 1}</div>
+                  <Button type="button" variant="ghost" size="icon" onClick={() => removeGroup(group.id)} disabled={groups.length === 1}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>申请人档案</Label>
+                    {profiles.length === 0 ? (
+                      <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">暂无申请人档案，请先创建档案或手动上传 Excel。</p>
+                    ) : (
+                      <Select value={group.applicantProfileId || undefined} onValueChange={(value) => updateGroup(group.id, { applicantProfileId: value })}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择申请人档案（可选）" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {profiles.map((item) => (
+                            <SelectItem key={item.id} value={item.id}>
+                              {item.name || item.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
 
                   <div className="space-y-2">
-                    <Label>选择申请人档案</Label>
-                    <Select
-                      value={group.applicantProfileId || MANUAL_OPTION}
-                      onValueChange={(value) =>
-                        updateGroup(group.id, {
-                          applicantProfileId: value === MANUAL_OPTION ? "" : value,
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="直接选择已有申请人档案" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={MANUAL_OPTION}>不使用档案，完全手动上传</SelectItem>
-                        {profiles.map((item) => (
-                          <SelectItem key={item.id} value={item.id}>
-                            {item.name || item.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {profile && (
-                    <div className="space-y-2 rounded-lg border border-dashed border-gray-200 p-3 text-sm dark:border-gray-700">
-                      <div className="font-medium text-gray-900 dark:text-white">已关联档案：{profile.name || profile.label}</div>
-                      <div className="text-gray-600 dark:text-gray-300">
-                        档案 Excel：{profileExcel?.originalName || "档案中未上传"}
-                      </div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">
-                        当前组会优先使用档案里的申根 Excel；如果你在下面重新上传，就以这次上传为准。
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="space-y-2">
-                    <Label>Excel 文件</Label>
-                    <input
-                      type="file"
-                      accept={accept}
-                      onChange={(event) => updateGroup(group.id, { excelFile: event.target.files?.[0] || null })}
-                      className="block w-full text-sm"
-                    />
-                    <div className="text-sm">
-                      {group.excelFile ? (
-                        <p className="flex items-center gap-1 text-green-600 dark:text-green-400">
-                          <FileSpreadsheet className="h-4 w-4" />
-                          当前上传：{group.excelFile.name}
-                        </p>
-                      ) : profileExcel ? (
-                        <p className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
-                          <FileSpreadsheet className="h-4 w-4" />
-                          使用档案：{profileExcel.originalName}
-                        </p>
-                      ) : (
-                        <p className="text-gray-500 dark:text-gray-400">还没有 Excel 文件</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-800/50">
-                    <span className={hasExcel ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-                      Excel：{hasExcel ? "已就绪" : "缺少"}
-                    </span>
+                    <Label>{buttonLabel} Excel</Label>
+                    <input type="file" accept={accept} onChange={(event) => updateGroup(group.id, { excelFile: event.target.files?.[0] || null })} className="block w-full text-sm" />
+                    {group.excelFile ? (
+                      <p className="text-xs text-muted-foreground">已手动选择：{group.excelFile.name}</p>
+                    ) : autoExcel ? (
+                      <p className="text-xs text-muted-foreground">
+                        自动匹配：将使用档案 Excel {autoExcel.originalName || "申根 Excel"}
+                        {autoExcel.uploadedAt ? `（更新于 ${formatUploadedAt(autoExcel.uploadedAt)}）` : ""}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-amber-700 dark:text-amber-400">当前档案没有可用 Excel，请先上传。</p>
+                    )}
                   </div>
                 </div>
-              </Card>
+              </div>
             )
           })}
         </div>
 
-        {groups.length > 0 && (
-          <div className="flex justify-end">
-            <Button onClick={handleSubmit} disabled={loading} className="h-10 min-w-[180px] gap-2">
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              <span>{loading ? "处理中..." : buttonLabel}</span>
-            </Button>
-          </div>
-        )}
+        <div className="flex flex-wrap justify-between gap-3">
+          <Button type="button" variant="outline" onClick={() => addGroup()}>
+            <Plus className="mr-2 h-4 w-4" />
+            新增申请组
+          </Button>
+          <Button onClick={handleSubmit} disabled={loading} className="h-10 min-w-[180px] gap-2">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            <span>{loading ? "处理中..." : buttonLabel}</span>
+          </Button>
+        </div>
 
         {result && (
-          <Alert variant={result.success ? "default" : "destructive"} className="mt-4">
+          <Alert variant={result.success ? "default" : "destructive"}>
             {result.success ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
-            <AlertDescription>
-              {result.success ? result.message : result.error}
-              {result.success && (result.task_id || (result.task_ids && result.task_ids.length > 0) || result.message) && (
-                <p className="mt-2 text-sm text-muted-foreground">请在下方任务列表查看进度和下载链接。</p>
-              )}
+            <AlertDescription>{result.success ? result.message : result.error}</AlertDescription>
+          </Alert>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function FranceReviewClipboardCard({
+  showLoginPrompt,
+  activeApplicantId,
+  activeApplicantName,
+  profiles,
+}: {
+  showLoginPrompt: () => void
+  activeApplicantId?: string
+  activeApplicantName?: string
+  profiles: ApplicantProfileOption[]
+}) {
+  const [applicantProfileId, setApplicantProfileId] = useState(activeApplicantId || "")
+  const [preview, setPreview] = useState("")
+  const [previewApplicants, setPreviewApplicants] = useState<FranceReviewApplicant[]>([])
+  const [loading, setLoading] = useState(false)
+  const [exportingImage, setExportingImage] = useState(false)
+  const [error, setError] = useState("")
+  const captureRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (activeApplicantId) setApplicantProfileId(activeApplicantId)
+  }, [activeApplicantId])
+
+  const selectedProfile = useMemo(
+    () => (applicantProfileId ? profiles.find((item) => item.id === applicantProfileId) : undefined),
+    [applicantProfileId, profiles],
+  )
+  const selectedAutoApplicantsJson = getProfileFranceApplicationJson(selectedProfile)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadPreview = async () => {
+      setPreview("")
+      setPreviewApplicants([])
+      setError("")
+      if (!applicantProfileId.trim()) return
+      if (!selectedAutoApplicantsJson) {
+        setError("当前档案还没有“生成新申请”产出的 applicants JSON。")
+        return
+      }
+
+      setLoading(true)
+      try {
+        const response = await fetch(`/api/applicants/${applicantProfileId.trim()}/files/franceApplicationJson`, {
+          cache: "no-store",
+          credentials: "include",
+        })
+        if (response.status === 401) {
+          showLoginPrompt()
+          throw new Error("AUTH_REQUIRED")
+        }
+        if (!response.ok) {
+          throw new Error("无法读取档案中的 applicants JSON")
+        }
+        const parsed = JSON.parse(await response.text())
+        const applicants = extractFranceReviewApplicants(parsed)
+        const text = buildFranceReviewClipboardText(applicants)
+        if (!cancelled) {
+          setPreview(text)
+          setPreviewApplicants(applicants.length > 0 ? applicants : [{}])
+        }
+      } catch (loadError) {
+        if ((loadError as Error)?.message === "AUTH_REQUIRED") return
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : "加载复制模板失败")
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void loadPreview()
+    return () => {
+      cancelled = true
+    }
+  }, [applicantProfileId, selectedAutoApplicantsJson, showLoginPrompt])
+
+  const handleCopy = async () => {
+    if (!preview) {
+      toast.warning("当前没有可复制的个人信息模板")
+      return
+    }
+    try {
+      await copyTextToClipboard(preview)
+      toast.success("个人信息模板已复制到剪贴板")
+    } catch (copyError) {
+      toast.error(copyError instanceof Error ? copyError.message : "复制失败")
+    }
+  }
+
+  const getCaptureDataUrl = async () => {
+    if (!captureRef.current) {
+      throw new Error("未找到可导出的内容区域")
+    }
+    const { toPng } = await import("html-to-image")
+    return toPng(captureRef.current, {
+      cacheBust: true,
+      pixelRatio: 2,
+      backgroundColor: "#ffffff",
+    })
+  }
+
+  const handleCopyAsImage = async () => {
+    if (!previewApplicants.length) {
+      toast.warning("当前没有可复制的内容")
+      return
+    }
+    if (typeof window === "undefined" || typeof navigator === "undefined" || !(window as any).ClipboardItem) {
+      toast.error("当前浏览器不支持复制图片，请使用下载 PNG")
+      return
+    }
+    setExportingImage(true)
+    try {
+      const dataUrl = await getCaptureDataUrl()
+      const blob = await (await fetch(dataUrl)).blob()
+      await navigator.clipboard.write([new (window as any).ClipboardItem({ "image/png": blob })])
+      toast.success("已复制图片到剪贴板")
+    } catch (imageError) {
+      toast.error(imageError instanceof Error ? imageError.message : "复制图片失败")
+    } finally {
+      setExportingImage(false)
+    }
+  }
+
+  const handleDownloadPng = async () => {
+    if (!previewApplicants.length) {
+      toast.warning("当前没有可下载的内容")
+      return
+    }
+    setExportingImage(true)
+    try {
+      const dataUrl = await getCaptureDataUrl()
+      const link = document.createElement("a")
+      link.href = dataUrl
+      link.download = `france-review-${Date.now()}.png`
+      link.click()
+      toast.success("已下载 PNG")
+    } catch (imageError) {
+      toast.error(imageError instanceof Error ? imageError.message : "下载 PNG 失败")
+    } finally {
+      setExportingImage(false)
+    }
+  }
+
+  const reviewTips = [
+    "姓和名绝对不能反",
+    "出生日期重点检查月和日",
+    "国籍信息必须准确",
+    "护照类型统一检查为 Ordinary passport",
+    "护照号重点检查 I/L/1/O/0",
+    "签发日期和到期日期要一起核对",
+    "手机号码应为 10 位且不带前导 0",
+  ]
+
+  return (
+    <Card className="overflow-hidden rounded-2xl border border-gray-200/50 bg-white/80 shadow-lg backdrop-blur-md dark:border-gray-800/50 dark:bg-gray-900/60">
+      <CardHeader className="border-b border-gray-100 dark:border-gray-800/50">
+        <CardTitle>个人信息复制模板</CardTitle>
+        <CardDescription>自动读取“生成新申请”产出的 applicants JSON，生成可复制的审核信息模板。</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 pt-6">
+        {activeApplicantId && (
+          <Alert className="border-blue-200/50 bg-blue-50/30 dark:border-blue-900/40 dark:bg-blue-950/20">
+            <AlertDescription className="text-sm">
+              当前顶部已选档案“{activeApplicantName || "申请人"}”，可直接读取该档案的 applicants JSON。
             </AlertDescription>
           </Alert>
         )}
+
+        <div className="space-y-2">
+          <Label>申请人档案</Label>
+          {profiles.length === 0 ? (
+            <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">暂无申请人档案。</p>
+          ) : (
+            <Select value={applicantProfileId || undefined} onValueChange={setApplicantProfileId}>
+              <SelectTrigger>
+                <SelectValue placeholder="选择申请人档案" />
+              </SelectTrigger>
+              <SelectContent>
+                {profiles.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.name || item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {applicantProfileId && (
+            <p className="text-xs text-muted-foreground">
+              {selectedAutoApplicantsJson
+                ? `自动匹配：${selectedAutoApplicantsJson.originalName || "franceApplicationJson"}${
+                    selectedAutoApplicantsJson.uploadedAt ? `（更新于 ${formatUploadedAt(selectedAutoApplicantsJson.uploadedAt)}）` : ""
+                  }`
+                : "当前档案暂无 applicants JSON，请先执行“生成新申请”。"}
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" onClick={handleCopyAsImage} disabled={!previewApplicants.length || loading || exportingImage}>
+            {exportingImage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            复制为图片
+          </Button>
+          <Button type="button" variant="outline" onClick={handleDownloadPng} disabled={!previewApplicants.length || loading || exportingImage}>
+            {exportingImage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            下载 PNG
+          </Button>
+          <Button type="button" variant="outline" onClick={handleCopy} disabled={!preview || loading || exportingImage}>
+            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            复制个人信息模板
+          </Button>
+        </div>
+
+        <div ref={captureRef} className="rounded-xl border border-gray-200 bg-white p-4">
+          {previewApplicants.length > 0 ? (
+            <div className="space-y-4">
+            {previewApplicants.map((applicant, index) => (
+              <div key={`review-applicant-${index}`} className="overflow-hidden rounded-xl border border-gray-200">
+                <div className="bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900">
+                  {previewApplicants.length > 1 ? `申请人 ${index + 1}` : "申请人信息"}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2">
+                  {[
+                    ["姓 / Family name", applicant.familyName || "-"],
+                    ["名 / First name(s)", applicant.firstName || "-"],
+                    ["出生日期 / Date of birth", formatReviewDate(applicant.dateOfBirth) || "-"],
+                    ["当前国籍 / Current nationality", applicant.nationality || "-"],
+                    ["护照类型 / Passport type", applicant.passportType || "-"],
+                    ["护照号 / Travel document number", applicant.passportNumber || "-"],
+                    ["护照签发日期 / Issue date", formatReviewDate(applicant.passportIssueDate) || "-"],
+                    ["护照到期日期 / Expiry date", formatReviewDate(applicant.passportExpiryDate) || "-"],
+                    ["手机号码 / Mobile number", applicant.mobileNumber || "-"],
+                  ].map(([label, value]) => (
+                    <div key={`${index}-${label}`} className="border-t border-gray-100 px-3 py-2">
+                      <div className="text-xs text-gray-500">{label}</div>
+                      <div className="mt-1 text-sm font-medium text-gray-900">{value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <div className="text-sm font-semibold text-amber-900">审核建议</div>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-amber-900/90">
+                {reviewTips.map((tip) => (
+                  <li key={tip}>{tip}</li>
+                ))}
+              </ul>
+            </div>
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed px-3 py-6 text-sm text-muted-foreground">
+              {error ? `预览加载失败：${error}` : "这里会显示个人信息表格预览。请选择档案后自动生成。"}
+            </div>
+          )}
+          {previewApplicants.length > 0 ? (
+            <div className="mt-3 text-[11px] text-gray-400">导出时间：{new Date().toLocaleString("zh-CN", { hour12: false })}</div>
+          ) : null}
+        </div>
+
+        <details className="rounded-md border border-gray-200 bg-gray-50/50 p-3">
+          <summary className="cursor-pointer text-xs font-medium text-gray-600">查看原始复制文本</summary>
+          <Textarea
+            readOnly
+            className="mt-3 min-h-[180px] font-mono text-xs"
+            value={preview || ""}
+          />
+        </details>
       </CardContent>
     </Card>
   )
@@ -683,6 +1059,7 @@ function TlsRegisterCard({
   profiles: ApplicantProfileOption[]
   canUseApplicantProfile: boolean
 }) {
+  const activeApplicant = useActiveApplicantProfile()
   const [location, setLocation] = useState<string>(locationDefault)
   const [applicantProfileId, setApplicantProfileId] = useState<string>(activeApplicantId || "")
   const [excelFile, setExcelFile] = useState<File | null>(null)
@@ -717,7 +1094,7 @@ function TlsRegisterCard({
       return
     }
     if (!excelFile && !selectedHasSchengenExcel) {
-      setResult({ success: false, error: "所选档案没有申根 Excel，请先在「申请人」页上传申根表，或手动上传 Excel。" })
+      setResult({ success: false, error: "所选档案没有申根 Excel，请先在“申请人”页上传申根表，或手动上传 Excel。" })
       return
     }
     setLoading(true)
@@ -726,6 +1103,9 @@ function TlsRegisterCard({
       const formData = new FormData()
       if (excelFile) formData.append("excel", excelFile)
       if (applicantProfileId.trim()) formData.append("applicantProfileId", applicantProfileId.trim())
+      if (activeApplicantId && applicantProfileId.trim() === activeApplicantId && activeApplicant?.activeCaseId) {
+        formData.append("caseId", activeApplicant.activeCaseId)
+      }
       formData.append("location", resolvedLocation)
 
       const res = await fetch("/api/schengen/france/tls-register", { method: "POST", body: formData, credentials: "include" })
@@ -752,14 +1132,14 @@ function TlsRegisterCard({
       <CardHeader className="border-b border-gray-100 dark:border-gray-800/50">
         <CardTitle>TLS 账户注册</CardTitle>
         <CardDescription>
-          默认只用 Excel：可直接上传 Excel，或自动使用申请人档案里的申根 Excel，并自动生成 TLS 注册所需 accounts JSON。
+          默认只用 Excel：可直接上传 Excel，或自动使用申请人档案里的申根 Excel，并自动生成 TLS 注册所需的 accounts JSON。
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-6 space-y-5">
         {canUseApplicantProfile && activeApplicantId && (
           <Alert className="border-blue-200/50 bg-blue-50/30 dark:border-blue-900/40 dark:bg-blue-950/20">
             <AlertDescription className="text-sm">
-              当前顶部已选档案「{activeApplicantName || "申请人"}」。不上传文件时会自动使用该档案的申根 Excel 生成注册账号数据。
+              当前顶部已选档案“{activeApplicantName || "申请人"}”。不上传文件时会自动使用该档案的申根 Excel 生成注册账号数据。
             </AlertDescription>
           </Alert>
         )}
@@ -861,11 +1241,21 @@ function TlsApplyCard({
   profiles: ApplicantProfileOption[]
   canUseApplicantProfile: boolean
 }) {
+  const activeApplicant = useActiveApplicantProfile()
   const [location, setLocation] = useState<string>(locationDefault)
   const [applicantProfileId, setApplicantProfileId] = useState<string>(activeApplicantId || "")
   const [applicantsFile, setApplicantsFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<{ success: boolean; message?: string; error?: string; task_id?: string; task_ids?: string[] } | null>(null)
+  const [reviewPreview, setReviewPreview] = useState("")
+  const [reviewPreviewLoading, setReviewPreviewLoading] = useState(false)
+  const [reviewPreviewError, setReviewPreviewError] = useState("")
+  const [result, setResult] = useState<{
+    success: boolean
+    message?: string
+    error?: string
+    task_id?: string
+    task_ids?: string[]
+  } | null>(null)
 
   useEffect(() => {
     if (activeApplicantId) setApplicantProfileId(activeApplicantId)
@@ -882,6 +1272,9 @@ function TlsApplyCard({
   const selectedAutoApplicantsJson = getProfileFranceApplicationJson(selectedProfile)
   const autoApplicantsLabel = selectedAutoApplicantsJson?.originalName || "franceApplicationJson"
   const autoApplicantsUploadedAt = formatUploadedAt(selectedAutoApplicantsJson?.uploadedAt)
+  const preferredPreviewCaseId =
+    activeApplicantId && applicantProfileId.trim() === activeApplicantId ? activeApplicant?.activeCaseId : undefined
+  const legacyReviewPreviewEnabled = false
 
   useEffect(() => {
     if (selectedProfileCity) {
@@ -889,19 +1282,151 @@ function TlsApplyCard({
     }
   }, [selectedProfileCity])
 
-  const handleSubmit = async () => {
+  useEffect(() => {
+    let cancelled = false
+
+    const loadReviewPreview = async () => {
+      setReviewPreview("")
+      setReviewPreviewError("")
+
+      if (!legacyReviewPreviewEnabled) {
+        return
+      }
+
+      if (applicantsFile) {
+        setReviewPreviewLoading(true)
+        try {
+          const raw = await applicantsFile.text()
+          const parsed = JSON.parse(raw)
+          const applicants = extractFranceReviewApplicants(parsed)
+          if (!cancelled) {
+            setReviewPreview(buildFranceReviewClipboardText(applicants))
+          }
+        } catch (error) {
+          if (!cancelled) {
+            setReviewPreviewError(error instanceof Error ? error.message : "无法解析 applicants JSON")
+          }
+        } finally {
+          if (!cancelled) setReviewPreviewLoading(false)
+        }
+        return
+      }
+
+      if (!applicantProfileId.trim() || !selectedAutoApplicantsJson) {
+        return
+      }
+
+      setReviewPreviewLoading(true)
+      try {
+        const response = await fetch(`/api/applicants/${applicantProfileId.trim()}/files/franceApplicationJson`, {
+          cache: "no-store",
+          credentials: "include",
+        })
+        if (!response.ok) {
+          throw new Error("无法读取已存档的 France-visas JSON")
+        }
+        const parsed = JSON.parse(await response.text())
+        const applicants = extractFranceReviewApplicants(parsed)
+        if (!cancelled) {
+          setReviewPreview(buildFranceReviewClipboardText(applicants))
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setReviewPreviewError(error instanceof Error ? error.message : "加载审核预览失败")
+        }
+      } finally {
+        if (!cancelled) setReviewPreviewLoading(false)
+      }
+    }
+
+    void loadReviewPreview()
+
+    return () => {
+      cancelled = true
+    }
+  }, [applicantProfileId, applicantsFile, legacyReviewPreviewEnabled, selectedAutoApplicantsJson])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadTlsTemplatePreview = async () => {
+      if (!applicantProfileId.trim()) return
+
+      setReviewPreviewLoading(true)
+      try {
+        const response = await fetch(`/api/applicants/${applicantProfileId.trim()}`, {
+          cache: "no-store",
+          credentials: "include",
+        })
+        if (!response.ok) {
+          throw new Error("无法读取申请人档案信息")
+        }
+
+        const parsed = (await response.json()) as TlsApplyPreviewResponse
+        const cases = Array.isArray(parsed.cases) ? parsed.cases : []
+        const previewCase = selectTlsPreviewCase(cases, preferredPreviewCaseId, parsed.activeCaseId)
+        const previewPayload: TlsApplyClipboardPayload = {
+          name: parsed.profile?.name || parsed.profile?.label || selectedProfile?.name || selectedProfile?.label || "",
+          bookingWindow: previewCase?.bookingWindow || "",
+          acceptVip: previewCase?.acceptVip || "",
+          city: previewCase?.tlsCity || resolvedLocation || "",
+          phone: parsed.profile?.phone || selectedProfile?.phone || "",
+          paymentAccount: "",
+          paymentPassword: "",
+          paymentLink: "https://visas-fr.tlscontact.com/en-us/country/gb",
+        }
+
+        if (!cancelled) {
+          setReviewPreview(buildTlsApplyClipboardText(previewPayload))
+          setReviewPreviewError("")
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setReviewPreviewError(error instanceof Error ? error.message : "加载 TLS 模板预览失败")
+        }
+      } finally {
+        if (!cancelled) setReviewPreviewLoading(false)
+      }
+    }
+
+    void loadTlsTemplatePreview()
+
+    return () => {
+      cancelled = true
+    }
+  }, [applicantProfileId, preferredPreviewCaseId, resolvedLocation, selectedProfile])
+
+  const handleCopyTlsPreview = async () => {
+    if (!reviewPreview) {
+      toast.warning("当前没有可复制的 TLS 模板")
+      return
+    }
+
+    try {
+      await copyTextToClipboard(reviewPreview)
+      if (reviewPreview.includes("2. 预约时间段：")) {
+        toast.warning("该 Case 尚未配置预约时间段")
+      }
+      toast.success("TLS 模板已复制到剪贴板")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "复制 TLS 模板失败")
+    }
+  }
+
+  const handleSubmitTls = async () => {
     if (!applicantProfileId.trim()) {
       setResult({ success: false, error: "请选择申请人档案" })
       return
     }
     if (!selectedHasSchengenExcel) {
-      setResult({ success: false, error: "所选档案没有申根 Excel，请先在「申请人」页为该档案上传，或换一个有申根表的档案。" })
+      setResult({ success: false, error: "所选档案缺少申根 Excel，无法读取 TLS 账号信息" })
       return
     }
     if (!resolvedLocation) {
-      setResult({ success: false, error: "请先在申请人档案里补上 TLS 递签城市，或在这里手动选择城市" })
+      setResult({ success: false, error: "未识别到 TLS 递签城市，请先在档案中设置城市" })
       return
     }
+
     setLoading(true)
     setResult(null)
     try {
@@ -909,6 +1434,9 @@ function TlsApplyCard({
       if (applicantsFile) formData.append("applicants", applicantsFile)
       formData.append("location", resolvedLocation)
       formData.append("applicantProfileId", applicantProfileId.trim())
+      if (activeApplicantId && applicantProfileId.trim() === activeApplicantId && activeApplicant?.activeCaseId) {
+        formData.append("caseId", activeApplicant.activeCaseId)
+      }
 
       const res = await fetch("/api/schengen/france/tls-apply", { method: "POST", body: formData, credentials: "include" })
       if (res.status === 401) {
@@ -917,13 +1445,34 @@ function TlsApplyCard({
       }
       const data = await res.json()
       if (!res.ok || !data.success) {
-        setResult({ success: false, error: data.error || data.message || "TLS 填表失败" })
+        setResult({ success: false, error: data.error || data.message || "TLS 提交失败" })
         return
       }
-      setResult({ success: true, message: data.message, task_id: data.task_id, task_ids: data.task_ids })
-    } catch (e) {
-      if ((e as Error)?.message === "AUTH_REQUIRED") return
-      setResult({ success: false, error: e instanceof Error ? e.message : "TLS 填表失败" })
+
+      const clipboard = (data.clipboard || {}) as TlsApplyClipboardPayload
+      const clipboardText = buildTlsApplyClipboardText(clipboard)
+      setReviewPreview(clipboardText)
+      setReviewPreviewError("")
+
+      try {
+        await copyTextToClipboard(clipboardText)
+        if (hasMissingTlsBookingWindow(clipboard)) {
+          toast.warning("该 Case 尚未配置预约时间段")
+        }
+        toast.success("TLS 模板已复制到剪贴板")
+      } catch (clipboardError) {
+        toast.error(clipboardError instanceof Error ? clipboardError.message : "复制模板失败")
+      }
+
+      setResult({
+        success: true,
+        message: `${data.message || "TLS 提交任务已创建"}，并已复制 TLS 模板`,
+        task_id: data.task_id,
+        task_ids: data.task_ids,
+      })
+    } catch (error) {
+      if ((error as Error)?.message === "AUTH_REQUIRED") return
+      setResult({ success: false, error: error instanceof Error ? error.message : "TLS 提交失败" })
     } finally {
       setLoading(false)
     }
@@ -934,15 +1483,14 @@ function TlsApplyCard({
       <CardHeader className="border-b border-gray-100 dark:border-gray-800/50">
         <CardTitle>TLS 填表提交</CardTitle>
         <CardDescription>
-          与填写回执单相同：TLS 登录邮箱、密码从所选档案的<strong className="font-medium text-foreground">申根 Excel</strong>自动读取（更新档案 Excel
-          后即更新，无需手填）。applicants 可手动上传；不上传时自动使用「生成新申请」已存档 JSON。
+          与填写回执单相同，TLS 登录邮箱、密码从所选档案的<strong className="font-medium text-foreground">申根 Excel</strong>自动读取；applicants 可手动上传，不上传时自动使用“生成新申请”已存档 JSON。
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-6 space-y-5">
         {canUseApplicantProfile && activeApplicantId && (
           <Alert className="border-blue-200/50 bg-blue-50/30 dark:border-blue-900/40 dark:bg-blue-950/20">
             <AlertDescription className="text-sm">
-              当前顶部已选档案「{activeApplicantName || "申请人"}」含申根 Excel。你可在此选择同一档案或其他档案；账号信息均从对应档案的 Excel 解析。
+              当前顶部已选档案“{activeApplicantName || "申请人"}”，账号信息会从对应档案的 Excel 自动解析。
             </AlertDescription>
           </Alert>
         )}
@@ -973,7 +1521,7 @@ function TlsApplyCard({
           <Label htmlFor="tls-apply-profile">申请人档案（用于读取 Excel 中的邮箱/密码）</Label>
           {profiles.length === 0 ? (
             <p id="tls-apply-profile" className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-              暂无申请人档案，请先在「申请人」页创建并上传申根 Excel。
+              暂无申请人档案，请先在“申请人”页创建并上传申根 Excel。
             </p>
           ) : (
             <Select value={applicantProfileId || undefined} onValueChange={setApplicantProfileId}>
@@ -1002,15 +1550,46 @@ function TlsApplyCard({
               自动匹配：
               {selectedAutoApplicantsJson
                 ? ` 将使用档案文件 ${autoApplicantsLabel}${autoApplicantsUploadedAt ? `（更新于 ${autoApplicantsUploadedAt}）` : ""}`
-                : " 当前档案还没有生成新申请 JSON，请先执行「生成新申请」或手动上传 applicants 文件。"}
+                : " 当前档案还没有生成新申请 JSON，请先执行“生成新申请”或手动上传 applicants 文件。"}
             </p>
           )}
           {applicantsFile && <p className="text-xs text-muted-foreground">已手动选择：{applicantsFile.name}（本次优先使用手动文件）</p>}
         </div>
 
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="tls-apply-review-preview">TLS 信息预览</Label>
+            <div className="flex items-center gap-2">
+              {reviewPreviewLoading ? <span className="text-xs text-muted-foreground">加载中...</span> : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void handleCopyTlsPreview()}
+                disabled={!reviewPreview}
+                className="h-8 gap-2"
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+                <span>复制 TLS 信息</span>
+              </Button>
+            </div>
+          </div>
+          <Textarea
+            id="tls-apply-review-preview"
+            value={
+              reviewPreview ||
+              (reviewPreviewError
+                ? `预览加载失败：${reviewPreviewError}`
+                : "这里会显示最终复制到剪贴板的 TLS 模板内容。提交前可先检查抢号区间、VIP、城市和电话。")
+            }
+            readOnly
+            className="min-h-[320px] font-mono text-xs"
+          />
+        </div>
+
         <div className="flex justify-end gap-2">
           <Button
-            onClick={handleSubmit}
+            onClick={handleSubmitTls}
             disabled={loading || !applicantProfileId.trim() || !selectedHasSchengenExcel}
             className="h-10 min-w-[180px] gap-2"
           >

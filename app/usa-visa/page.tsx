@@ -23,7 +23,7 @@ export default function USAVisaPage() {
         </div>
 
         <div className="w-full mx-auto">
-          <ApplicantProfileSelector />
+          <ApplicantProfileSelector scope="usa-visa" />
           <UsVisaQuickStartCard />
           <Tabs defaultValue="photo" className="w-full">
             <TabsList className="grid w-full grid-cols-4 h-12 mb-6 bg-gray-100/80 dark:bg-black/50 backdrop-blur-xl p-1 rounded-2xl border border-gray-200/50 dark:border-white/10 shadow-lg">

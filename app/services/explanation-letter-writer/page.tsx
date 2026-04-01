@@ -371,6 +371,7 @@ export default function ExplanationLetterWriterPage() {
           detailed_explanation: data.issue_details,
           additional_info: data.additional_info || '',
           applicantProfileId: activeApplicant?.id,
+          caseId: activeApplicant?.activeCaseId,
         }),
       })
 
@@ -402,7 +403,7 @@ export default function ExplanationLetterWriterPage() {
         </Button>
       </div>
 
-      <ApplicantProfileSelector />
+      <ApplicantProfileSelector scope="france-schengen" />
 
       <div className="mx-auto mb-6 max-w-4xl rounded-lg border border-dashed border-blue-200 bg-blue-50/60 p-3 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-100">
         {activeApplicant?.id
