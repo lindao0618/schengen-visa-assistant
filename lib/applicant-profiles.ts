@@ -75,6 +75,18 @@ export interface ApplicantProfile {
   notes?: string
 }
 
+export interface ApplicantFranceAutomationProfile {
+  id: string
+  label: string
+  name?: string
+  phone?: string
+  schengen?: {
+    country?: string
+    city?: string
+  }
+  files: Partial<Record<"schengenExcel" | "franceExcel" | "franceApplicationJson", ApplicantProfileFileMeta>>
+}
+
 export type ApplicantProfileInput = Partial<
   Omit<ApplicantProfile, "id" | "userId" | "files" | "createdAt" | "updatedAt">
 >
@@ -356,6 +368,38 @@ export async function listApplicantProfiles(userId: string, role?: string) {
   })
   const hydratedProfiles = await Promise.all(profiles.map(hydrateSchengenCityFromStoredExcel))
   return hydratedProfiles.map(toApplicantProfile)
+}
+
+export async function listFranceAutomationApplicantProfiles(userId: string, role?: string) {
+  const isAdmin = await resolveIsAdmin(userId, role)
+  const profiles = await prisma.applicantProfile.findMany({
+    where: buildApplicantAccessWhere(userId, isAdmin),
+    include: {
+      files: {
+        where: {
+          slot: {
+            in: ["schengenExcel", "franceExcel", "franceApplicationJson"],
+          },
+        },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  })
+
+  return profiles.map((profile) => {
+    const name = normalizeText(profile.name) || "未命名申请人"
+    return {
+      id: profile.id,
+      label: name,
+      name,
+      phone: normalizeText(profile.phone) || undefined,
+      schengen: {
+        country: normalizeText(profile.schengenCountry) || undefined,
+        city: normalizeSchengenCity(profile.schengenVisaCity),
+      },
+      files: mapFiles(profile.files) as ApplicantFranceAutomationProfile["files"],
+    } satisfies ApplicantFranceAutomationProfile
+  })
 }
 
 export async function getApplicantProfile(userId: string, id: string, role?: string) {

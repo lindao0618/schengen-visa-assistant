@@ -11,6 +11,8 @@ import {
   updateApplicantProfileUsVisaDetails,
 } from "@/lib/applicant-profiles"
 import { extractFranceTlsCityFromExcelBuffer } from "@/lib/france-tls-city-excel"
+import { auditSchengenExcelBuffer, type SchengenExcelAuditResult } from "@/lib/schengen-excel-audit"
+import { auditUsVisaExcelBuffer, type UsVisaExcelAuditResult } from "@/lib/us-visa-excel-audit"
 import { extractUsVisaApplicantDetailsFromExcelBuffer } from "@/lib/us-visa-excel-parser"
 
 export const dynamic = "force-dynamic"
@@ -64,10 +66,18 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
           city?: string
         }
       | undefined
+    let schengenAudit:
+      | SchengenExcelAuditResult
+      | undefined
+    let usVisaAudit:
+      | UsVisaExcelAuditResult
+      | undefined
 
     if (excelEntry) {
+      const usBuffer = Buffer.from(await excelEntry.file.arrayBuffer())
+      usVisaAudit = auditUsVisaExcelBuffer(usBuffer)
       const parsed = extractUsVisaApplicantDetailsFromExcelBuffer(
-        Buffer.from(await excelEntry.file.arrayBuffer()),
+        usBuffer,
       )
       if (parsed.surname || parsed.birthYear || parsed.passportNumber) {
         const updatedProfile = await updateApplicantProfileUsVisaDetails(session.user.id, params.id, parsed)
@@ -79,8 +89,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     if (schengenExcelEntry) {
+      const schengenBuffer = Buffer.from(await schengenExcelEntry.file.arrayBuffer())
+      schengenAudit = auditSchengenExcelBuffer(schengenBuffer)
       const city = extractFranceTlsCityFromExcelBuffer(
-        Buffer.from(await schengenExcelEntry.file.arrayBuffer()),
+        schengenBuffer,
       )
       if (city) {
         const updatedProfile = await updateApplicantProfileSchengenDetails(session.user.id, params.id, { city })
@@ -91,7 +103,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       }
     }
 
-    return NextResponse.json({ profile, parsedUsVisaDetails, parsedSchengenDetails })
+    return NextResponse.json({ profile, parsedUsVisaDetails, parsedSchengenDetails, schengenAudit, usVisaAudit })
   } catch (error) {
     return handleApplicantProfileApiError(error)
   }

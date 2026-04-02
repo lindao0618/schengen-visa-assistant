@@ -10,13 +10,41 @@ from docx.enum.section import WD_ORIENT
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Mm, Inches, Pt
-from docx2pdf import convert
 import shutil
 import os
 import re
 import base64
 import logging
+import subprocess
 from pathlib import Path
+
+try:
+    from docx2pdf import convert as docx2pdf_convert
+except Exception:
+    docx2pdf_convert = None
+
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+except Exception:
+    colors = None
+    A4 = None
+    landscape = None
+    ParagraphStyle = None
+    getSampleStyleSheet = None
+    mm = None
+    pdfmetrics = None
+    UnicodeCIDFont = None
+    Paragraph = None
+    SimpleDocTemplate = None
+    Spacer = None
+    Table = None
+    TableStyle = None
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -43,6 +71,192 @@ app.add_middleware(
 )
 
 TABLE_COLUMN_WIDTHS_MM = [14, 24, 32, 84, 108]
+
+
+def get_libreoffice_candidates() -> list[str]:
+    candidates: list[str] = []
+
+    env_bin = os.environ.get("LIBREOFFICE_BIN", "").strip()
+    if env_bin:
+        candidates.append(env_bin)
+
+    for name in ("soffice", "libreoffice"):
+        resolved = shutil.which(name)
+        if resolved:
+            candidates.append(resolved)
+
+    if os.name == "nt":
+        candidates.extend(
+            [
+                r"C:\Program Files\LibreOffice\program\soffice.exe",
+                r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+            ]
+        )
+
+    seen: set[str] = set()
+    unique_candidates: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            unique_candidates.append(candidate)
+    return unique_candidates
+
+
+def convert_docx_to_pdf(output_docx: str, output_pdf: str):
+    if docx2pdf_convert is not None:
+        try:
+            logger.info("Converting Word to PDF via docx2pdf...")
+            docx2pdf_convert(output_docx, output_pdf)
+            if os.path.exists(output_pdf):
+                logger.info(f"PDF saved as: {output_pdf}")
+                return
+        except Exception as exc:
+            logger.warning(f"docx2pdf failed ({exc}), trying LibreOffice...")
+    else:
+        logger.info("docx2pdf unavailable, trying LibreOffice...")
+
+    abs_docx = os.path.abspath(output_docx)
+    out_dir = os.path.dirname(abs_docx)
+    generated_pdf = os.path.splitext(abs_docx)[0] + ".pdf"
+    conversion_errors: list[str] = []
+
+    for prog in get_libreoffice_candidates():
+        try:
+            logger.info(f"Trying LibreOffice converter: {prog}")
+            result = subprocess.run(
+                [prog, "--headless", "--convert-to", "pdf", "--outdir", out_dir, abs_docx],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=os.getcwd(),
+            )
+            logger.info(
+                "LibreOffice conversion result",
+                extra={
+                    "returncode": result.returncode,
+                    "stdout": (result.stdout or "").strip(),
+                    "stderr": (result.stderr or "").strip(),
+                },
+            )
+            if result.returncode == 0 and os.path.exists(generated_pdf):
+                if os.path.abspath(generated_pdf) != os.path.abspath(output_pdf):
+                    shutil.move(generated_pdf, output_pdf)
+                logger.info("PDF created via LibreOffice")
+                return
+            conversion_errors.append(
+                f"{prog}: code={result.returncode}, stdout={result.stdout.strip()}, stderr={result.stderr.strip()}"
+            )
+        except FileNotFoundError:
+            conversion_errors.append(f"{prog}: not found")
+        except subprocess.TimeoutExpired:
+            conversion_errors.append(f"{prog}: timeout")
+        except Exception as exc:
+            conversion_errors.append(f"{prog}: {exc}")
+
+    raise RuntimeError(
+        "PDF 生成失败。当前未检测到可用的 Word/LibreOffice 转换器。"
+        + (" 详情: " + " | ".join(conversion_errors) if conversion_errors else "")
+    )
+
+
+def create_pdf_directly(rows, output_pdf: str):
+    if not all(
+        [
+            colors,
+            A4,
+            landscape,
+            ParagraphStyle,
+            getSampleStyleSheet,
+            mm,
+            pdfmetrics,
+            UnicodeCIDFont,
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        ]
+    ):
+        raise RuntimeError("缺少 reportlab，无法使用纯 Python 直接生成 PDF。")
+
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "ItineraryTitle",
+        parent=styles["Title"],
+        fontName="STSong-Light",
+        fontSize=18,
+        leading=22,
+        alignment=1,
+        spaceAfter=10,
+    )
+    header_style = ParagraphStyle(
+        "ItineraryHeader",
+        parent=styles["Normal"],
+        fontName="STSong-Light",
+        fontSize=10,
+        leading=12,
+        alignment=1,
+        textColor=colors.white,
+    )
+    center_style = ParagraphStyle(
+        "ItineraryCenterCell",
+        parent=styles["Normal"],
+        fontName="STSong-Light",
+        fontSize=9,
+        leading=11,
+        alignment=1,
+    )
+    left_style = ParagraphStyle(
+        "ItineraryLeftCell",
+        parent=styles["Normal"],
+        fontName="STSong-Light",
+        fontSize=9,
+        leading=11,
+        alignment=0,
+    )
+
+    doc = SimpleDocTemplate(
+        output_pdf,
+        pagesize=landscape(A4),
+        leftMargin=8 * mm,
+        rightMargin=8 * mm,
+        topMargin=10 * mm,
+        bottomMargin=10 * mm,
+    )
+    story = [Paragraph("Travel Itinerary", title_style), Spacer(1, 4 * mm)]
+    table_data = [
+        [
+            Paragraph("Day", header_style),
+            Paragraph("Date", header_style),
+            Paragraph("Transport", header_style),
+            Paragraph("Attractions", header_style),
+            Paragraph("Hotel Information", header_style),
+        ]
+    ]
+
+    for row in rows:
+        rendered = []
+        for index, value in enumerate(row):
+            text = str(value or "").replace("\n", "<br/>")
+            rendered.append(Paragraph(text, center_style if index in (0, 1, 2) else left_style))
+        table_data.append(rendered)
+
+    table = Table(table_data, colWidths=[width * mm for width in TABLE_COLUMN_WIDTHS_MM], repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#111827")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#9ca3af")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("PADDING", (0, 0), (-1, -1), 5),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
+            ]
+        )
+    )
+    story.append(table)
+    doc.build(story)
 
 
 def apply_table_layout(doc: Document, table):
@@ -340,41 +554,16 @@ def generate_itinerary(req: ItineraryRequest):
         logger.info("Analyzing itinerary")
         analysis = analyze_itinerary(rows)
         
-        # Create Word document first
-        logger.info("Creating Word document from template")
-        create_word_from_template(rows, "template.docx", output_docx)
-        logger.info(f"Word document saved as: {output_docx}")
-
-        # Convert Word to PDF (requires Microsoft Word on Windows)
+        # Prefer a pure-Python PDF path so we do not depend on Office being installed.
         try:
-            from docx2pdf import convert
-            logger.info("Converting Word to PDF...")
-            convert(output_docx, output_pdf)
-            logger.info(f"PDF saved as: {output_pdf}")
-        except Exception as pdf_err:
-            logger.warning(f"docx2pdf failed ({pdf_err}), trying LibreOffice...")
-            # Fallback: LibreOffice headless (if installed)
-            try:
-                import subprocess
-                abs_docx = os.path.abspath(output_docx)
-                out_dir = os.path.dirname(abs_docx)
-                for prog in ["soffice", "libreoffice"]:
-                    try:
-                        r = subprocess.run(
-                            [prog, "--headless", "--convert-to", "pdf", "--outdir", out_dir, abs_docx],
-                            capture_output=True, timeout=60, cwd=os.getcwd()
-                        )
-                        if os.path.exists(output_pdf):
-                            logger.info("PDF created via LibreOffice")
-                            break
-                    except (FileNotFoundError, subprocess.TimeoutExpired):
-                        continue
-            except Exception as e:
-                logger.warning(f"LibreOffice fallback failed: {e}")
-            if not os.path.exists(output_pdf):
-                raise RuntimeError(
-                    "PDF 生成失败。请安装 Microsoft Word 或 LibreOffice 以支持 Word 转 PDF。"
-                ) from pdf_err
+            logger.info("Creating PDF directly via reportlab")
+            create_pdf_directly(rows, output_pdf)
+        except Exception as pdf_error:
+            logger.warning(f"Direct PDF generation failed ({pdf_error}), falling back to docx conversion")
+            logger.info("Creating Word document from template")
+            create_word_from_template(rows, "template.docx", output_docx)
+            logger.info(f"Word document saved as: {output_docx}")
+            convert_docx_to_pdf(output_docx, output_pdf)
 
         logger.info("Reading generated file")
         with open(output_pdf, "rb") as pdf_file:

@@ -18,6 +18,12 @@ function getMultiValues(searchParams: URLSearchParams, key: string) {
     .filter(Boolean)
 }
 
+function getBooleanFlag(searchParams: URLSearchParams, key: string, defaultValue = false) {
+  const value = searchParams.get(key)
+  if (value === null) return defaultValue
+  return ["1", "true", "yes"].includes(value.toLowerCase())
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -32,7 +38,11 @@ export async function GET(request: NextRequest) {
       statuses: getMultiValues(searchParams, "statuses"),
       regions: getMultiValues(searchParams, "regions"),
       priorities: getMultiValues(searchParams, "priorities"),
-      includeSelectorCases: ["1", "true", "yes"].includes((searchParams.get("includeSelectorCases") || "").toLowerCase()),
+      includeStats: getBooleanFlag(searchParams, "includeStats"),
+      includeSelectorCases: getBooleanFlag(searchParams, "includeSelectorCases"),
+      includeProfiles: getBooleanFlag(searchParams, "includeProfiles", true),
+      includeProfileFiles: getBooleanFlag(searchParams, "includeProfileFiles", true),
+      includeAvailableAssignees: getBooleanFlag(searchParams, "includeAvailableAssignees"),
     })
 
     return NextResponse.json(data)

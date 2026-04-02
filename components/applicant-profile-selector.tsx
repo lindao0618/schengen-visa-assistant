@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
 import {
   BriefcaseBusiness,
@@ -9,6 +10,7 @@ import {
   ChevronsUpDown,
   Clock3,
   FolderOpen,
+  PencilLine,
   Search,
   ShieldCheck,
 } from "lucide-react"
@@ -32,6 +34,14 @@ import {
   getApplicantCrmVisaTypeLabel,
   normalizeApplicantCrmVisaType,
 } from "@/lib/applicant-crm-labels"
+import {
+  APPLICANT_DETAIL_CACHE_TTL_MS,
+  APPLICANT_SELECTOR_CACHE_KEY,
+  APPLICANT_SELECTOR_CACHE_TTL_MS,
+  getApplicantDetailCacheKey,
+  prefetchJsonIntoClientCache,
+  readClientCache,
+} from "@/lib/applicant-client-cache"
 import { formatFranceStatusLabel } from "@/lib/france-case-labels"
 import { cn } from "@/lib/utils"
 
@@ -381,11 +391,13 @@ function ApplicantOptionRow({
   const businessTag = getApplicantBusinessTagBadge(profile.businessTag)
 
   return (
-    <div className="flex w-full items-start gap-3">
+    <div className="group flex w-full items-start gap-3 rounded-2xl border border-transparent px-1 py-1 transition-colors">
       <div
         className={cn(
-          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
-          selected ? "border-gray-900 bg-gray-900 text-white" : "border-gray-300 bg-white text-transparent",
+          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors",
+          selected
+            ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-200"
+            : "border-gray-300 bg-white text-transparent",
         )}
       >
         <Check className="h-3.5 w-3.5" />
@@ -394,17 +406,17 @@ function ApplicantOptionRow({
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium text-gray-900">{profile.name || profile.label}</span>
           {businessTag && (
-            <Badge variant="outline" className={businessTag.className}>
+            <Badge variant="outline" className={cn("rounded-full px-2.5 py-0.5", businessTag.className)}>
               {businessTag.label}
             </Badge>
           )}
           {profile.usVisa?.aaCode && (
-            <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+            <Badge variant="outline" className="rounded-full border-blue-200 bg-blue-50 text-blue-700">
               AA {profile.usVisa.aaCode}
             </Badge>
           )}
           {hasMaterials && (
-            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+            <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-700">
               资料可复用
             </Badge>
           )}
@@ -422,12 +434,15 @@ function ApplicantOptionRow({
 }
 
 export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSelectorProps = {}) {
+  const router = useRouter()
   const { data: session } = useSession()
+  const containerRef = useRef<HTMLDivElement | null>(null)
   const [profiles, setProfiles] = useState<ApplicantSelectorOption[]>([])
   const [selectedId, setSelectedId] = useState("")
   const [selectedCaseId, setSelectedCaseId] = useState("")
   const [open, setOpen] = useState(false)
   const [caseLoading, setCaseLoading] = useState(false)
+  const [compactMode, setCompactMode] = useState(false)
   const [casesByApplicantId, setCasesByApplicantId] = useState<Record<string, ApplicantCaseOption[]>>({})
 
   const scopedProfiles = useMemo(
@@ -451,49 +466,81 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
     [currentCases, selectedCaseId],
   )
 
+  const applySelectorData = useCallback(
+    (data: ApplicantsSelectorResponse) => {
+      const rowMap = new Map((data.rows || []).map((row) => [row.id, row]))
+      const nextProfiles = ((data.profiles || []) as ApplicantProfileSummary[]).map((profile) => {
+        const row = rowMap.get(profile.id)
+        return {
+          ...profile,
+          visaType: row?.visaType,
+          region: row?.region,
+          updatedAt: row?.updatedAt || profile.updatedAt,
+          ownerId: row?.owner.id,
+          assigneeId: row?.assignee?.id ?? null,
+          activeCaseId: row?.activeCaseId ?? null,
+          currentStatusLabel: row?.currentStatusLabel,
+          priority: row?.priority,
+          businessTag: inferApplicantBusinessTag(profile, data.selectorCasesByApplicantId?.[profile.id]),
+        }
+      })
+      setProfiles(nextProfiles)
+      setCasesByApplicantId(data.selectorCasesByApplicantId || {})
+
+      const scoped = nextProfiles.filter((profile) =>
+        profileMatchesScope(profile, data.selectorCasesByApplicantId?.[profile.id], scope),
+      )
+      const savedId = window.localStorage.getItem(ACTIVE_APPLICANT_PROFILE_KEY) || ""
+      const nextSelected = savedId && scoped.some((profile) => profile.id === savedId) ? savedId : scoped[0]?.id || ""
+      setSelectedId(nextSelected)
+      if (nextSelected) {
+        window.localStorage.setItem(ACTIVE_APPLICANT_PROFILE_KEY, nextSelected)
+        buildRecentIds(nextSelected)
+      } else {
+        window.localStorage.removeItem(ACTIVE_APPLICANT_PROFILE_KEY)
+        setSelectedCaseId("")
+      }
+    },
+    [scope],
+  )
+
+  const prefetchActiveApplicantDetail = useCallback(() => {
+    if (!activeProfile?.id) return
+    const href = `/applicants/${activeProfile.id}?tab=materials`
+    router.prefetch(href)
+    void prefetchJsonIntoClientCache(getApplicantDetailCacheKey(activeProfile.id), `/api/applicants/${activeProfile.id}`, {
+      ttlMs: APPLICANT_DETAIL_CACHE_TTL_MS,
+    }).catch(() => {
+      // Ignore background prefetch failures.
+    })
+  }, [activeProfile?.id, router])
+
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch("/api/applicants?includeSelectorCases=1", { cache: "no-store" })
-        if (!res.ok) return
-        const data = (await res.json()) as ApplicantsSelectorResponse
-        const rowMap = new Map((data.rows || []).map((row) => [row.id, row]))
-        const nextProfiles = ((data.profiles || []) as ApplicantProfileSummary[]).map((profile) => {
-          const row = rowMap.get(profile.id)
-          return {
-            ...profile,
-            visaType: row?.visaType,
-            region: row?.region,
-            updatedAt: row?.updatedAt || profile.updatedAt,
-            ownerId: row?.owner.id,
-            assigneeId: row?.assignee?.id ?? null,
-            activeCaseId: row?.activeCaseId ?? null,
-            currentStatusLabel: row?.currentStatusLabel,
-            priority: row?.priority,
-            businessTag: inferApplicantBusinessTag(profile, data.selectorCasesByApplicantId?.[profile.id]),
-          }
-        })
-        setProfiles(nextProfiles)
-        setCasesByApplicantId(data.selectorCasesByApplicantId || {})
-
-        const scoped = nextProfiles.filter((profile) => profileMatchesScope(profile, data.selectorCasesByApplicantId?.[profile.id], scope))
-        const savedId = window.localStorage.getItem(ACTIVE_APPLICANT_PROFILE_KEY) || ""
-        const nextSelected = savedId && scoped.some((profile) => profile.id === savedId) ? savedId : scoped[0]?.id || ""
-        setSelectedId(nextSelected)
-        if (nextSelected) {
-          window.localStorage.setItem(ACTIVE_APPLICANT_PROFILE_KEY, nextSelected)
-          buildRecentIds(nextSelected)
-        } else {
-          window.localStorage.removeItem(ACTIVE_APPLICANT_PROFILE_KEY)
-          setSelectedCaseId("")
+        const cached = readClientCache<ApplicantsSelectorResponse>(APPLICANT_SELECTOR_CACHE_KEY)
+        if (cached) {
+          applySelectorData(cached)
+          return
         }
+
+        const data = await prefetchJsonIntoClientCache<ApplicantsSelectorResponse>(
+          APPLICANT_SELECTOR_CACHE_KEY,
+          "/api/applicants?includeSelectorCases=1&includeProfileFiles=0&includeAvailableAssignees=0",
+          { ttlMs: APPLICANT_SELECTOR_CACHE_TTL_MS },
+        )
+        applySelectorData(data)
       } catch (error) {
         console.error("加载申请人档案失败", error)
       }
     }
 
     void load()
-  }, [scope])
+  }, [applySelectorData])
+
+  useEffect(() => {
+    prefetchActiveApplicantDetail()
+  }, [prefetchActiveApplicantDetail])
 
   useEffect(() => {
     if (!selectedId) {
@@ -610,17 +657,52 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
         .filter((item) => item && item !== "-")
         .join(" · ")
 
+  useEffect(() => {
+    const updateCompactMode = () => {
+      const node = containerRef.current
+      if (!node) return
+      const rect = node.getBoundingClientRect()
+      setCompactMode(rect.top <= 80 && window.scrollY > 24)
+    }
+
+    updateCompactMode()
+    window.addEventListener("scroll", updateCompactMode, { passive: true })
+    window.addEventListener("resize", updateCompactMode)
+    return () => {
+      window.removeEventListener("scroll", updateCompactMode)
+      window.removeEventListener("resize", updateCompactMode)
+    }
+  }, [])
+
   return (
-    <Card className="mb-6 border-gray-200 bg-white/90 p-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <div className="text-sm font-medium text-gray-900">{getScopeTitle(scope)}</div>
-              <Badge variant="outline" className="border-gray-200 bg-gray-50 text-gray-600">
+    <Card
+      ref={containerRef}
+      className={cn(
+        "sticky top-20 z-30 mb-6 overflow-hidden border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,_rgba(239,246,255,0.95),_rgba(255,255,255,0.98)_45%,_rgba(248,250,252,0.98)_100%)] p-4 shadow-[0_12px_40px_-18px_rgba(15,23,42,0.28)] backdrop-blur supports-[backdrop-filter]:bg-white/80",
+        compactMode && "shadow-[0_18px_40px_-20px_rgba(15,23,42,0.32)]",
+      )}
+    >
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="space-y-2">
+            <div className="flex items-center gap-2.5">
+              <div className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/90">
+                Active
+              </div>
+              <div className="text-sm font-semibold text-gray-900">{getScopeTitle(scope)}</div>
+              <Badge variant="outline" className={cn("border-gray-200 bg-gray-50 text-gray-600", compactMode && "hidden")}>
                 支持搜索切换
               </Badge>
             </div>
-          <div className="text-xs text-gray-500">{getScopeHint(scope)}</div>
+          <div className={cn("max-w-xl text-xs leading-6 text-gray-500", compactMode && "hidden")}>{getScopeHint(scope)}</div>
+          {compactMode && activeProfile ? (
+            <div className="flex flex-wrap gap-2 text-xs text-gray-500 [&>span]:rounded-full [&>span]:border [&>span]:border-slate-200 [&>span]:bg-white/85 [&>span]:px-2.5 [&>span]:py-1">
+              <span className="rounded-full border border-slate-200 bg-white/85 px-2.5 py-1">{activeProfile.name || activeProfile.label}</span>
+              {getPassportTail(activeProfile) ? <span>护照尾号 {getPassportTail(activeProfile)}</span> : null}
+              {activeProfile.usVisa?.aaCode ? <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-blue-700">AA {activeProfile.usVisa.aaCode}</span> : null}
+              {activeProfile.schengen?.country ? <span className="rounded-full border border-slate-200 bg-white/85 px-2.5 py-1">{activeProfile.schengen.country}</span> : null}
+              {activeProfile.schengen?.city ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-700">{activeProfile.schengen.city}</span> : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-2 md:flex-row md:items-center">
@@ -630,22 +712,25 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
                 variant="outline"
                 role="combobox"
                 aria-expanded={open}
-                  className="h-auto w-full justify-between gap-3 px-4 py-3 text-left md:w-[460px]"
+                  className={cn(
+                    "h-auto w-full justify-between gap-3 rounded-2xl border-slate-200 bg-white/90 px-4 py-3 text-left shadow-sm transition-all hover:bg-white hover:shadow-md md:w-[480px]",
+                    compactMode && "md:w-[440px]",
+                  )}
                 >
                 <div className="min-w-0 space-y-1">
-                  <div className="truncate text-sm font-medium text-gray-900">
+                  <div className="truncate text-sm font-semibold text-gray-900">
                     {activeProfile ? activeProfile.name || activeProfile.label : "选择申请人档案"}
                   </div>
                   <div className="flex items-center gap-2 text-xs text-gray-500">
-                    <Search className="h-3.5 w-3.5" />
+                    <Search className="h-3.5 w-3.5 text-slate-400" />
                     <span className="truncate">{activeSummary || "支持按姓名、护照尾号、手机号、微信号搜索"}</span>
                   </div>
                 </div>
-                <ChevronsUpDown className="h-4 w-4 shrink-0 text-gray-400" />
+                <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400" />
               </Button>
             </PopoverTrigger>
 
-            <PopoverContent className="w-[460px] p-0" align="end">
+            <PopoverContent className="w-[480px] rounded-2xl border-slate-200 p-0 shadow-2xl shadow-slate-200/60" align="end">
               <Command>
                 <CommandInput placeholder="搜索姓名、护照尾号、手机号或微信号..." />
                 <CommandList className="max-h-[420px]">
@@ -736,7 +821,16 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
             </PopoverContent>
           </Popover>
 
-          <Button variant="outline" asChild>
+          {activeProfile && (
+            <Button variant="outline" className="rounded-2xl border-slate-200 bg-slate-900 text-white shadow-sm hover:bg-slate-800 hover:text-white" asChild>
+              <Link href={`/applicants/${activeProfile.id}?tab=materials`} onMouseEnter={prefetchActiveApplicantDetail}>
+                <PencilLine className="mr-2 h-4 w-4" />
+                编辑当前档案
+              </Link>
+            </Button>
+          )}
+
+          <Button variant="outline" className="rounded-2xl border-slate-200 bg-white/90 shadow-sm hover:bg-white" asChild>
             <Link href="/applicants">
               <FolderOpen className="mr-2 h-4 w-4" />
               管理档案
@@ -745,38 +839,40 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
         </div>
       </div>
 
-      {activeProfile && (
-        <div className="mt-4 space-y-4 border-t border-gray-100 pt-4">
-          <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-gray-600">
+      {activeProfile && !compactMode && (
+        <div className="mt-5 space-y-4 rounded-3xl border border-white/70 bg-white/72 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-sm">
+          <div className="flex flex-wrap gap-2 text-xs text-gray-600 [&>span]:rounded-full [&>span]:border [&>span]:border-slate-200 [&>span]:bg-white [&>span]:px-3 [&>span]:py-1">
             <span>姓名: {activeProfile.name || activeProfile.label}</span>
             {activeProfile.usVisa?.aaCode && <span>AA 码: {activeProfile.usVisa.aaCode}</span>}
             {getPassportTail(activeProfile) && <span>护照尾号: {getPassportTail(activeProfile)}</span>}
             {activeProfile.schengen?.country && <span>申根国家: {activeProfile.schengen.country}</span>}
             {activeProfile.schengen?.city && <span>TLS 递签城市: {activeProfile.schengen.city}</span>}
-            <span className="inline-flex items-center gap-1 text-gray-400">
+            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-gray-400">
               <Clock3 className="h-3.5 w-3.5" />
               {formatDateTime(activeProfile.updatedAt)}
             </span>
             {session?.user?.role === "admin" && (
-              <span className="inline-flex items-center gap-1 text-violet-600">
+              <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-violet-600">
                 <ShieldCheck className="h-3.5 w-3.5" />
                 管理员视角可查看全部
               </span>
             )}
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm font-medium text-gray-900">
-              <BriefcaseBusiness className="h-4 w-4 text-gray-500" />
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+              <div className="rounded-xl bg-slate-100 p-2 text-slate-600">
+                <BriefcaseBusiness className="h-4 w-4" />
+              </div>
               当前签证案件
             </div>
 
             {caseLoading ? (
-              <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/80 px-4 py-3 text-sm text-gray-500">
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-gray-500">
                 正在加载该申请人的案件...
               </div>
             ) : currentCases.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-3">
                 {currentCases.map((caseItem) => {
                   const selected = caseItem.id === selectedCaseId
                   return (
@@ -785,10 +881,10 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
                       type="button"
                       onClick={() => handleCaseChange(caseItem.id)}
                       className={cn(
-                        "min-w-[220px] rounded-2xl border px-4 py-3 text-left shadow-sm transition-all",
+                        "min-w-[220px] rounded-3xl border px-4 py-3.5 text-left shadow-sm transition-all",
                         selected
-                          ? "border-blue-300 bg-blue-50 text-blue-900 ring-2 ring-blue-100"
-                          : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50",
+                          ? "border-blue-300 bg-[linear-gradient(180deg,rgba(239,246,255,1),rgba(219,234,254,0.75))] text-blue-900 ring-2 ring-blue-100"
+                          : "border-slate-200 bg-white/95 text-gray-700 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white",
                       )}
                     >
                       <div className="flex items-center justify-between gap-3">

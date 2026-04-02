@@ -309,7 +309,7 @@ export default function ApplicantsClientPage() {
 
   const closePreview = () => {
     setPreview((prev) => {
-      if (prev.objectUrl) URL.revokeObjectURL(prev.objectUrl)
+      if (prev.objectUrl.startsWith("blob:")) URL.revokeObjectURL(prev.objectUrl)
       return emptyPreview
     })
   }
@@ -323,14 +323,19 @@ export default function ApplicantsClientPage() {
       title: meta.originalName || slot,
     })
     try {
-      const res = await fetch(`/api/applicants/${selectedId}/files/${slot}`, { credentials: "include" })
+      const fileHref = `/api/applicants/${selectedId}/files/${slot}`
+      const filename = (meta.originalName || slot).toLowerCase()
+      if (filename.endsWith(".pdf")) {
+        setPreview((prev) => ({ ...prev, loading: false, kind: "pdf", objectUrl: fileHref }))
+        return
+      }
+      const res = await fetch(fileHref, { credentials: "include" })
       if (!res.ok) throw new Error("文件读取失败")
       const blob = await res.blob()
-      const filename = (meta.originalName || slot).toLowerCase()
       const mime = (blob.type || "").toLowerCase()
       const objectUrl = URL.createObjectURL(blob)
 
-      if (mime.includes("pdf") || filename.endsWith(".pdf")) {
+      if (mime.includes("pdf")) {
         setPreview((prev) => ({ ...prev, loading: false, kind: "pdf", objectUrl }))
         return
       }

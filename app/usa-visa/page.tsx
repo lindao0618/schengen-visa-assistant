@@ -12,6 +12,7 @@ import {
   ACTIVE_APPLICANT_PROFILE_KEY,
   ApplicantProfileSelector,
 } from "@/components/applicant-profile-selector"
+import { usePrefetchApplicantDetail } from "@/hooks/use-prefetch-applicant-detail"
 import { PhotoChecker } from "./components/photo-checker"
 import { DS160Form } from "./components/ds160-form"
 import { SubmitDS160Form } from "./components/submit-ds160-form"
@@ -31,6 +32,7 @@ export default function USAVisaPage() {
 
   const applicantProfileId = searchParams.get("applicantProfileId")?.trim() || ""
   const caseId = searchParams.get("caseId")?.trim() || ""
+  usePrefetchApplicantDetail(applicantProfileId)
 
   useEffect(() => {
     if (typeof window === "undefined" || !applicantProfileId) return

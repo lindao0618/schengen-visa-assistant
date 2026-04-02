@@ -16,6 +16,7 @@ import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 
 type InterviewBriefIssue = {
@@ -207,6 +208,7 @@ export function InterviewBriefForm() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [result, setResult] = useState<GenerationResult | null>(null)
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false)
 
   const summaryCards = useMemo(() => {
     if (!result?.fields) return []
@@ -229,6 +231,13 @@ export function InterviewBriefForm() {
       pending: result.blocks.filter((block) => block.type === "pending-qa").length,
     }
   }, [result])
+
+  const pdfPreviewUrl = useMemo(() => {
+    if (!result?.pdf_download_url) return ""
+    return result.pdf_download_url.includes("?")
+      ? `${result.pdf_download_url}&disposition=inline`
+      : `${result.pdf_download_url}?disposition=inline`
+  }, [result?.pdf_download_url])
 
   const handleGenerate = async () => {
     if (!profile?.id) {
@@ -260,9 +269,11 @@ export function InterviewBriefForm() {
         throw new Error(data.error || "生成失败")
       }
       setResult(data)
+      setPdfPreviewOpen(false)
     } catch (err) {
       setResult(null)
       setError(err instanceof Error ? err.message : "生成失败")
+      setPdfPreviewOpen(false)
     } finally {
       setLoading(false)
     }
@@ -412,12 +423,18 @@ export function InterviewBriefForm() {
                   </a>
                 </Button>
                 {result.pdf_download_url ? (
-                  <Button asChild variant="outline" className="rounded-2xl">
-                    <a href={result.pdf_download_url} target="_blank" rel="noopener noreferrer">
-                      <Download className="mr-2 h-4 w-4" />
-                      下载 PDF
-                    </a>
-                  </Button>
+                  <>
+                    <Button variant="secondary" className="rounded-2xl" onClick={() => setPdfPreviewOpen(true)}>
+                      <FileText className="mr-2 h-4 w-4" />
+                      预览 PDF
+                    </Button>
+                    <Button asChild variant="outline" className="rounded-2xl">
+                      <a href={result.pdf_download_url} target="_blank" rel="noopener noreferrer">
+                        <Download className="mr-2 h-4 w-4" />
+                        下载 PDF
+                      </a>
+                    </Button>
+                  </>
                 ) : null}
               </div>
 
@@ -457,6 +474,21 @@ export function InterviewBriefForm() {
           </Card>
         </div>
       ) : null}
+
+      <Dialog open={pdfPreviewOpen} onOpenChange={setPdfPreviewOpen}>
+        <DialogContent className="max-w-6xl">
+          <DialogHeader>
+            <DialogTitle>面试必看 PDF 预览</DialogTitle>
+          </DialogHeader>
+          {pdfPreviewUrl ? (
+            <iframe src={pdfPreviewUrl} className="h-[75vh] w-full rounded-xl border border-slate-200" />
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
+              暂无可预览的 PDF。
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

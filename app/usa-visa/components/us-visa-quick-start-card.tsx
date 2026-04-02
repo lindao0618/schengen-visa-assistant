@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AlertCircle, CheckCircle2, ExternalLink, Loader2, PlayCircle, RotateCcw, Sparkles } from "lucide-react"
 
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
+import { usePageVisibility } from "@/hooks/use-page-visibility"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
+import { QUICK_WORKFLOW_POLL_INTERVAL_MS } from "@/lib/polling"
 import {
   QuickStepState,
   QuickWorkflowPhase,
@@ -140,6 +142,7 @@ function canResume(workflow: UsVisaQuickWorkflow | null) {
 
 export function UsVisaQuickStartCard() {
   const activeApplicant = useActiveApplicantProfile()
+  const isPageVisible = usePageVisibility()
   const [prepWorkflow, setPrepWorkflow] = useState<UsVisaQuickWorkflow | null>(null)
   const [submitWorkflow, setSubmitWorkflow] = useState<UsVisaQuickWorkflow | null>(null)
   const [prepLoading, setPrepLoading] = useState(false)
@@ -475,6 +478,7 @@ export function UsVisaQuickStartCard() {
   useEffect(() => {
     if (!activeApplicant?.id || !prepWorkflow || prepWorkflow.applicantProfileId !== activeApplicant.id) return
     if (prepWorkflow.phase === "completed" || prepWorkflow.phase === "failed") return
+    if (!isPageVisible) return
 
     let cancelled = false
     const tick = async () => {
@@ -525,16 +529,17 @@ export function UsVisaQuickStartCard() {
     void tick()
     const timer = window.setInterval(() => {
       void tick()
-    }, 1500)
+    }, QUICK_WORKFLOW_POLL_INTERVAL_MS)
     return () => {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [activeApplicant?.id, launchDs160Fill, persistPrepWorkflow, prepWorkflow, updatePrepWorkflow])
+  }, [activeApplicant?.id, isPageVisible, launchDs160Fill, persistPrepWorkflow, prepWorkflow, updatePrepWorkflow])
 
   useEffect(() => {
     if (!activeApplicant?.id || !submitWorkflow || submitWorkflow.applicantProfileId !== activeApplicant.id) return
     if (submitWorkflow.phase === "completed" || submitWorkflow.phase === "failed") return
+    if (!isPageVisible) return
 
     let cancelled = false
     const tick = async () => {
@@ -577,12 +582,12 @@ export function UsVisaQuickStartCard() {
     void tick()
     const timer = window.setInterval(() => {
       void tick()
-    }, 1500)
+    }, QUICK_WORKFLOW_POLL_INTERVAL_MS)
     return () => {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [activeApplicant?.id, persistSubmitWorkflow, submitWorkflow, updateSubmitWorkflow])
+  }, [activeApplicant?.id, isPageVisible, persistSubmitWorkflow, submitWorkflow, updateSubmitWorkflow])
 
   const prepPercent = prepWorkflow ? workflowPercent([prepWorkflow.steps.photoCheck, prepWorkflow.steps.ds160Fill]) : 0
   const submitPercent = submitWorkflow ? workflowPercent([submitWorkflow.steps.submitDs160, submitWorkflow.steps.registerAis]) : 0

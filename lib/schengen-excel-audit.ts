@@ -93,17 +93,8 @@ function parseDate(value?: string): Date | null {
   const raw = normalizeText(value)
   if (!raw) return null
 
-  // Prefer explicit day-first parsing for UK-style dates before JS's locale-dependent parser.
-  const dayFirst = raw.match(/^(\d{1,2})[/. -](\d{1,2})[/. -](\d{4})$/)
-  if (dayFirst) {
-    const day = Number(dayFirst[1])
-    const month = Number(dayFirst[2])
-    const year = Number(dayFirst[3])
-    const parsed = createValidDate(year, month, day)
-    if (parsed) return parsed
-  }
-
-  const yearFirst = raw.match(/^(\d{4})[/. -](\d{1,2})[/. -](\d{1,2})$/)
+  // Strict mode: only accept YYYY/MM/DD or YYYY-MM-DD.
+  const yearFirst = raw.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/)
   if (yearFirst) {
     const year = Number(yearFirst[1])
     const month = Number(yearFirst[2])
@@ -112,8 +103,15 @@ function parseDate(value?: string): Date | null {
     if (parsed) return parsed
   }
 
-  const d1 = new Date(raw)
-  if (!Number.isNaN(d1.getTime())) return d1
+  // Strict mode: only accept DD/MM/YYYY or DD-MM-YYYY.
+  const dayFirst = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/)
+  if (dayFirst) {
+    const day = Number(dayFirst[1])
+    const month = Number(dayFirst[2])
+    const year = Number(dayFirst[3])
+    const parsed = createValidDate(year, month, day)
+    if (parsed) return parsed
+  }
 
   return null
 }

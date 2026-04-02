@@ -2,6 +2,16 @@ import { NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
 
+type CaptchaBalanceResponse = {
+  capsolver: { configured: boolean; balance: number | null; error: string | null }
+  twocaptcha: { configured: boolean; balance: number | null; error: string | null }
+}
+
+const CAPTCHA_BALANCE_CACHE_TTL_MS = 30_000
+
+let cachedBalance: { data: CaptchaBalanceResponse; expiresAt: number } | null = null
+let inFlightBalanceRequest: Promise<CaptchaBalanceResponse> | null = null
+
 async function getCapsolverBalance(apiKey: string): Promise<{ balance: number | null; error?: string }> {
   try {
     const res = await fetch("https://api.capsolver.com/getBalance", {
@@ -31,6 +41,15 @@ async function get2captchaBalance(apiKey: string): Promise<{ balance: number | n
 }
 
 export async function GET() {
+  if (cachedBalance && cachedBalance.expiresAt > Date.now()) {
+    return NextResponse.json(cachedBalance.data)
+  }
+
+  if (inFlightBalanceRequest) {
+    return NextResponse.json(await inFlightBalanceRequest)
+  }
+
+  inFlightBalanceRequest = (async () => {
   const capsolverKey = process.env.CAPSOLVER_API_KEY || process.env.CAPSOLVER_KEY || ""
   const twocaptchaKey =
     process.env.TWOCAPTCHA_API_KEY ||
@@ -39,7 +58,7 @@ export async function GET() {
     process.env.CAPTCHA_API_KEY ||
     ""
 
-  const result: Record<string, unknown> = {
+  const result: CaptchaBalanceResponse = {
     capsolver: { configured: false, balance: null, error: null },
     twocaptcha: { configured: false, balance: null, error: null },
   }
@@ -54,5 +73,17 @@ export async function GET() {
     result.twocaptcha = { configured: true, balance: r.balance, error: r.error ?? null }
   }
 
-  return NextResponse.json(result)
+    cachedBalance = {
+      data: result,
+      expiresAt: Date.now() + CAPTCHA_BALANCE_CACHE_TTL_MS,
+    }
+    return result
+  })()
+
+  try {
+    const result = await inFlightBalanceRequest
+    return NextResponse.json(result)
+  } finally {
+    inFlightBalanceRequest = null
+  }
 }

@@ -43,10 +43,6 @@ type ApplicantWithCasesRecord = Prisma.ApplicantProfileGetPayload<{
             role: true
           }
         }
-        statusHistory: {
-          orderBy: { createdAt: "desc" }
-          take: 1
-        }
       }
     }
   }
@@ -107,7 +103,11 @@ export interface ApplicantCrmFilters {
   statuses?: string[]
   regions?: string[]
   priorities?: string[]
+  includeStats?: boolean
   includeSelectorCases?: boolean
+  includeProfiles?: boolean
+  includeProfileFiles?: boolean
+  includeAvailableAssignees?: boolean
 }
 
 export interface ApplicantCrmRow {
@@ -442,6 +442,56 @@ function mapApplicantRow(item: ApplicantWithCasesRecord): ApplicantCrmRow {
   }
 }
 
+function mapApplicantProfileSummary(item: ApplicantWithCasesRecord) {
+  const passportNumber = normalizeText(item.passportNumber) || normalizeText(item.usVisaPassportNumber) || undefined
+  const passportLast4 = normalizeText(item.passportLast4) || passportNumber?.slice(-4) || undefined
+  const aaCode = normalizeText(item.usVisaAaCode).toUpperCase() || undefined
+  const birthYear = normalizeText(item.usVisaBirthYear) || undefined
+  const schengenCountry = normalizeText(item.schengenCountry) || undefined
+  const schengenCity = normalizeText(item.schengenVisaCity) || undefined
+
+  return {
+    id: item.id,
+    label: item.name,
+    name: item.name,
+    phone: item.phone ?? undefined,
+    email: item.email ?? undefined,
+    wechat: item.wechat ?? undefined,
+    passportNumber,
+    passportLast4,
+    updatedAt: item.updatedAt.toISOString(),
+    usVisa: {
+      aaCode,
+      surname: item.usVisaSurname ?? undefined,
+      birthYear,
+      passportNumber: item.usVisaPassportNumber ?? undefined,
+    },
+    schengen: {
+      country: schengenCountry,
+      city: schengenCity,
+    },
+    files: {},
+  }
+}
+
+type ApplicantStatsRecord = Prisma.ApplicantProfileGetPayload<{
+  select: {
+    id: true
+    updatedAt: true
+    visaCases: {
+      select: {
+        isActive: true
+        exceptionCode: true
+        updatedAt: true
+      }
+    }
+  }
+}>
+
+function getPrimaryStatsCase(cases: ApplicantStatsRecord["visaCases"]) {
+  return cases.find((item) => item.isActive) ?? cases[0] ?? null
+}
+
 function mapCaseSummary(caseRecord: VisaCaseRecord): ApplicantCaseSummary {
   return {
     id: caseRecord.id,
@@ -526,7 +576,11 @@ export async function listApplicantCrmData(
   const statuses = (filters.statuses ?? []).filter(Boolean)
   const regions = (filters.regions ?? []).filter(Boolean)
   const priorities = (filters.priorities ?? []).filter(Boolean)
+  const includeStats = Boolean(filters.includeStats)
   const includeSelectorCases = Boolean(filters.includeSelectorCases)
+  const includeProfiles = filters.includeProfiles !== false
+  const includeProfileFiles = filters.includeProfileFiles !== false
+  const includeAvailableAssignees = Boolean(filters.includeAvailableAssignees)
 
   const applicants = await prisma.applicantProfile.findMany({
     where: buildApplicantAccessWhere(userId, isAdmin),
@@ -542,10 +596,6 @@ export async function listApplicantCrmData(
           assignedTo: {
             select: { id: true, name: true, email: true, role: true },
           },
-          statusHistory: {
-            orderBy: { createdAt: "desc" },
-            take: 1,
-          },
         },
       },
     },
@@ -555,18 +605,20 @@ export async function listApplicantCrmData(
   const now = Date.now()
   const lastSevenDays = 7 * 24 * 60 * 60 * 1000
 
-  const stats: ApplicantCrmStats = {
-    applicantCount: applicants.length,
-    activeCaseCount: applicants.reduce(
-      (count, item) => count + item.visaCases.filter((caseItem) => caseItem.isActive).length,
-      0,
-    ),
-    exceptionCaseCount: applicants.reduce(
-      (count, item) => count + item.visaCases.filter((caseItem) => caseItem.isActive && caseItem.exceptionCode).length,
-      0,
-    ),
-    updatedLast7DaysCount: rows.filter((item) => now - new Date(item.updatedAt).getTime() <= lastSevenDays).length,
-  }
+  const stats = includeStats
+    ? {
+        applicantCount: applicants.length,
+        activeCaseCount: applicants.reduce(
+          (count, item) => count + item.visaCases.filter((caseItem) => caseItem.isActive).length,
+          0,
+        ),
+        exceptionCaseCount: applicants.reduce(
+          (count, item) => count + item.visaCases.filter((caseItem) => caseItem.isActive && caseItem.exceptionCode).length,
+          0,
+        ),
+        updatedLast7DaysCount: rows.filter((item) => now - new Date(item.updatedAt).getTime() <= lastSevenDays).length,
+      }
+    : undefined
 
   const filteredRows = rows.filter((row) => {
     if (!matchesKeyword(row, keyword)) return false
@@ -577,8 +629,12 @@ export async function listApplicantCrmData(
     return true
   })
 
-  const profiles = await listApplicantProfiles(userId, role)
-  const availableAssignees = isAdmin
+  const profiles = includeProfiles
+    ? includeProfileFiles
+      ? await listApplicantProfiles(userId, role)
+      : applicants.map(mapApplicantProfileSummary)
+    : []
+  const availableAssignees = includeAvailableAssignees && isAdmin
     ? await prisma.user.findMany({
         where: { status: "active" },
         orderBy: [{ role: "asc" }, { createdAt: "asc" }],
@@ -607,6 +663,56 @@ export async function listApplicantCrmData(
     availableAssignees,
     selectorCasesByApplicantId,
   }
+}
+
+export async function getApplicantCrmStats(userId: string, role: string | undefined) {
+  const isAdmin = await resolveIsAdmin(userId, role)
+  const now = Date.now()
+  const lastSevenDays = 7 * 24 * 60 * 60 * 1000
+
+  const applicants = await prisma.applicantProfile.findMany({
+    where: buildApplicantAccessWhere(userId, isAdmin),
+    select: {
+      id: true,
+      updatedAt: true,
+      visaCases: {
+        where: isAdmin ? {} : buildCaseAccessWhere(userId, isAdmin),
+        orderBy: [{ isActive: "desc" }, { updatedAt: "desc" }],
+        select: {
+          isActive: true,
+          exceptionCode: true,
+          updatedAt: true,
+        },
+      },
+    },
+  })
+
+  return {
+    applicantCount: applicants.length,
+    activeCaseCount: applicants.reduce(
+      (count, item) => count + item.visaCases.filter((caseItem) => caseItem.isActive).length,
+      0,
+    ),
+    exceptionCaseCount: applicants.reduce(
+      (count, item) => count + item.visaCases.filter((caseItem) => caseItem.isActive && caseItem.exceptionCode).length,
+      0,
+    ),
+    updatedLast7DaysCount: applicants.filter((item) => {
+      const updatedAt = getPrimaryStatsCase(item.visaCases)?.updatedAt ?? item.updatedAt
+      return now - updatedAt.getTime() <= lastSevenDays
+    }).length,
+  } satisfies ApplicantCrmStats
+}
+
+export async function listApplicantCrmAvailableAssignees(userId: string, role: string | undefined) {
+  const isAdmin = await resolveIsAdmin(userId, role)
+  if (!isAdmin) return []
+
+  return prisma.user.findMany({
+    where: { status: "active" },
+    orderBy: [{ role: "asc" }, { createdAt: "asc" }],
+    select: { id: true, name: true, email: true, role: true },
+  })
 }
 
 async function loadCaseRecord(

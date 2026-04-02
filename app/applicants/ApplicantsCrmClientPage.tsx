@@ -35,6 +35,26 @@ import {
   getApplicantCrmRegionLabel,
   getApplicantCrmVisaTypeLabel,
 } from "@/lib/applicant-crm-labels"
+import {
+  APPLICANT_CRM_ASSIGNEES_CACHE_TTL_MS,
+  APPLICANT_CRM_SUMMARY_CACHE_PREFIX,
+  APPLICANT_CRM_SUMMARY_CACHE_TTL_MS,
+  APPLICANT_DETAIL_CACHE_TTL_MS,
+  APPLICANT_CRM_ASSIGNEES_CACHE_PREFIX,
+  FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX,
+  APPLICANT_CRM_LIST_CACHE_PREFIX,
+  APPLICANT_CRM_LIST_CACHE_TTL_MS,
+  APPLICANT_SELECTOR_CACHE_KEY,
+  clearClientCache,
+  clearClientCacheByPrefix,
+  getApplicantCrmAssigneesCacheKey,
+  getApplicantDetailCacheKey,
+  getApplicantCrmListCacheKey,
+  getApplicantCrmSummaryCacheKey,
+  prefetchJsonIntoClientCache,
+  readClientCache,
+  writeClientCache,
+} from "@/lib/applicant-client-cache"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -99,11 +119,17 @@ type FilterOptions = {
   statuses: ApplicantCrmStatusOption[]
 }
 
-type ApplicantsResponse = {
-  profiles: Array<{ id: string; label: string }>
+type ApplicantsRowsResponse = {
   rows: ApplicantCrmRow[]
+  error?: string
+}
+
+type ApplicantsSummaryResponse = {
   stats: ApplicantCrmStats
-  filterOptions: FilterOptions
+  error?: string
+}
+
+type ApplicantsAssigneesResponse = {
   availableAssignees: Array<{
     id: string
     name?: string | null
@@ -157,6 +183,15 @@ const STATUS_LABELS: Record<string, string> = {
   submitted: "\u5df2\u9012\u7b7e",
   completed: "\u5df2\u5b8c\u6210",
   exception: "\u5f02\u5e38\u5904\u7406\u4e2d",
+}
+
+const DEFAULT_FILTER_OPTIONS: FilterOptions = {
+  visaTypes: CRM_VISA_TYPE_OPTIONS.map((item) => item.value),
+  regions: CRM_REGION_OPTIONS.map((item) => item.value),
+  priorities: CRM_PRIORITY_OPTIONS.map((item) => item.value),
+  statuses: Object.entries(STATUS_LABELS)
+    .filter(([value]) => value !== "no_case")
+    .map(([value, label]) => ({ value, label })),
 }
 
 const actionableStatuses = new Set([
@@ -408,15 +443,11 @@ export default function ApplicantsCrmClientPage() {
     exceptionCaseCount: 0,
     updatedLast7DaysCount: 0,
   })
-  const [filterOptions, setFilterOptions] = useState<FilterOptions>({
-    visaTypes: [],
-    regions: [],
-    priorities: [],
-    statuses: [],
-  })
-  const [availableAssignees, setAvailableAssignees] = useState<ApplicantsResponse["availableAssignees"]>([])
+  const [availableAssignees, setAvailableAssignees] = useState<ApplicantsAssigneesResponse["availableAssignees"]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [summaryLoading, setSummaryLoading] = useState(true)
+  const [assigneesLoading, setAssigneesLoading] = useState(false)
   const [message, setMessage] = useState("")
   const [keyword, setKeyword] = useState("")
   const [selectedVisaTypes, setSelectedVisaTypes] = useState<string[]>([])
@@ -429,63 +460,168 @@ export default function ApplicantsCrmClientPage() {
   const [createForm, setCreateForm] = useState<CreateApplicantForm>(emptyCreateForm)
   const initialLoadRef = useRef(true)
   const deferredKeyword = useDeferredValue(keyword.trim())
+  const requestQuery = useMemo(() => {
+    const params = new URLSearchParams()
+    if (deferredKeyword) params.set("keyword", deferredKeyword)
+    for (const value of selectedVisaTypes) params.append("visaTypes", value)
+    for (const value of selectedStatuses) params.append("statuses", value)
+    for (const value of selectedRegions) params.append("regions", value)
+    for (const value of selectedPriorities) params.append("priorities", value)
+    params.set("includeProfiles", "0")
+    return params.toString()
+  }, [deferredKeyword, selectedPriorities, selectedRegions, selectedStatuses, selectedVisaTypes])
+  const viewerCacheScope = useMemo(
+    () => `${session?.user?.id || "anon"}:${session?.user?.role || ""}`,
+    [session?.user?.id, session?.user?.role],
+  )
+  const listCacheKey = useMemo(
+    () => getApplicantCrmListCacheKey(`${viewerCacheScope}:${requestQuery}`),
+    [requestQuery, viewerCacheScope],
+  )
+  const summaryCacheKey = useMemo(
+    () => getApplicantCrmSummaryCacheKey(viewerCacheScope),
+    [viewerCacheScope],
+  )
+  const assigneesCacheKey = useMemo(
+    () => getApplicantCrmAssigneesCacheKey(viewerCacheScope),
+    [viewerCacheScope],
+  )
+
+  const applyApplicantsRows = useCallback((data: ApplicantsRowsResponse | null | undefined) => {
+    setRows(data?.rows || [])
+  }, [])
 
   const fetchApplicants = useCallback(
     async (mode: "auto" | "manual" = "auto") => {
-      if (mode === "manual" || !initialLoadRef.current) {
+      const cached = mode === "auto" ? readClientCache<ApplicantsRowsResponse>(listCacheKey) : null
+
+      if (cached) {
+        applyApplicantsRows(cached)
+        setLoading(false)
+        setRefreshing(false)
+        initialLoadRef.current = false
+      } else if (mode === "manual" || !initialLoadRef.current) {
         setRefreshing(true)
       } else {
         setLoading(true)
       }
 
       try {
-        const params = new URLSearchParams()
-        if (deferredKeyword) params.set("keyword", deferredKeyword)
-        for (const value of selectedVisaTypes) params.append("visaTypes", value)
-        for (const value of selectedStatuses) params.append("statuses", value)
-        for (const value of selectedRegions) params.append("regions", value)
-        for (const value of selectedPriorities) params.append("priorities", value)
-
-        const response = await fetch(`/api/applicants?${params.toString()}`, {
+        const response = await fetch(`/api/applicants?${requestQuery}`, {
           cache: "no-store",
         })
-        const data = (await response.json().catch(() => null)) as ApplicantsResponse | null
-        if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as ApplicantsRowsResponse | null
+        if (!response.ok || !data?.rows) {
           throw new Error(data?.error || "\u52a0\u8f7d\u7533\u8bf7\u4eba\u5217\u8868\u5931\u8d25")
         }
 
-        setRows(data?.rows || [])
-        setStats(
-          data?.stats || {
-            applicantCount: 0,
-            activeCaseCount: 0,
-            exceptionCaseCount: 0,
-            updatedLast7DaysCount: 0,
-          },
-        )
-        setFilterOptions(
-          data?.filterOptions || {
-            visaTypes: [],
-            regions: [],
-            priorities: [],
-            statuses: [],
-          },
-        )
-        setAvailableAssignees(data?.availableAssignees || [])
+        applyApplicantsRows(data)
+        writeClientCache(listCacheKey, data, APPLICANT_CRM_LIST_CACHE_TTL_MS)
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "\u52a0\u8f7d\u7533\u8bf7\u4eba\u5217\u8868\u5931\u8d25")
+        if (!cached) {
+          setMessage(error instanceof Error ? error.message : "\u52a0\u8f7d\u7533\u8bf7\u4eba\u5217\u8868\u5931\u8d25")
+        }
       } finally {
         setLoading(false)
         setRefreshing(false)
         initialLoadRef.current = false
       }
     },
-    [deferredKeyword, selectedPriorities, selectedRegions, selectedStatuses, selectedVisaTypes],
+    [applyApplicantsRows, listCacheKey, requestQuery],
   )
 
   useEffect(() => {
     void fetchApplicants("auto")
   }, [fetchApplicants])
+
+  const fetchSummary = useCallback(
+    async (mode: "auto" | "manual" = "auto") => {
+      const cached = mode === "auto" ? readClientCache<ApplicantsSummaryResponse>(summaryCacheKey) : null
+
+      if (cached?.stats) {
+        setStats(cached.stats)
+        setSummaryLoading(false)
+      } else {
+        setSummaryLoading(true)
+      }
+
+      try {
+        const response = await fetch("/api/applicants/summary", {
+          cache: "no-store",
+        })
+        const data = (await response.json().catch(() => null)) as ApplicantsSummaryResponse | null
+        if (!response.ok || !data?.stats) {
+          throw new Error(data?.error || "\u52a0\u8f7d\u7edf\u8ba1\u5361\u7247\u5931\u8d25")
+        }
+
+        setStats(data.stats)
+        writeClientCache(summaryCacheKey, data, APPLICANT_CRM_SUMMARY_CACHE_TTL_MS)
+      } catch (error) {
+        if (!cached) {
+          setMessage(error instanceof Error ? error.message : "\u52a0\u8f7d\u7edf\u8ba1\u5361\u7247\u5931\u8d25")
+        }
+      } finally {
+        setSummaryLoading(false)
+      }
+    },
+    [summaryCacheKey],
+  )
+
+  useEffect(() => {
+    void fetchSummary("auto")
+  }, [fetchSummary])
+
+  const fetchAvailableAssignees = useCallback(
+    async (mode: "auto" | "manual" = "auto") => {
+      if (session?.user?.role !== "admin") {
+        setAvailableAssignees([])
+        setAssigneesLoading(false)
+        return
+      }
+
+      const cached = mode === "auto" ? readClientCache<ApplicantsAssigneesResponse>(assigneesCacheKey) : null
+      if (cached?.availableAssignees) {
+        setAvailableAssignees(cached.availableAssignees)
+        setAssigneesLoading(false)
+      } else {
+        setAssigneesLoading(true)
+      }
+
+      try {
+        const response = await fetch("/api/applicants/assignees", {
+          cache: "no-store",
+        })
+        const data = (await response.json().catch(() => null)) as ApplicantsAssigneesResponse | null
+        if (!response.ok || !data?.availableAssignees) {
+          throw new Error(data?.error || "\u52a0\u8f7d\u53ef\u5206\u914d\u6210\u5458\u5931\u8d25")
+        }
+
+        setAvailableAssignees(data.availableAssignees)
+        writeClientCache(assigneesCacheKey, data, APPLICANT_CRM_ASSIGNEES_CACHE_TTL_MS)
+      } catch (error) {
+        if (!cached) {
+          setMessage(error instanceof Error ? error.message : "\u52a0\u8f7d\u53ef\u5206\u914d\u6210\u5458\u5931\u8d25")
+        }
+      } finally {
+        setAssigneesLoading(false)
+      }
+    },
+    [assigneesCacheKey, session?.user?.role],
+  )
+
+  useEffect(() => {
+    if (!createDialogOpen || session?.user?.role !== "admin") return
+    void fetchAvailableAssignees("auto")
+  }, [createDialogOpen, fetchAvailableAssignees, session?.user?.role])
+
+  const refreshCrmDashboard = useCallback(() => {
+    setMessage("")
+    void fetchApplicants("manual")
+    void fetchSummary("manual")
+    if (createDialogOpen && session?.user?.role === "admin") {
+      void fetchAvailableAssignees("manual")
+    }
+  }, [createDialogOpen, fetchApplicants, fetchAvailableAssignees, fetchSummary, session?.user?.role])
 
   const displayRows = useMemo(
     () => rows.filter((row) => matchesQuickView(row, quickView, session?.user?.id)),
@@ -580,6 +716,25 @@ export default function ApplicantsCrmClientPage() {
     [keyword, quickView, selectedPriorities.length, selectedRegions.length, selectedStatuses.length, selectedVisaTypes.length],
   )
 
+  const prefetchApplicantDetail = useCallback(
+    (applicantId: string) => {
+      if (!applicantId) return
+      router.prefetch(`/applicants/${applicantId}`)
+      void prefetchJsonIntoClientCache(getApplicantDetailCacheKey(applicantId), `/api/applicants/${applicantId}`, {
+        ttlMs: APPLICANT_DETAIL_CACHE_TTL_MS,
+      }).catch(() => {
+        // Ignore background prefetch errors.
+      })
+    },
+    [router],
+  )
+
+  useEffect(() => {
+    displayRows.slice(0, 3).forEach((row) => {
+      prefetchApplicantDetail(row.id)
+    })
+  }, [displayRows, prefetchApplicantDetail])
+
   const clearFilters = () => {
     setKeyword("")
     setSelectedVisaTypes([])
@@ -618,6 +773,11 @@ export default function ApplicantsCrmClientPage() {
         throw new Error(data?.error || "\u521b\u5efa\u7533\u8bf7\u4eba\u5931\u8d25")
       }
 
+      clearClientCacheByPrefix(APPLICANT_CRM_LIST_CACHE_PREFIX)
+      clearClientCacheByPrefix(APPLICANT_CRM_SUMMARY_CACHE_PREFIX)
+      clearClientCache(APPLICANT_SELECTOR_CACHE_KEY)
+      clearClientCacheByPrefix(APPLICANT_CRM_ASSIGNEES_CACHE_PREFIX)
+      clearClientCacheByPrefix(FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX)
       window.localStorage.setItem("activeApplicantProfileId", data.profile.id)
       const firstCaseId = data?.cases?.[0]?.id || data?.case?.id
       if (firstCaseId) {
@@ -625,6 +785,7 @@ export default function ApplicantsCrmClientPage() {
       }
       setCreateDialogOpen(false)
       setCreateForm(emptyCreateForm)
+      prefetchApplicantDetail(data.profile.id)
       router.push(`/applicants/${data.profile.id}`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "\u521b\u5efa\u7533\u8bf7\u4eba\u5931\u8d25")
@@ -664,8 +825,8 @@ export default function ApplicantsCrmClientPage() {
                 </Link>
               </Button>
             )}
-            <Button variant="outline" onClick={() => void fetchApplicants("manual")} disabled={refreshing}>
-              <RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} />
+            <Button variant="outline" onClick={refreshCrmDashboard} disabled={refreshing || summaryLoading}>
+              <RefreshCw className={cn("mr-2 h-4 w-4", (refreshing || summaryLoading) && "animate-spin")} />
               {"\u5237\u65b0\u6570\u636e"}
             </Button>
             <Button onClick={() => setCreateDialogOpen(true)}>
@@ -685,25 +846,25 @@ export default function ApplicantsCrmClientPage() {
           <StatCard
             title={"\u7533\u8bf7\u4eba\u603b\u6570"}
             value={stats.applicantCount}
-            hint={"\u5f53\u524d\u53ef\u89c1\u7533\u8bf7\u4eba"}
+            hint={summaryLoading ? "\u7edf\u8ba1\u5361\u7247\u5237\u65b0\u4e2d" : "\u5f53\u524d\u53ef\u89c1\u7533\u8bf7\u4eba"}
             icon={<UserPlus className="h-5 w-5" />}
           />
           <StatCard
             title={"\u6d3b\u8dc3\u6848\u4ef6\u6570"}
             value={stats.activeCaseCount}
-            hint={"\u6b63\u5728\u63a8\u8fdb\u7684 Case \u6570\u91cf"}
+            hint={summaryLoading ? "\u7edf\u8ba1\u5361\u7247\u5237\u65b0\u4e2d" : "\u6b63\u5728\u63a8\u8fdb\u7684 Case \u6570\u91cf"}
             icon={<BriefcaseBusiness className="h-5 w-5" />}
           />
           <StatCard
             title={"\u5f02\u5e38\u6848\u4ef6\u6570"}
             value={stats.exceptionCaseCount}
-            hint={"\u4f18\u5148\u8ddf\u8fdb\u5f02\u5e38\u4e0e\u963b\u585e"}
+            hint={summaryLoading ? "\u7edf\u8ba1\u5361\u7247\u5237\u65b0\u4e2d" : "\u4f18\u5148\u8ddf\u8fdb\u5f02\u5e38\u4e0e\u963b\u585e"}
             icon={<AlertCircle className="h-5 w-5" />}
           />
           <StatCard
             title={"\u8fd1 7 \u5929\u66f4\u65b0"}
             value={stats.updatedLast7DaysCount}
-            hint={"\u6700\u8fd1\u6709\u52a8\u4f5c\u7684\u7533\u8bf7\u4eba"}
+            hint={summaryLoading ? "\u7edf\u8ba1\u5361\u7247\u5237\u65b0\u4e2d" : "\u6700\u8fd1\u6709\u52a8\u4f5c\u7684\u7533\u8bf7\u4eba"}
             icon={<CalendarClock className="h-5 w-5" />}
           />
         </div>
@@ -777,7 +938,7 @@ export default function ApplicantsCrmClientPage() {
               <FilterGroup
                 title={"\u7b7e\u8bc1\u7c7b\u578b"}
                 tone="visa"
-                options={filterOptions.visaTypes.map((item) => ({
+                options={DEFAULT_FILTER_OPTIONS.visaTypes.map((item) => ({
                   value: item,
                   label: getApplicantCrmVisaTypeLabel(item),
                 }))}
@@ -787,7 +948,7 @@ export default function ApplicantsCrmClientPage() {
               <FilterGroup
                 title={"\u5f53\u524d\u72b6\u6001"}
                 tone="status"
-                options={filterOptions.statuses.map((item) => ({
+                options={DEFAULT_FILTER_OPTIONS.statuses.map((item) => ({
                   value: item.value,
                   label: getApplicantCrmStatusLabel(item.value, item.label),
                 }))}
@@ -797,7 +958,7 @@ export default function ApplicantsCrmClientPage() {
               <FilterGroup
                 title={"\u5730\u533a"}
                 tone="region"
-                options={filterOptions.regions.map((item) => ({
+                options={DEFAULT_FILTER_OPTIONS.regions.map((item) => ({
                   value: item,
                   label: getApplicantCrmRegionLabel(item),
                 }))}
@@ -807,7 +968,7 @@ export default function ApplicantsCrmClientPage() {
               <FilterGroup
                 title={"\u4f18\u5148\u7ea7"}
                 tone="priority"
-                options={filterOptions.priorities.map((item) => ({
+                options={DEFAULT_FILTER_OPTIONS.priorities.map((item) => ({
                   value: item,
                   label: getApplicantCrmPriorityLabel(item),
                 }))}
@@ -847,6 +1008,8 @@ export default function ApplicantsCrmClientPage() {
                     <TableRow
                       key={row.id}
                       className="cursor-pointer"
+                      onMouseEnter={() => prefetchApplicantDetail(row.id)}
+                      onFocus={() => prefetchApplicantDetail(row.id)}
                       onClick={() => router.push(`/applicants/${row.id}`)}
                     >
                       <TableCell>
@@ -875,6 +1038,8 @@ export default function ApplicantsCrmClientPage() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          onMouseEnter={() => prefetchApplicantDetail(row.id)}
+                          onFocus={() => prefetchApplicantDetail(row.id)}
                           onClick={(event) => {
                             event.stopPropagation()
                             router.push(`/applicants/${row.id}`)
@@ -1068,6 +1233,7 @@ export default function ApplicantsCrmClientPage() {
                     <div className="space-y-2 md:col-span-2">
                       <Label>{"\u5206\u914d\u7ed9\u8c01"}</Label>
                       <Select
+                        disabled={assigneesLoading}
                         value={createForm.assignedToUserId || "__unset__"}
                         onValueChange={(value) =>
                           setCreateForm((prev) => ({
@@ -1088,6 +1254,9 @@ export default function ApplicantsCrmClientPage() {
                           ))}
                         </SelectContent>
                       </Select>
+                      {assigneesLoading ? (
+                        <p className="text-xs text-gray-500">{"\u6b63\u5728\u52a0\u8f7d\u53ef\u5206\u914d\u6210\u5458\u2026"}</p>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

@@ -4,11 +4,12 @@
 
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, FileText, Loader2, Plus, Save, Trash2 } from "lucide-react"
 import { read, utils, write } from "xlsx"
 
 import { FranceCaseProgressCard } from "@/components/france-case-progress-card"
+import { WecomDriveBindingsCard } from "@/components/wecom-drive-bindings-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -35,6 +36,18 @@ import {
   getApplicantCrmRegionLabel,
   getApplicantCrmVisaTypeLabel,
 } from "@/lib/applicant-crm-labels"
+import {
+  APPLICANT_CRM_LIST_CACHE_PREFIX,
+  APPLICANT_CRM_SUMMARY_CACHE_PREFIX,
+  APPLICANT_DETAIL_CACHE_TTL_MS,
+  APPLICANT_SELECTOR_CACHE_KEY,
+  FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX,
+  clearClientCache,
+  clearClientCacheByPrefix,
+  getApplicantDetailCacheKey,
+  readClientCache,
+  writeClientCache,
+} from "@/lib/applicant-client-cache"
 import { formatFranceStatusLabel } from "@/lib/france-case-labels"
 import { FRANCE_TLS_CITY_OPTIONS, getFranceTlsCityLabel } from "@/lib/france-tls-city"
 import { cn } from "@/lib/utils"
@@ -184,7 +197,20 @@ type PreviewKind = "pdf" | "image" | "excel" | "word" | "text" | "unknown"
 
 type ExcelPreviewSheet = {
   name: string
-  rows: string[][]
+  rows?: string[][]
+}
+
+type UsVisaExcelPreviewItem = {
+  rowIndex: number
+  label: string
+  field: string
+  value: string
+  note: string
+}
+
+type UsVisaExcelPreviewSection = {
+  title: string
+  items: UsVisaExcelPreviewItem[]
 }
 
 type PreviewState = {
@@ -206,6 +232,9 @@ type PreviewState = {
   excelEditMode: boolean
   excelDirty: boolean
   excelSaving: boolean
+  excelSavingStatus: string
+  excelPreviewMode: "form" | "table"
+  excelUsVisaSections: UsVisaExcelPreviewSection[]
 }
 
 type AuditDialogState = {
@@ -213,6 +242,11 @@ type AuditDialogState = {
   title: string
   status: "running" | "success" | "error"
   issues: Array<{ field: string; message: string; value?: string }>
+  scope?: "schengen" | "usVisa"
+  slot?: string
+  helperText?: string
+  autoFixing?: boolean
+  phaseIndex?: number
 }
 
 const emptyPreview: PreviewState = {
@@ -233,6 +267,9 @@ const emptyPreview: PreviewState = {
   excelEditMode: false,
   excelDirty: false,
   excelSaving: false,
+  excelSavingStatus: "",
+  excelPreviewMode: "table",
+  excelUsVisaSections: [],
 }
 
 const emptyAuditDialog: AuditDialogState = {
@@ -240,6 +277,110 @@ const emptyAuditDialog: AuditDialogState = {
   title: "",
   status: "running",
   issues: [],
+  scope: undefined,
+  slot: "",
+  helperText: "",
+  autoFixing: false,
+  phaseIndex: 0,
+}
+
+const AUDIT_PROGRESS_STEPS = ["正在读取 Excel", "正在识别字段", "正在检查规则", "审核完成"]
+
+const US_VISA_EXCEL_PREVIEW_SLOTS = new Set(["usVisaDs160Excel", "usVisaAisExcel", "ds160Excel", "aisExcel"])
+
+function cloneTableRows(rows: string[][]) {
+  return rows.map((row) => [...row])
+}
+
+function normalizeKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[\u3000"'`“”‘’()（）[\]【】{}<>:：;；,.，。!?！？\\|@#$%^&*_+=~/-]/g, "")
+}
+
+function extractExcelSheetRows(sheet: unknown): string[][] {
+  if (!sheet || typeof sheet !== "object") return []
+
+  const worksheet = sheet as Record<string, { w?: unknown; v?: unknown }>
+  const cellRefs = Object.keys(worksheet).filter((key) => !key.startsWith("!"))
+  if (!cellRefs.length) return []
+
+  let maxRow = 0
+  let maxCol = 0
+  for (const ref of cellRefs) {
+    const position = utils.decode_cell(ref)
+    if (position.r > maxRow) maxRow = position.r
+    if (position.c > maxCol) maxCol = position.c
+  }
+
+  const rows = Array.from({ length: maxRow + 1 }, () => Array.from({ length: maxCol + 1 }, () => ""))
+  for (const ref of cellRefs) {
+    const position = utils.decode_cell(ref)
+    const cell = worksheet[ref]
+    rows[position.r][position.c] = String(cell?.w ?? cell?.v ?? "")
+  }
+
+  return rows
+}
+
+function parseUsVisaExcelPreviewSections(rows: string[][]): UsVisaExcelPreviewSection[] {
+  const sections: UsVisaExcelPreviewSection[] = []
+  let currentTitle = "基本信息"
+  let currentItems: UsVisaExcelPreviewItem[] = []
+
+  const pushCurrent = () => {
+    const filtered = currentItems.filter((item) => item.label || item.field || item.value || item.note)
+    if (!filtered.length) return
+    sections.push({
+      title: currentTitle || "未分组字段",
+      items: filtered,
+    })
+  }
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index] || []
+    const label = (row[0] || "").trim()
+    const field = (row[1] || "").trim()
+    const value = (row[2] || "").trim()
+    const note = row
+      .slice(3, 6)
+      .map((cell) => (cell || "").trim())
+      .filter(Boolean)
+      .join(" ")
+
+    const isHeaderRow =
+      normalizeKey(label) === normalizeKey("基本信息") &&
+      normalizeKey(field) === normalizeKey("field") &&
+      normalizeKey(value) === normalizeKey("填写内容")
+    if (isHeaderRow) {
+      currentTitle = "基本信息"
+      continue
+    }
+
+    const isSectionRow = Boolean(label) && !field && !value
+    if (isSectionRow) {
+      pushCurrent()
+      currentTitle = label
+      currentItems = []
+      continue
+    }
+
+    const hasPrimaryData = Boolean(label || field || value)
+    if (!hasPrimaryData) continue
+
+    currentItems.push({
+      rowIndex: index + 1,
+      label,
+      field,
+      value,
+      note,
+    })
+  }
+
+  pushCurrent()
+  return sections
 }
 
 const emptyBasicForm: BasicFormState = {
@@ -622,6 +763,7 @@ function UploadGrid({
 
 export default function ApplicantDetailClientPage({ applicantId }: { applicantId: string }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState("")
   const [savingProfile, setSavingProfile] = useState(false)
@@ -636,14 +778,71 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
   const [newCaseForm, setNewCaseForm] = useState<CaseFormState>(emptyCaseForm)
   const [preview, setPreview] = useState<PreviewState>(emptyPreview)
   const [auditDialog, setAuditDialog] = useState<AuditDialogState>(emptyAuditDialog)
+  const defaultTab = useMemo(() => {
+    const requestedTab = searchParams.get("tab") || ""
+    const allowedTabs = new Set(["basic", "cases", "materials", "progress"])
+    return allowedTabs.has(requestedTab) ? requestedTab : "basic"
+  }, [searchParams])
+  const detailCacheKey = useMemo(() => getApplicantDetailCacheKey(applicantId), [applicantId])
 
   const selectedCase = useMemo(
     () => detail?.cases.find((item) => item.id === selectedCaseId) ?? null,
     [detail?.cases, selectedCaseId],
   )
+  const auditPhaseIndex =
+    auditDialog.status === "running"
+      ? Math.min(auditDialog.phaseIndex ?? 0, AUDIT_PROGRESS_STEPS.length - 2)
+      : AUDIT_PROGRESS_STEPS.length - 1
+
+  useEffect(() => {
+    if (!auditDialog.open || auditDialog.status !== "running") return
+
+    const timers = [
+      window.setTimeout(() => {
+        setAuditDialog((prev) => (prev.open && prev.status === "running" ? { ...prev, phaseIndex: 1 } : prev))
+      }, 250),
+      window.setTimeout(() => {
+        setAuditDialog((prev) => (prev.open && prev.status === "running" ? { ...prev, phaseIndex: 2 } : prev))
+      }, 700),
+    ]
+
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer)
+    }
+  }, [auditDialog.open, auditDialog.status])
+
+  const invalidateApplicantCaches = useCallback(() => {
+    clearClientCache(detailCacheKey)
+    clearClientCache(APPLICANT_SELECTOR_CACHE_KEY)
+    clearClientCacheByPrefix(APPLICANT_CRM_LIST_CACHE_PREFIX)
+    clearClientCacheByPrefix(APPLICANT_CRM_SUMMARY_CACHE_PREFIX)
+    clearClientCacheByPrefix(FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX)
+  }, [detailCacheKey])
+
+  const primeApplicantDetailCache = useCallback(
+    (data: ApplicantDetailResponse) => {
+      writeClientCache(detailCacheKey, data, APPLICANT_DETAIL_CACHE_TTL_MS)
+    },
+    [detailCacheKey],
+  )
+
+  const applyDetailPayload = useCallback((data: ApplicantDetailResponse) => {
+    setDetail(data)
+    setBasicForm(buildBasicForm(data.profile))
+    const nextCaseId = data.activeCaseId || data.cases[0]?.id || ""
+    setSelectedCaseId(nextCaseId)
+    setCaseForm(buildCaseForm(data.cases.find((item) => item.id === nextCaseId) || null))
+    persistSelectedApplicantCase(data.profile.id, nextCaseId)
+  }, [])
 
   const loadDetail = useCallback(async () => {
-    setLoading(true)
+    const cached = readClientCache<ApplicantDetailResponse>(detailCacheKey)
+    if (cached) {
+      applyDetailPayload(cached)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
     try {
       const response = await fetch(`/api/applicants/${applicantId}`, { cache: "no-store" })
       const data = (await readJsonSafely<ApplicantDetailResponse & { error?: string }>(response)) ?? null
@@ -651,18 +850,16 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
         throw new Error(data?.error || "加载申请人详情失败")
       }
 
-      setDetail(data)
-      setBasicForm(buildBasicForm(data.profile))
-      const nextCaseId = data.activeCaseId || data.cases[0]?.id || ""
-      setSelectedCaseId(nextCaseId)
-      setCaseForm(buildCaseForm(data.cases.find((item) => item.id === nextCaseId) || null))
-      persistSelectedApplicantCase(data.profile.id, nextCaseId)
+      primeApplicantDetailCache(data)
+      applyDetailPayload(data)
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "加载申请人详情失败")
+      if (!cached) {
+        setMessage(error instanceof Error ? error.message : "加载申请人详情失败")
+      }
     } finally {
       setLoading(false)
     }
-  }, [applicantId])
+  }, [applicantId, applyDetailPayload, detailCacheKey, primeApplicantDetailCache])
 
   useEffect(() => {
     void loadDetail()
@@ -719,7 +916,15 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
         throw new Error(data?.error || "保存申请人失败")
       }
 
-      setDetail((prev) => (prev ? { ...prev, profile: data.profile! } : prev))
+      const nextDetail = detail ? { ...detail, profile: data.profile } : null
+      if (nextDetail) {
+        setDetail(nextDetail)
+        primeApplicantDetailCache(nextDetail)
+      }
+      clearClientCache(APPLICANT_SELECTOR_CACHE_KEY)
+      clearClientCacheByPrefix(APPLICANT_CRM_LIST_CACHE_PREFIX)
+      clearClientCacheByPrefix(APPLICANT_CRM_SUMMARY_CACHE_PREFIX)
+      clearClientCacheByPrefix(FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX)
       setBasicForm(buildBasicForm(data.profile))
       setMessage("申请人信息已更新")
     } catch (error) {
@@ -740,6 +945,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
       if (!response.ok || !data?.success) {
         throw new Error(data?.error || "删除申请人失败")
       }
+      invalidateApplicantCaches()
       router.push("/applicants")
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "删除申请人失败")
@@ -763,6 +969,11 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
           title: isSchengenExcelUpload ? "申根 Excel 审核中" : "美签 Excel 审核中",
           status: "running",
           issues: [],
+          scope: isSchengenExcelUpload ? "schengen" : "usVisa",
+          slot,
+          helperText: "",
+          autoFixing: false,
+          phaseIndex: 0,
         })
       }
 
@@ -791,6 +1002,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
         throw new Error(data?.error || "上传文件失败")
       }
 
+      invalidateApplicantCaches()
       await loadDetail()
 
       const parsedFields = [
@@ -817,6 +1029,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
               ? issues
               : [{ field: "审核流程", message: "未获得有效审核结果，请重试上传。" }],
         })
+        setAuditDialog((prev) => ({ ...prev, scope: "schengen", slot, helperText: "", autoFixing: false }))
       } else if (isUsVisaExcelUpload) {
         const issues = data.usVisaAudit?.errors || []
         const passed = Boolean(data.usVisaAudit?.ok)
@@ -830,6 +1043,13 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
               ? issues
               : [{ field: "审核流程", message: "未获得有效审核结果，请重试上传。" }],
         })
+        setAuditDialog((prev) => ({
+          ...prev,
+          scope: "usVisa",
+          slot,
+          helperText: passed ? "" : "格式类问题可以先让系统帮你处理，剩下的再手动修改。",
+          autoFixing: false,
+        }))
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "上传文件失败")
@@ -838,9 +1058,79 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
     }
   }
 
+  const autoFixUsVisaAuditIssues = async () => {
+    if (auditDialog.scope !== "usVisa" || !auditDialog.slot || auditDialog.autoFixing) return
+
+    setAuditDialog((prev) => ({
+      ...prev,
+      autoFixing: true,
+      helperText: "正在处理可自动修复的格式问题，并回写到当前档案…",
+    }))
+    setMessage("")
+
+    try {
+      const response = await fetch(`/api/applicants/${applicantId}/files/${auditDialog.slot}/auto-fix-us-visa`, {
+        method: "POST",
+      })
+      const data = await readJsonSafely<{
+        profile?: ApplicantProfileDetail
+        changed?: boolean
+        fixedCount?: number
+        changes?: Array<{ field: string; before: string; after: string }>
+        usVisaAudit?: {
+          ok: boolean
+          errors: Array<{ field: string; message: string; value?: string }>
+        }
+        error?: string
+      }>(response)
+
+      if (!response.ok || !data?.profile) {
+        throw new Error(data?.error || "自动处理格式问题失败")
+      }
+
+      invalidateApplicantCaches()
+      await loadDetail()
+
+      const fixedCount = data.fixedCount || 0
+      const passed = Boolean(data.usVisaAudit?.ok)
+      const issues = data.usVisaAudit?.errors || []
+      const helperText =
+        fixedCount > 0
+          ? passed
+            ? `已自动处理 ${fixedCount} 处格式问题，当前这份美签 Excel 已通过审核。`
+            : `已自动处理 ${fixedCount} 处格式问题，剩余问题请你手动修改。`
+          : "这份 Excel 里没有检测到可自动处理的格式问题，请手动修改剩余内容。"
+
+      setAuditDialog({
+        open: true,
+        title: passed ? "美签 Excel 审核通过" : "美签 Excel 审核失败",
+        status: passed ? "success" : "error",
+        issues: passed
+          ? []
+          : issues.length > 0
+            ? issues
+            : [{ field: "审核流程", message: "未获得有效审核结果，请重试上传。" }],
+        scope: "usVisa",
+        slot: auditDialog.slot,
+        helperText,
+        autoFixing: false,
+      })
+
+      if (fixedCount > 0) {
+        setMessage(passed ? `已自动处理 ${fixedCount} 处格式问题并保存到档案` : `已自动处理 ${fixedCount} 处格式问题`)
+      }
+    } catch (error) {
+      setAuditDialog((prev) => ({
+        ...prev,
+        autoFixing: false,
+        helperText: error instanceof Error ? error.message : "自动处理格式问题失败",
+      }))
+    }
+  }
+
   const closePreview = () => {
     setPreview((prev) => {
-      if (prev.objectUrl) URL.revokeObjectURL(prev.objectUrl)
+      if (prev.objectUrl.startsWith("blob:")) URL.revokeObjectURL(prev.objectUrl)
       return emptyPreview
     })
   }
@@ -849,10 +1139,21 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
     setPreview((prev) => {
       const targetSheet = prev.excelSheets.find((sheet) => sheet.name === sheetName)
       if (!targetSheet) return prev
+      if (targetSheet.rows) {
+        return {
+          ...prev,
+          activeExcelSheet: sheetName,
+          tableRows: cloneTableRows(targetSheet.rows),
+        }
+      }
+      if (!prev.workbookArrayBuffer) return prev
+      const wb = read(prev.workbookArrayBuffer, { type: "array" })
+      const rows = extractExcelSheetRows(wb.Sheets[sheetName])
       return {
         ...prev,
         activeExcelSheet: sheetName,
-        tableRows: targetSheet.rows.map((row) => [...row]),
+        excelSheets: prev.excelSheets.map((sheet) => (sheet.name === sheetName ? { ...sheet, rows } : sheet)),
+        tableRows: cloneTableRows(rows),
       }
     })
   }
@@ -862,8 +1163,11 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
       if (prev.kind !== "excel") return prev
       const sheetIndex = prev.excelSheets.findIndex((s) => s.name === prev.activeExcelSheet)
       if (sheetIndex < 0) return prev
-      const nextSheets = prev.excelSheets.map((s) => ({ ...s, rows: s.rows.map((r) => [...r]) }))
-      const rows = nextSheets[sheetIndex].rows
+      const nextSheets = prev.excelSheets.map((s) => ({
+        ...s,
+        rows: s.rows ? cloneTableRows(s.rows) : undefined,
+      }))
+      const rows = nextSheets[sheetIndex].rows ? cloneTableRows(nextSheets[sheetIndex].rows) : cloneTableRows(prev.tableRows)
       while (rows.length <= rowIndex) {
         rows.push([])
       }
@@ -877,7 +1181,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
       return {
         ...prev,
         excelSheets: nextSheets,
-        tableRows: rows.map((r) => [...r]),
+        tableRows: cloneTableRows(rows),
         excelDirty: true,
       }
     })
@@ -889,22 +1193,18 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
         return { ...prev, excelEditMode: false, excelDirty: false }
       }
       const wb = read(prev.workbookArrayBuffer, { type: "array" })
-      const excelSheets = wb.SheetNames.map((sheetName) => {
-        const sheet = wb.Sheets[sheetName]
-        const rows = sheet
-          ? (utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" }) as unknown[][]).map((row) =>
-              (row as unknown[]).map((cell) => String(cell ?? "")),
-            )
-          : []
-        return { name: sheetName, rows }
-      })
-      const active = excelSheets.find((s) => s.name === prev.activeExcelSheet) || excelSheets[0]
+      const activeSheetName = prev.activeExcelSheet || wb.SheetNames[0] || ""
+      const activeRows = activeSheetName ? extractExcelSheetRows(wb.Sheets[activeSheetName]) : []
       return {
         ...prev,
-        excelSheets,
-        tableRows: active?.rows.map((r) => [...r]) || [],
+        excelSheets: wb.SheetNames.map((sheetName) => ({
+          name: sheetName,
+          rows: sheetName === activeSheetName ? activeRows : undefined,
+        })),
+        tableRows: cloneTableRows(activeRows),
         excelEditMode: false,
         excelDirty: false,
+        excelUsVisaSections: prev.excelUsVisaSections.length > 0 ? parseUsVisaExcelPreviewSections(activeRows) : prev.excelUsVisaSections,
       }
     })
   }
@@ -912,15 +1212,27 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
   const saveExcelFromPreview = async () => {
     const snap = preview
     if (snap.kind !== "excel" || !snap.workbookArrayBuffer || !snap.excelSlot) return
-    setPreview((p) => ({ ...p, excelSaving: true }))
+    const slot = snap.excelSlot
+    const passed = true
+    setPreview((p) => ({ ...p, excelSaving: true, excelSavingStatus: "正在整理 Excel…" }))
     setMessage("")
     try {
+      await new Promise((resolve) => setTimeout(resolve, 0))
       const wb = read(snap.workbookArrayBuffer, { type: "array" })
       for (const sh of snap.excelSheets) {
+        if (!sh.rows) continue
         wb.Sheets[sh.name] = utils.aoa_to_sheet(sh.rows)
+        setAuditDialog((prev) => ({
+          ...prev,
+          scope: "usVisa",
+          slot,
+          helperText: passed ? "" : "格式类问题可以先让系统帮你处理，剩下的再手动修改。",
+          autoFixing: false,
+        }))
       }
       const out = write(wb, { bookType: "xlsx", type: "array" })
       const u8 = out instanceof Uint8Array ? out : new Uint8Array(out)
+      setPreview((p) => ({ ...p, excelSaving: true, excelSavingStatus: "正在上传到档案…" }))
       const name =
         snap.excelOriginalName ||
         snap.title ||
@@ -937,23 +1249,44 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
       if (!response.ok || !data?.profile) {
         throw new Error(data?.error || "保存失败")
       }
-      setDetail((prev) => (prev ? { ...prev, profile: data.profile! } : prev))
+      const nextDetail = detail ? { ...detail, profile: data.profile } : null
+      if (nextDetail) {
+        setDetail(nextDetail)
+        primeApplicantDetailCache(nextDetail)
+      } else {
+        invalidateApplicantCaches()
+      }
+      clearClientCache(APPLICANT_SELECTOR_CACHE_KEY)
+      clearClientCacheByPrefix(APPLICANT_CRM_LIST_CACHE_PREFIX)
+      clearClientCacheByPrefix(APPLICANT_CRM_SUMMARY_CACHE_PREFIX)
+      clearClientCacheByPrefix(FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX)
       setMessage("Excel 已保存到档案")
       const nextBuf = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength)
       setPreview((p) =>
         p.kind === "excel" && p.excelSlot === snap.excelSlot
           ? {
               ...p,
+              excelSheets: snap.excelSheets.map((sheet) => ({
+                ...sheet,
+                rows: sheet.rows ? cloneTableRows(sheet.rows) : undefined,
+              })),
               workbookArrayBuffer: nextBuf,
               excelDirty: false,
               excelSaving: false,
+              excelSavingStatus: "",
               excelEditMode: false,
+              excelUsVisaSections:
+                p.excelUsVisaSections.length > 0
+                  ? parseUsVisaExcelPreviewSections(
+                      snap.excelSheets.find((sheet) => sheet.name === snap.activeExcelSheet)?.rows || snap.tableRows,
+                    )
+                  : p.excelUsVisaSections,
             }
           : { ...p, excelSaving: false },
       )
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存失败")
-      setPreview((p) => ({ ...p, excelSaving: false }))
+      setPreview((p) => ({ ...p, excelSaving: false, excelSavingStatus: "" }))
     }
   }
 
@@ -966,15 +1299,20 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
     })
 
     try {
-      const response = await fetch(`/api/applicants/${applicantId}/files/${slot}`, { credentials: "include" })
+      const fileHref = `/api/applicants/${applicantId}/files/${slot}`
+      const filename = (meta.originalName || slot).toLowerCase()
+      if (filename.endsWith(".pdf")) {
+        setPreview((prev) => ({ ...prev, loading: false, kind: "pdf", objectUrl: fileHref }))
+        return
+      }
+      const response = await fetch(fileHref, { credentials: "include" })
       if (!response.ok) throw new Error("读取文件失败")
 
       const blob = await response.blob()
-      const filename = (meta.originalName || slot).toLowerCase()
       const mime = (blob.type || "").toLowerCase()
       const objectUrl = URL.createObjectURL(blob)
 
-      if (mime.includes("pdf") || filename.endsWith(".pdf")) {
+      if (mime.includes("pdf")) {
         setPreview((prev) => ({ ...prev, loading: false, kind: "pdf", objectUrl }))
         return
       }
@@ -987,33 +1325,36 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
       if (/\.(xlsx|xls)$/.test(filename) || mime.includes("spreadsheet") || mime.includes("excel")) {
         const arrayBuffer = await blob.arrayBuffer()
         const workbook = read(arrayBuffer, { type: "array" })
-        const excelSheets = workbook.SheetNames.map((sheetName) => {
-          const sheet = workbook.Sheets[sheetName]
-          const rows = sheet
-            ? (utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" }) as unknown[][]).map((row) =>
-                (row as unknown[]).map((cell) => String(cell ?? "")),
-              )
+        const isUsVisaExcelPreview = US_VISA_EXCEL_PREVIEW_SLOTS.has(slot)
+        const firstSheetName = isUsVisaExcelPreview
+          ? workbook.SheetNames.find((sheetName) => /^sheet1$/i.test(sheetName)) || workbook.SheetNames[0] || ""
+          : workbook.SheetNames[0] || ""
+        const firstRows = firstSheetName ? extractExcelSheetRows(workbook.Sheets[firstSheetName]) : []
+        const excelSheets = isUsVisaExcelPreview
+          ? firstSheetName
+            ? [{ name: firstSheetName, rows: firstRows }]
             : []
-          return {
-            name: sheetName,
-            rows,
-          }
-        })
-        const firstSheet = excelSheets[0]
+          : workbook.SheetNames.map((sheetName) => ({
+              name: sheetName,
+              rows: sheetName === firstSheetName ? firstRows : undefined,
+            }))
+        const excelUsVisaSections = isUsVisaExcelPreview ? parseUsVisaExcelPreviewSections(firstRows) : []
         URL.revokeObjectURL(objectUrl)
         setPreview((prev) => ({
           ...prev,
           loading: false,
           kind: "excel",
           excelSheets,
-          activeExcelSheet: firstSheet?.name || "",
-          tableRows: (firstSheet?.rows || []).map((r) => [...r]),
+          activeExcelSheet: firstSheetName,
+          tableRows: cloneTableRows(firstRows),
           excelSlot: slot,
           excelOriginalName: meta.originalName || "",
           workbookArrayBuffer: arrayBuffer.slice(0),
           excelEditMode: false,
           excelDirty: false,
           excelSaving: false,
+          excelPreviewMode: excelUsVisaSections.length > 0 ? "form" : "table",
+          excelUsVisaSections,
         }))
         return
       }
@@ -1083,6 +1424,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
         throw new Error(data?.error || "保存案件失败")
       }
 
+      invalidateApplicantCaches()
       await loadDetail()
       setSelectedCaseId(data.case.id)
       setMessage("案件信息已更新")
@@ -1111,6 +1453,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
         throw new Error(data?.error || "创建案件失败")
       }
 
+      invalidateApplicantCaches()
       await loadDetail()
       setSelectedCaseId(data.case.id)
       setCreateCaseOpen(false)
@@ -1190,7 +1533,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
           </div>
         )}
 
-        <Tabs defaultValue="basic" className="space-y-5">
+        <Tabs key={defaultTab} defaultValue={defaultTab} className="space-y-5">
           <TabsList className="grid h-auto w-full grid-cols-4 rounded-2xl border border-slate-200 bg-white/90 p-1.5 shadow-sm backdrop-blur">
             <TabsTrigger
               value="basic"
@@ -1731,6 +2074,8 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                 </div>
               </div>
             </Section>
+
+            <WecomDriveBindingsCard applicantId={applicantId} />
           </TabsContent>
 
           <TabsContent value="progress" className="space-y-6">
@@ -2059,9 +2404,28 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
             {!preview.loading && !preview.error && preview.kind === "excel" && (
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
+                  {preview.excelUsVisaSections.length > 0 && !preview.excelEditMode ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant={preview.excelPreviewMode === "form" ? "default" : "outline"}
+                        onClick={() => setPreview((p) => ({ ...p, excelPreviewMode: "form" }))}
+                      >
+                        表单视图
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={preview.excelPreviewMode === "table" ? "default" : "outline"}
+                        onClick={() => setPreview((p) => ({ ...p, excelPreviewMode: "table" }))}
+                      >
+                        原始 Sheet1
+                      </Button>
+                    </>
+                  ) : null}
                   {preview.excelEditMode ? (
                     <>
                       <Button size="sm" onClick={() => void saveExcelFromPreview()} disabled={preview.excelSaving}>
+                        {preview.excelSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                         {preview.excelSaving ? "保存中…" : "保存到档案"}
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => cancelExcelEdit()} disabled={preview.excelSaving}>
@@ -2069,7 +2433,17 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                       </Button>
                     </>
                   ) : (
-                    <Button size="sm" variant="secondary" onClick={() => setPreview((p) => ({ ...p, excelEditMode: true }))}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() =>
+                        setPreview((p) => ({
+                          ...p,
+                          excelEditMode: true,
+                          excelPreviewMode: "table",
+                        }))
+                      }
+                    >
                       在线编辑
                     </Button>
                   )}
@@ -2077,6 +2451,11 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                     <span className="text-xs text-amber-700">有未保存修改</span>
                   ) : null}
                 </div>
+                {preview.excelUsVisaSections.length > 0 ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    当前仅预览 Sheet1。表单视图读取 A-C 主数据列，D-E 说明列会以提示信息展示；原始视图只显示 Sheet1 的 A-C 列。
+                  </div>
+                ) : null}
                 {preview.excelSheets.length > 1 && (
                   <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-3">
                     {preview.excelSheets.map((sheet) => (
@@ -2097,49 +2476,101 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                   {" · "}
                   {preview.tableRows.length} 行
                 </div>
-                <div className="overflow-auto rounded-lg border border-gray-200">
-                  <table className="w-max min-w-full border-collapse text-xs">
-                    <tbody>
-                      {(() => {
-                        const maxCols =
-                          preview.tableRows.length === 0
-                            ? 0
-                            : Math.max(...preview.tableRows.map((r) => r.length))
-                        return preview.tableRows.map((row, rowIndex) => (
-                          <tr key={`row-${rowIndex}`} className={rowIndex === 0 ? "bg-gray-50" : ""}>
-                            <td className="sticky left-0 z-[1] w-11 min-w-[2.75rem] border bg-white px-1.5 py-1 text-right text-[11px] text-gray-400">
-                              {rowIndex + 1}
-                            </td>
-                            {Array.from({ length: maxCols }, (_, cellIndex) => {
-                              const cell = row[cellIndex] ?? ""
-                              const colClass = excelColumnMinWidthClass(cellIndex)
-                              return (
-                                <td key={`cell-${rowIndex}-${cellIndex}`} className={cn("border p-0 align-top", colClass)}>
-                                  {preview.excelEditMode ? (
-                                    <Input
-                                      className={cn(
-                                        "h-auto min-h-8 w-full rounded-none border-0 py-1.5 text-xs shadow-none focus-visible:ring-1",
-                                        colClass,
-                                      )}
-                                      value={cell}
-                                      onChange={(e) => setExcelCell(rowIndex, cellIndex, e.target.value)}
-                                      disabled={preview.excelSaving}
-                                    />
-                                  ) : (
-                                    <div className={cn("whitespace-pre-wrap break-words px-2 py-1.5", colClass)}>
-                                      {cell || ""}
-                                    </div>
-                                  )}
-                                </td>
-                              )
-                            })}
-                          </tr>
-                        ))
-                      })()}
-                    </tbody>
-                  </table>
-                  {preview.tableRows.length === 0 && <div className="p-4 text-sm text-gray-500">Excel 内容为空。</div>}
-                </div>
+                {preview.excelSaving ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>{preview.excelSavingStatus || "正在保存到档案…"}</span>
+                  </div>
+                ) : null}
+                {preview.excelUsVisaSections.length > 0 && preview.excelPreviewMode === "form" && !preview.excelEditMode ? (
+                  <div className="space-y-4">
+                    {preview.excelUsVisaSections.map((section) => {
+                      const sectionContent = (
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {section.items.map((item) => (
+                            <div
+                              key={`${section.title}-${item.rowIndex}-${item.field}-${item.label}`}
+                              className={cn(
+                                "rounded-xl border p-4 shadow-sm",
+                                item.value ? "border-slate-200 bg-white" : "border-rose-200 bg-rose-50/70",
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="space-y-1">
+                                  <div className="text-sm font-semibold text-slate-900">{item.label || item.field || `第 ${item.rowIndex} 行`}</div>
+                                  {item.field ? <div className="text-[11px] text-slate-500">{item.field}</div> : null}
+                                </div>
+                                <div className="text-[11px] text-slate-400">第 {item.rowIndex} 行</div>
+                              </div>
+                              <div className={cn("mt-3 whitespace-pre-wrap break-words text-sm", item.value ? "text-slate-800" : "text-rose-600")}>
+                                {item.value || "未填写"}
+                              </div>
+                              {item.note ? <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">{item.note}</div> : null}
+                            </div>
+                          ))}
+                        </div>
+                      )
+
+                      return section.title.includes("空着就行") ? (
+                        <details key={section.title} className="rounded-xl border border-slate-200 bg-white p-4">
+                          <summary className="cursor-pointer text-sm font-semibold text-slate-900">{section.title}</summary>
+                          <div className="mt-4">{sectionContent}</div>
+                        </details>
+                      ) : (
+                        <section key={section.title} className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+                          <div className="text-sm font-semibold text-slate-900">{section.title}</div>
+                          {sectionContent}
+                        </section>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="overflow-auto rounded-lg border border-gray-200">
+                    <table className="w-max min-w-full border-collapse text-xs">
+                      <tbody>
+                        {(() => {
+                          const maxCols =
+                            preview.tableRows.length === 0
+                              ? 0
+                              : Math.max(...preview.tableRows.map((r) => r.length))
+                          const visibleCols =
+                            preview.excelUsVisaSections.length > 0 && maxCols > 0 ? Math.min(3, maxCols) : maxCols
+                          return preview.tableRows.map((row, rowIndex) => (
+                            <tr key={`row-${rowIndex}`} className={rowIndex === 0 ? "bg-gray-50" : ""}>
+                              <td className="sticky left-0 z-[1] w-11 min-w-[2.75rem] border bg-white px-1.5 py-1 text-right text-[11px] text-gray-400">
+                                {rowIndex + 1}
+                              </td>
+                              {Array.from({ length: visibleCols }, (_, cellIndex) => {
+                                const cell = row[cellIndex] ?? ""
+                                const colClass = excelColumnMinWidthClass(cellIndex)
+                                return (
+                                  <td key={`cell-${rowIndex}-${cellIndex}`} className={cn("border p-0 align-top", colClass)}>
+                                    {preview.excelEditMode ? (
+                                      <Input
+                                        className={cn(
+                                          "h-auto min-h-8 w-full rounded-none border-0 py-1.5 text-xs shadow-none focus-visible:ring-1",
+                                          colClass,
+                                        )}
+                                        value={cell}
+                                        onChange={(e) => setExcelCell(rowIndex, cellIndex, e.target.value)}
+                                        disabled={preview.excelSaving}
+                                      />
+                                    ) : (
+                                      <div className={cn("whitespace-pre-wrap break-words px-2 py-1.5", colClass)}>
+                                        {cell || ""}
+                                      </div>
+                                    )}
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          ))
+                        })()}
+                      </tbody>
+                    </table>
+                    {preview.tableRows.length === 0 && <div className="p-4 text-sm text-gray-500">Excel 内容为空。</div>}
+                  </div>
+                )}
               </div>
             )}
             {!preview.loading && !preview.error && preview.kind === "word" && (
@@ -2165,9 +2596,41 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                   ? "审核通过，可继续后续流程。"
                   : "审核发现问题，请先修正再继续。"}
             </DialogDescription>
+            {auditDialog.helperText ? <div className="text-sm text-slate-500">{auditDialog.helperText}</div> : null}
           </DialogHeader>
 
           {auditDialog.status === "running" ? (
+            <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-blue-700">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>{AUDIT_PROGRESS_STEPS[auditPhaseIndex]}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {AUDIT_PROGRESS_STEPS.map((step, index) => {
+                  const isDone = index < auditPhaseIndex
+                  const isActive = index === auditPhaseIndex
+                  return (
+                    <div
+                      key={step}
+                      className={cn(
+                        "rounded-xl border px-3 py-2 text-xs transition-colors",
+                        isDone
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : isActive
+                            ? "border-blue-300 bg-white text-blue-700 shadow-sm"
+                            : "border-blue-100 bg-blue-50/60 text-blue-400",
+                      )}
+                    >
+                      <div className="font-semibold">步骤 {index + 1}</div>
+                      <div className="mt-1">{step}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {false && auditDialog.status === "running" ? (
             <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-700">
               <Loader2 className="h-4 w-4 animate-spin" />
               正在审核，请稍候...
@@ -2189,7 +2652,19 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
           ) : null}
 
           <DialogFooter>
-            <Button onClick={() => setAuditDialog(emptyAuditDialog)}>
+            {auditDialog.status === "error" && auditDialog.scope === "usVisa" ? (
+              <Button variant="outline" onClick={() => void autoFixUsVisaAuditIssues()} disabled={auditDialog.autoFixing}>
+                {auditDialog.autoFixing ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    正在自动处理…
+                  </>
+                ) : (
+                  "先帮我处理可修格式问题"
+                )}
+              </Button>
+            ) : null}
+            <Button onClick={() => setAuditDialog(emptyAuditDialog)} disabled={auditDialog.autoFixing}>
               {auditDialog.status === "error" ? "我知道了，去修正" : "确定"}
             </Button>
           </DialogFooter>

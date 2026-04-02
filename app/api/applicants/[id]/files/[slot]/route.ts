@@ -4,7 +4,12 @@ import { getServerSession } from "next-auth"
 
 import { handleApplicantProfileApiError } from "@/lib/applicant-profile-api-error"
 import { authOptions } from "@/lib/auth"
-import { getApplicantProfileFile, isApplicantProfileFileSlot } from "@/lib/applicant-profiles"
+import {
+  getApplicantProfileFile,
+  isApplicantProfileFileSlot,
+  isApplicantProfileExcelEditableSlot,
+  saveApplicantProfileFileFromBuffer,
+} from "@/lib/applicant-profiles"
 
 export const dynamic = "force-dynamic"
 
@@ -39,6 +44,54 @@ export async function GET(
         "Content-Disposition": `inline; filename="${encodeURIComponent(file.meta.originalName)}"`,
       },
     })
+  } catch (error) {
+    return handleApplicantProfileApiError(error)
+  }
+}
+
+const MAX_EXCEL_UPLOAD_BYTES = 20 * 1024 * 1024
+
+export async function PUT(request: NextRequest, { params }: { params: { id: string; slot: string } }) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "未登录" }, { status: 401 })
+    }
+
+    if (!isApplicantProfileFileSlot(params.slot) || !isApplicantProfileExcelEditableSlot(params.slot)) {
+      return NextResponse.json({ error: "该文件类型不支持在线保存" }, { status: 400 })
+    }
+
+    const buffer = Buffer.from(await request.arrayBuffer())
+    if (!buffer.length) {
+      return NextResponse.json({ error: "文件内容为空" }, { status: 400 })
+    }
+    if (buffer.length > MAX_EXCEL_UPLOAD_BYTES) {
+      return NextResponse.json({ error: "文件过大" }, { status: 413 })
+    }
+
+    const headerName = request.headers.get("x-excel-original-name")
+    const decodedName = headerName ? decodeURIComponent(headerName) : ""
+
+    const existing = await getApplicantProfileFile(session.user.id, params.id, params.slot, session.user.role)
+    const baseName = decodedName || existing?.meta.originalName || `${params.slot}.xlsx`
+    const originalName = /\.xlsx$/i.test(baseName) ? baseName : baseName.replace(/\.xls$/i, ".xlsx")
+
+    const profile = await saveApplicantProfileFileFromBuffer({
+      userId: session.user.id,
+      id: params.id,
+      slot: params.slot,
+      buffer,
+      originalName,
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      role: session.user.role,
+    })
+
+    if (!profile) {
+      return NextResponse.json({ error: "申请人档案不存在" }, { status: 404 })
+    }
+
+    return NextResponse.json({ profile })
   } catch (error) {
     return handleApplicantProfileApiError(error)
   }

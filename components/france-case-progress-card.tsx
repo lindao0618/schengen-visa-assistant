@@ -1,9 +1,10 @@
 "use client"
 
 import { type ReactNode, useEffect, useMemo, useState } from "react"
-import { CheckCircle2, Clock3, XCircle } from "lucide-react"
+import { CheckCircle2, ChevronDown, Clock3, XCircle } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
   formatFranceExceptionLabel,
   formatFranceStatusLabel,
@@ -265,6 +266,7 @@ export function FranceCaseProgressCard({
   const [caseRecord, setCaseRecord] = useState<FranceCaseRecord | null>(null)
   const [history, setHistory] = useState<FranceCaseHistoryRecord[]>([])
   const [tasks, setTasks] = useState<FranceTaskRecord[]>([])
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   useEffect(() => {
     if (!applicantProfileId && !caseId) {
@@ -710,6 +712,43 @@ export function FranceCaseProgressCard({
             </div>
 
             <div className="space-y-3">
+              <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-gray-900">最近流转</div>
+                  {recentHistory.length > 0 ? (
+                    <CollapsibleTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white/90 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                      >
+                        <span>{historyOpen ? "收起" : `展开 ${recentHistory.length} 条`}</span>
+                        <ChevronDown className={`h-4 w-4 transition-transform ${historyOpen ? "rotate-180" : ""}`} />
+                      </button>
+                    </CollapsibleTrigger>
+                  ) : null}
+                </div>
+                {recentHistory.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">还没有可展示的状态变更记录。</p>
+                ) : (
+                  <CollapsibleContent className="space-y-2 pt-1">
+                    {recentHistory.map((item) => (
+                      <div key={item.id} className="rounded-xl border border-gray-200 bg-white/90 px-4 py-3">
+                        <div className="text-sm font-medium text-gray-900">{getHistorySummary(item)}</div>
+                        <div className="mt-1 text-xs text-gray-500">{formatDate(item.createdAt)}</div>
+                        {item.reason && <div className="mt-2 text-sm text-gray-600">原因：{item.reason}</div>}
+                        {item.exceptionCode && (
+                          <div className="mt-2 text-sm text-red-600">
+                            异常：{formatFranceExceptionLabel(item.exceptionCode)}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </CollapsibleContent>
+                )}
+              </Collapsible>
+            </div>
+
+            <div className="hidden space-y-3">
               <div className="text-sm font-semibold text-gray-900">最近流转</div>
               {recentHistory.length === 0 ? (
                 <p className="text-sm text-muted-foreground">还没有可展示的状态变更记录。</p>

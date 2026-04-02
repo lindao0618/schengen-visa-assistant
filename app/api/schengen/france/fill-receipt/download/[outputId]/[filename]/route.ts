@@ -7,6 +7,14 @@ import { NextRequest, NextResponse } from "next/server"
 import { authOptions } from "@/lib/auth"
 import { canAccessFrenchVisaTaskOutput, sanitizeDownloadFilename } from "@/lib/task-route-access"
 
+function contentDisposition(safeName: string): string {
+  const asciiSafe = /^[\x20-\x7E]*$/.test(safeName)
+  if (asciiSafe) return `attachment; filename="${safeName}"`
+  const encoded = encodeURIComponent(safeName)
+  const fallback = "download" + path.extname(safeName)
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`
+}
+
 function getContentType(filename: string) {
   const ext = path.extname(filename).toLowerCase()
   if (ext === ".pdf") return "application/pdf"
@@ -17,6 +25,19 @@ function getContentType(filename: string) {
   if (ext === ".json") return "application/json; charset=utf-8"
   if (ext === ".log" || ext === ".txt") return "text/plain; charset=utf-8"
   return "application/octet-stream"
+}
+
+async function resolveFilePath(outputId: string, safeName: string) {
+  const baseDir = path.join(process.cwd(), "temp", "french-visa-fill-receipt", outputId)
+  const rootFile = path.join(baseDir, safeName)
+  try {
+    await fs.access(rootFile)
+    return rootFile
+  } catch {
+    const artifactFile = path.join(baseDir, "artifacts", safeName)
+    await fs.access(artifactFile)
+    return artifactFile
+  }
 }
 
 export async function GET(
@@ -41,33 +62,29 @@ export async function GET(
 
     const safeName = sanitizeDownloadFilename(filename)
     const dirPath = path.join(process.cwd(), "temp", "french-visa-fill-receipt", outputId)
-    let filePath = path.join(dirPath, safeName)
-
+    let filePath: string
     try {
-      await fs.access(filePath)
+      filePath = await resolveFilePath(outputId, safeName)
     } catch {
-      if (safeName.toLowerCase().endsWith(".pdf")) {
-        const files = await fs.readdir(dirPath).catch(() => [])
-        const pdfFile = files.find((file) => file.toLowerCase().endsWith(".pdf"))
-        if (pdfFile) {
-          filePath = path.join(dirPath, pdfFile)
-        } else {
-          throw new Error("ENOENT")
-        }
-      } else {
+      if (!safeName.toLowerCase().endsWith(".pdf")) {
         throw new Error("ENOENT")
       }
+      const files = await fs.readdir(dirPath).catch(() => [])
+      const pdfFile = files.find((file) => file.toLowerCase().endsWith(".pdf"))
+      if (!pdfFile) {
+        throw new Error("ENOENT")
+      }
+      filePath = path.join(dirPath, pdfFile)
     }
 
     const buffer = await fs.readFile(filePath)
     const finalName = path.basename(filePath)
     const contentType = getContentType(finalName)
-    const rfc5987 = encodeURIComponent(finalName)
 
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": `attachment; filename="${finalName}"; filename*=UTF-8''${rfc5987}`,
+        "Content-Disposition": contentDisposition(finalName),
       },
     })
   } catch (error) {

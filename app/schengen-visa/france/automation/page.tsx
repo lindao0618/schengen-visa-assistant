@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import Image from "next/image"
+import { useSession } from "next-auth/react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
@@ -34,6 +35,15 @@ import { FranceTaskList } from "./FranceTaskList"
 import { ApplicantProfileSelector } from "@/components/applicant-profile-selector"
 import { FranceCaseProgressCard } from "@/components/france-case-progress-card"
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
+import { usePrefetchApplicantDetail } from "@/hooks/use-prefetch-applicant-detail"
+import {
+  FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX,
+  FRANCE_AUTOMATION_PROFILES_CACHE_TTL_MS,
+  clearClientCacheByPrefix,
+  getFranceAutomationProfilesCacheKey,
+  readClientCache,
+  writeClientCache,
+} from "@/lib/applicant-client-cache"
 import { getFranceTlsCityLabel, normalizeFranceTlsCity } from "@/lib/france-tls-city"
 import { FranceQuickStartCard } from "./FranceQuickStartCard"
 
@@ -49,6 +59,10 @@ interface ApplicantProfileOption {
     city?: string
   }
   files?: Record<string, { originalName?: string; uploadedAt?: string }>
+}
+
+type FranceAutomationProfilesResponse = {
+  profiles?: ApplicantProfileOption[]
 }
 
 interface FranceApplicantGroup {
@@ -317,8 +331,18 @@ function CaptchaBalanceCard() {
 
 function FranceAutomationContent() {
   const { showLoginPrompt } = useAuthPrompt()
+  const { data: session } = useSession()
   const activeApplicant = useActiveApplicantProfile()
+  usePrefetchApplicantDetail(activeApplicant?.id)
   const [profiles, setProfiles] = useState<ApplicantProfileOption[]>([])
+  const viewerCacheScope = useMemo(
+    () => `${session?.user?.id || "anon"}:${session?.user?.role || ""}`,
+    [session?.user?.id, session?.user?.role],
+  )
+  const franceProfilesCacheKey = useMemo(
+    () => getFranceAutomationProfilesCacheKey(viewerCacheScope),
+    [viewerCacheScope],
+  )
 
   const hasSchengenProfileExcel = Boolean(activeApplicant?.files?.schengenExcel || activeApplicant?.files?.franceExcel)
   const activeApplicantName = activeApplicant?.name || activeApplicant?.label
@@ -326,17 +350,32 @@ function FranceAutomationContent() {
   useEffect(() => {
     const loadProfiles = async () => {
       try {
-        const res = await fetch("/api/applicants", { cache: "no-store" })
+        const cached = readClientCache<FranceAutomationProfilesResponse>(franceProfilesCacheKey)
+        if (cached?.profiles) {
+          setProfiles(cached.profiles)
+        }
+
+        const res = await fetch("/api/applicants/france-automation", { cache: "no-store" })
         if (!res.ok) return
-        const data = await res.json()
+        const data = (await res.json()) as FranceAutomationProfilesResponse
         setProfiles((data.profiles || []) as ApplicantProfileOption[])
+        writeClientCache(franceProfilesCacheKey, data, FRANCE_AUTOMATION_PROFILES_CACHE_TTL_MS)
       } catch (error) {
         console.error("Failed to load applicant profiles for France automation:", error)
       }
     }
 
     void loadProfiles()
-  }, [])
+    const handleRefresh = () => {
+      clearClientCacheByPrefix(FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX)
+      void loadProfiles()
+    }
+
+    window.addEventListener("active-applicant-profile-refresh", handleRefresh)
+    return () => {
+      window.removeEventListener("active-applicant-profile-refresh", handleRefresh)
+    }
+  }, [franceProfilesCacheKey])
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-black">
       <div className="container mx-auto px-4 py-8">

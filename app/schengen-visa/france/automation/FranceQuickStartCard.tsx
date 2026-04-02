@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AlertCircle, CheckCircle2, ExternalLink, Loader2, PlayCircle, RotateCcw, Sparkles } from "lucide-react"
 
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
+import { usePageVisibility } from "@/hooks/use-page-visibility"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
+import { QUICK_WORKFLOW_POLL_INTERVAL_MS } from "@/lib/polling"
 import {
   QuickStepState,
   QuickWorkflowPhase,
@@ -140,6 +142,7 @@ function canResumeFranceWorkflow(workflow: FranceQuickWorkflow | null) {
 
 export function FranceQuickStartCard() {
   const activeApplicant = useActiveApplicantProfile()
+  const isPageVisible = usePageVisibility()
   const [workflow, setWorkflow] = useState<FranceQuickWorkflow | null>(null)
   const [loading, setLoading] = useState(false)
   const launchLockRef = useRef(false)
@@ -488,6 +491,7 @@ export function FranceQuickStartCard() {
   useEffect(() => {
     if (!activeApplicant?.id || !workflow || workflow.applicantProfileId !== activeApplicant.id) return
     if (workflow.phase === "completed" || workflow.phase === "failed") return
+    if (!isPageVisible) return
 
     let cancelled = false
 
@@ -561,13 +565,13 @@ export function FranceQuickStartCard() {
     void tick()
     const timer = window.setInterval(() => {
       void tick()
-    }, 1500)
+    }, QUICK_WORKFLOW_POLL_INTERVAL_MS)
 
     return () => {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [activeApplicant?.id, launchCreateApplication, launchTlsApply, persistWorkflow, updateWorkflow, workflow])
+  }, [activeApplicant?.id, isPageVisible, launchCreateApplication, launchTlsApply, persistWorkflow, updateWorkflow, workflow])
 
   const overallPercent = workflow
     ? workflowPercent([

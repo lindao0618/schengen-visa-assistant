@@ -703,5 +703,8 @@ def validate_monitor_data(data: dict) -> dict:
     return validation
 
 if __name__ == "__main__":
+    import os
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8004)
+
+    port = int(os.environ.get("TLS_MONITOR_PORT", "8004"))
+    uvicorn.run(app, host="0.0.0.0", port=port)

@@ -6,3 +6,4 @@ openai
 pydantic
 docxtpl
 jinja2
+reportlab

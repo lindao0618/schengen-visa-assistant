@@ -15,21 +15,21 @@ function getContentType(filename: string) {
   return "application/octet-stream"
 }
 
-function contentDisposition(filename: string) {
+function contentDisposition(filename: string, mode: "attachment" | "inline" = "attachment") {
   const asciiSafe = /^[\x20-\x7E]+$/.test(filename)
   if (asciiSafe) {
-    return `attachment; filename="${filename.replace(/"/g, "")}"`
+    return `${mode}; filename="${filename.replace(/"/g, "")}"`
   }
 
   const ext = path.extname(filename)
   const fallbackBase = path.basename(filename, ext).replace(/[^\x20-\x7E]+/g, "_").replace(/"/g, "")
   const fallback = `${fallbackBase || "download"}${ext}`
   const encoded = encodeURIComponent(filename)
-  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`
+  return `${mode}; filename="${fallback}"; filename*=UTF-8''${encoded}`
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ outputId: string; filename: string }> },
 ) {
   try {
@@ -52,11 +52,12 @@ export async function GET(
     const safeName = sanitizeDownloadFilename(filename)
     const filePath = path.join(outputDir, safeName)
     const buffer = await fs.readFile(filePath)
+    const disposition = request.nextUrl.searchParams.get("disposition") === "inline" ? "inline" : "attachment"
 
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": getContentType(safeName),
-        "Content-Disposition": contentDisposition(safeName),
+        "Content-Disposition": contentDisposition(safeName, disposition),
       },
     })
   } catch (error) {

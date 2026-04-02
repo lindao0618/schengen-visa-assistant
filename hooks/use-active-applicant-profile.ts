@@ -5,6 +5,12 @@ import {
   ACTIVE_APPLICANT_CASE_KEY,
   ACTIVE_APPLICANT_PROFILE_KEY,
 } from "@/components/applicant-profile-selector"
+import {
+  APPLICANT_DETAIL_CACHE_TTL_MS,
+  getApplicantDetailCacheKey,
+  readClientCache,
+  writeClientCache,
+} from "@/lib/applicant-client-cache"
 
 export interface ActiveApplicantCase {
   id: string
@@ -102,6 +108,25 @@ function resolveActiveCaseId(cases: ActiveApplicantCase[], preferredCaseId?: str
   return cases.find((item) => item.isActive)?.id ?? cases[0]?.id ?? null
 }
 
+function buildActiveApplicantProfile(id: string, data: ApplicantDetailResponse) {
+  const nextProfile = data.profile || null
+  if (!nextProfile) return null
+
+  const cases = Array.isArray(data.cases) ? data.cases : []
+  const savedCaseId = readStoredCaseId(id)
+  const activeCaseId = resolveActiveCaseId(cases, savedCaseId, data.activeCaseId)
+  const activeCase = activeCaseId ? cases.find((item) => item.id === activeCaseId) ?? null : null
+
+  writeStoredCaseId(id, activeCaseId)
+
+  return {
+    ...(nextProfile as ActiveApplicantProfile),
+    cases,
+    activeCaseId,
+    activeCase,
+  } satisfies ActiveApplicantProfile
+}
+
 export function useActiveApplicantProfile() {
   const [profile, setProfile] = useState<ActiveApplicantProfile | null>(null)
 
@@ -113,35 +138,33 @@ export function useActiveApplicantProfile() {
         return
       }
 
+      const cacheKey = getApplicantDetailCacheKey(id)
+      const cached = readClientCache<ApplicantDetailResponse>(cacheKey)
+      if (cached) {
+        const cachedProfile = buildActiveApplicantProfile(id, cached)
+        if (cachedProfile) {
+          setProfile(cachedProfile)
+        }
+      }
+
       try {
         const res = await fetch(`/api/applicants/${id}`, { cache: "no-store" })
         if (!res.ok) {
-          setProfile(null)
+          if (!cached) setProfile(null)
           return
         }
 
         const data = (await res.json()) as ApplicantDetailResponse
-        const nextProfile = data.profile || null
+        writeClientCache(cacheKey, data, APPLICANT_DETAIL_CACHE_TTL_MS)
+        const nextProfile = buildActiveApplicantProfile(id, data)
         if (!nextProfile) {
-          setProfile(null)
+          if (!cached) setProfile(null)
           return
         }
 
-        const cases = Array.isArray(data.cases) ? data.cases : []
-        const savedCaseId = readStoredCaseId(id)
-        const activeCaseId = resolveActiveCaseId(cases, savedCaseId, data.activeCaseId)
-        const activeCase = activeCaseId ? cases.find((item) => item.id === activeCaseId) ?? null : null
-
-        writeStoredCaseId(id, activeCaseId)
-
-        setProfile({
-          ...(nextProfile as ActiveApplicantProfile),
-          cases,
-          activeCaseId,
-          activeCase,
-        })
+        setProfile(nextProfile)
       } catch {
-        setProfile(null)
+        if (!cached) setProfile(null)
       }
     }
 

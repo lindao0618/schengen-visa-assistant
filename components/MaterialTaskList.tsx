@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
@@ -18,7 +18,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
+import { usePageVisibility } from "@/hooks/use-page-visibility"
 import { useTaskStatusReminder } from "@/hooks/use-task-status-reminder"
+import { getAdaptivePollInterval } from "@/lib/polling"
 
 function formatTimestamp(ts?: number) {
   if (!ts) return "-"
@@ -86,15 +88,19 @@ export function MaterialTaskList({
   const [searchKeyword, setSearchKeyword] = useState("")
   const [onlyCurrentApplicant, setOnlyCurrentApplicant] = useState(false)
   const activeApplicant = useActiveApplicantProfile()
+  const isPageVisible = usePageVisibility()
+  const inFlightRef = useRef(false)
   const taskIdsKey = useMemo(() => taskIds.join(","), [taskIds])
   const filterTaskTypesKey = useMemo(() => (filterTaskTypes ?? []).join(","), [filterTaskTypes])
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = useCallback(async (showLoading = true) => {
     if (!taskIdsKey) {
       setTasks([])
       return
     }
-    setLoading(true)
+    if (inFlightRef.current) return
+    inFlightRef.current = true
+    if (showLoading) setLoading(true)
     try {
       const params = new URLSearchParams({
         task_ids: taskIdsKey,
@@ -118,11 +124,15 @@ export function MaterialTaskList({
     } catch (e) {
       console.error("Fetch material tasks failed:", e)
     } finally {
-      setLoading(false)
+      inFlightRef.current = false
+      if (showLoading) setLoading(false)
     }
   }, [filterTaskTypesKey, taskIdsKey])
 
-  const interval = tasks.some((t) => t.status === "running") ? 500 : pollInterval
+  const interval = getAdaptivePollInterval(
+    pollInterval,
+    tasks.some((task) => task.status === "running" || task.status === "pending"),
+  )
 
   const displayedTasks = useMemo(() => {
     let list = tasks
@@ -201,11 +211,13 @@ export function MaterialTaskList({
   }, [clearingFailed, failedTaskIds, fetchTasks])
 
   useEffect(() => {
-    fetchTasks()
-    if (!autoRefresh) return
-    const id = setInterval(fetchTasks, interval)
-    return () => clearInterval(id)
-  }, [fetchTasks, interval, autoRefresh])
+    void fetchTasks(tasks.length === 0)
+    if (!autoRefresh || !isPageVisible) return
+    const id = window.setInterval(() => {
+      void fetchTasks(false)
+    }, interval)
+    return () => window.clearInterval(id)
+  }, [fetchTasks, interval, autoRefresh, isPageVisible, tasks.length])
 
   return (
     <Card className="border-[#e5e5ea] dark:border-gray-800">
@@ -227,7 +239,7 @@ export function MaterialTaskList({
               {clearingFailed ? "清理中" : `清理失败任务 (${failedTaskIds.length})`}
             </Button>
           )}
-        <Button variant="ghost" size="sm" onClick={fetchTasks} disabled={loading} className="gap-1">
+        <Button variant="ghost" size="sm" onClick={() => void fetchTasks()} disabled={loading} className="gap-1">
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           刷新
         </Button>

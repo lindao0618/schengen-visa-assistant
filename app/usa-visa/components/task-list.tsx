@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { useSession } from "next-auth/react"
 import Image from "next/image"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -14,7 +14,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, CheckCircle2, XCircle, Clock, ListTodo, RefreshCw, Search, Download, ImageIcon, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
+import { usePageVisibility } from "@/hooks/use-page-visibility"
 import { useTaskStatusReminder } from "@/hooks/use-task-status-reminder"
+import { getAdaptivePollInterval } from "@/lib/polling"
 
 function getTaskFilename(task: UsVisaTask): string {
   if (task.type === "check-photo") {
@@ -100,17 +102,21 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
   const [onlyCurrentApplicant, setOnlyCurrentApplicant] = useState(false)
   const { status } = useSession()
   const activeApplicant = useActiveApplicantProfile()
+  const isPageVisible = usePageVisibility()
+  const inFlightRef = useRef(false)
   const filterTaskIdsKey = useMemo(() => (filterTaskIds ?? []).join(","), [filterTaskIds])
   const filterTaskTypesKey = useMemo(() => (filterTaskTypes ?? []).join(","), [filterTaskTypes])
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = useCallback(async (showLoading = true) => {
     if (status === "loading") return
+    if (inFlightRef.current) return
     if (status === "unauthenticated") {
       setNeedsLogin(true)
       setTasks([])
       return
     }
-    setLoading(true)
+    inFlightRef.current = true
+    if (showLoading) setLoading(true)
     setNeedsLogin(false)
     try {
       const params = new URLSearchParams({ limit: "50", t: String(Date.now()) })
@@ -159,11 +165,15 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
     } catch (e) {
       console.error("Fetch tasks failed:", e)
     } finally {
-      setLoading(false)
+      inFlightRef.current = false
+      if (showLoading) setLoading(false)
     }
   }, [filterTaskIdsKey, filterTaskTypesKey, statusFilter, status, onlyCurrentApplicant, activeApplicant])
 
-  const interval = tasks.some((t) => t.status === "running") ? 500 : pollInterval
+  const interval = getAdaptivePollInterval(
+    pollInterval,
+    tasks.some((task) => task.status === "running" || task.status === "pending"),
+  )
 
   const displayedTasks = useMemo(() => {
     let list = tasks
@@ -204,11 +214,13 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
   })
 
   useEffect(() => {
-    fetchTasks()
-    if (!autoRefresh || status !== "authenticated") return
-    const id = setInterval(fetchTasks, interval)
-    return () => clearInterval(id)
-  }, [fetchTasks, interval, autoRefresh, status])
+    void fetchTasks(tasks.length === 0)
+    if (!autoRefresh || status !== "authenticated" || !isPageVisible) return
+    const id = window.setInterval(() => {
+      void fetchTasks(false)
+    }, interval)
+    return () => window.clearInterval(id)
+  }, [fetchTasks, interval, autoRefresh, status, isPageVisible, tasks.length])
 
   return (
     <Card className="border-[#e5e5ea] dark:border-gray-800">
@@ -217,7 +229,7 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
           <ListTodo className="h-5 w-5" />
           {title}
         </CardTitle>
-        <Button variant="ghost" size="sm" onClick={fetchTasks} disabled={loading} className="gap-1">
+        <Button variant="ghost" size="sm" onClick={() => void fetchTasks()} disabled={loading} className="gap-1">
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           刷新
         </Button>

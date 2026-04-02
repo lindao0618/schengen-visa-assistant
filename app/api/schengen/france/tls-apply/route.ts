@@ -41,6 +41,12 @@ interface TlsApplyClipboardPayload {
   paymentLink: string
 }
 
+type TlsAccountRecord = {
+  email?: unknown
+  username?: unknown
+  password?: unknown
+}
+
 type TlsApplyResultEntry = {
   status?: string
   stage?: string
@@ -179,6 +185,25 @@ function artifactLabel(filename: string) {
   return `调试文件 · ${filename}`
 }
 
+function normalizeCredentialText(value: unknown) {
+  if (value == null) return ""
+  return String(value).trim()
+}
+
+function extractCredentialsFromTlsAccountsJson(buffer: Buffer): { email: string; password: string } | null {
+  try {
+    const parsed = JSON.parse(buffer.toString("utf-8")) as unknown
+    if (!Array.isArray(parsed) || parsed.length === 0) return null
+    const first = parsed[0] as TlsAccountRecord
+    const email = normalizeCredentialText(first?.email || first?.username)
+    const password = normalizeCredentialText(first?.password)
+    if (!email || !email.includes("@")) return null
+    return { email, password }
+  } catch {
+    return null
+  }
+}
+
 function refineApplyFailureDetail(rawDetail: string) {
   const text = rawDetail.toLowerCase()
   if (
@@ -269,29 +294,52 @@ export async function POST(request: NextRequest) {
     }
     const visaCase = caseId ? await getVisaCaseDetail(userId, session.user.role, caseId) : null
 
+    let prefilledEmail = ""
+    let prefilledPassword = ""
+    const tlsAccountsStored = await getApplicantProfileFileByCandidates(userId, applicantProfileId, [
+      "franceTlsAccountsJson",
+    ])
+    if (tlsAccountsStored) {
+      try {
+        const tlsAccountsBuffer = await fs.readFile(tlsAccountsStored.absolutePath)
+        const credentials = extractCredentialsFromTlsAccountsJson(tlsAccountsBuffer)
+        if (credentials) {
+          prefilledEmail = credentials.email
+          prefilledPassword = credentials.password
+        }
+      } catch (error) {
+        console.error("Failed to parse franceTlsAccountsJson", error)
+      }
+    }
+
+
     const excelStored = await getApplicantProfileFileByCandidates(userId, applicantProfileId, [
       "schengenExcel",
       "franceExcel",
     ])
-    if (!excelStored) {
+    if (!excelStored && !prefilledEmail.includes("@")) {
       return NextResponse.json(
         { success: false, error: "该档案未上传申根 Excel，无法读取 TLS 登录邮箱和密码" },
         { status: 400 },
       )
     }
 
-    let email = ""
-    let password = ""
+    let email = prefilledEmail
+    let password = prefilledPassword
     let excelBuffer: Buffer
-    try {
+    if (excelStored) try {
       excelBuffer = await fs.readFile(excelStored.absolutePath)
-      ;({ email, password } = extractFranceVisaCredentialsFromExcelBuffer(excelBuffer))
+      if (!email.includes("@")) {
+        ;({ email, password } = extractFranceVisaCredentialsFromExcelBuffer(excelBuffer))
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "解析 Excel 失败"
       return NextResponse.json({ success: false, error: message }, { status: 400 })
+    } else {
+      excelBuffer = Buffer.alloc(0)
     }
 
-    const parsedExcelCity = extractFranceTlsCityFromExcelBuffer(excelBuffer)
+    const parsedExcelCity = excelBuffer.length ? extractFranceTlsCityFromExcelBuffer(excelBuffer) : ""
     const location =
       requestedLocation || normalizeLocation(applicantProfile.schengen?.city) || normalizeLocation(parsedExcelCity)
     if (!location) {
