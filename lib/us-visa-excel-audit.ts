@@ -22,6 +22,8 @@ type SheetRows = {
   rows: string[][]
 }
 
+export type UsVisaExcelReviewFieldMap = Record<string, string>
+
 const FIELD_RULES: FieldRule[] = [
   {
     key: "applicationId",
@@ -357,7 +359,7 @@ function isMetaCellValue(value: string): boolean {
 }
 
 function extractWorkbookRows(buffer: Buffer): SheetRows[] {
-  const workbook = read(buffer, { type: "buffer", raw: false, cellDates: false })
+  const workbook = read(buffer, { type: "buffer", raw: false, cellDates: true })
   const targetSheetName = workbook.SheetNames.find((name) => normalizeKey(name) === "sheet1") || workbook.SheetNames[0]
   const sheet = targetSheetName ? workbook.Sheets[targetSheetName] : undefined
   if (!sheet || !targetSheetName) return []
@@ -367,12 +369,19 @@ function extractWorkbookRows(buffer: Buffer): SheetRows[] {
     defval: "",
     raw: false,
     blankrows: false,
+    dateNF: "yyyy-mm-dd",
   }) as unknown[][]
 
   return [
     {
       sheetName: targetSheetName,
-      rows: rows.map((row) => row.map((cell) => normalizeText(cell))),
+      rows: rows.map((row) => row.map((cell) => {
+        // 保留日期的原始格式，不转换为数值
+        if (cell instanceof Date) {
+          return cell.toLocaleDateString()
+        }
+        return normalizeText(cell)
+      })),
     },
   ]
 }
@@ -657,6 +666,47 @@ function getValue(values: Map<string, string>, key: string): string {
 
 function getFieldLabel(key: string): string {
   return FIELD_RULES.find((field) => field.key === key)?.label || key
+}
+
+export function getUsVisaExcelFieldLabel(key: string): string {
+  return getFieldLabel(key)
+}
+
+export function extractUsVisaExcelReviewFields(buffer: Buffer): UsVisaExcelReviewFieldMap {
+  const sheets = extractWorkbookRows(buffer)
+  const values = collectWorkbookValues(sheets)
+  const result: UsVisaExcelReviewFieldMap = {}
+
+  for (const rule of FIELD_RULES) {
+    result[rule.key] = getValue(values, rule.key)
+  }
+
+  const birthDate = getValue(values, "dateOfBirth")
+  const birthYear = resolveBirthYear(values)
+
+  // 保留原始日期格式，不进行格式化转换
+  if (birthDate) {
+    result.dateOfBirth = birthDate
+  } else if (birthYear) {
+    result.dateOfBirth = String(birthYear)
+  }
+
+  if (birthYear) {
+    result.birthYear = String(birthYear)
+  }
+
+  // 检查日期字段是否有效，但保留原始格式
+  const intendedArrivalDate = resolveIntendedArrivalDate(values)
+  if (!intendedArrivalDate && getValue(values, "intendedArrivalDate")) {
+    // 如果原始值存在但无法解析，保留原始值但会在审核中报错
+  }
+
+  const previousUsTravelDate = resolvePreviousUsTravelDate(values)
+  if (!previousUsTravelDate && getValue(values, "previousUsTravelArrivalDate")) {
+    // 如果原始值存在但无法解析，保留原始值但会在审核中报错
+  }
+
+  return result
 }
 
 function pushError(errors: AuditIssue[], field: string, message: string, value?: string) {

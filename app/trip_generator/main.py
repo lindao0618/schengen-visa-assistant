@@ -17,6 +17,7 @@ import base64
 import logging
 import subprocess
 from pathlib import Path
+from copy import deepcopy
 
 try:
     from docx2pdf import convert as docx2pdf_convert
@@ -53,6 +54,7 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TRIP_GENERATOR_RUNTIME_DIR = PROJECT_ROOT / "temp" / "trip_generator"
 TRIP_GENERATOR_OUTPUT_DIR = TRIP_GENERATOR_RUNTIME_DIR / "output"
+TEMPLATE_DOCX_PATH = Path(__file__).resolve().parent / "template.docx"
 
 app = FastAPI()
 
@@ -313,54 +315,59 @@ def apply_table_text_style(table):
             align = WD_ALIGN_PARAGRAPH.CENTER if index in (0, 1, 2) else WD_ALIGN_PARAGRAPH.LEFT
             apply_cell_style(cell, font_size=Pt(11), align=align)
 
+def clear_cell_text_preserve_style(cell):
+    while len(cell.paragraphs) > 1:
+        cell._tc.remove(cell.paragraphs[-1]._element)
+
+    paragraph = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
+
+    while len(paragraph.runs) > 1:
+        paragraph._element.remove(paragraph.runs[-1]._element)
+
+    if paragraph.runs:
+        run = paragraph.runs[0]
+        run.text = ""
+    else:
+        run = paragraph.add_run("")
+
+    return run
+
 def create_word_from_template(rows, template_path: str, output_docx: str):
-    """Create Word document using the template file - preserving all original formatting"""
+    """Create Word document by cloning the template's sample data row."""
 
     doc = Document(template_path)
+    if not doc.tables:
+        raise RuntimeError("Template document does not contain any table.")
+
     table = doc.tables[0]
-    apply_table_layout(doc, table)
+    if len(table.rows) < 3:
+        raise RuntimeError("Template table must contain title row, header row, and one sample data row.")
     
     print(f"Template table has {len(table.rows)} rows")
     print(f"Data to insert: {len(rows)} rows")
     print(f"Data content: {rows}")
 
-    # 保留前2行（标题行和表头），清除后面的数据行
+    template_row_xml = deepcopy(table.rows[2]._tr)
+
+    # 保留前2行（标题行和表头），清除模板里的示例数据行
     while len(table.rows) > 2:
-        table._element.remove(table.rows[-1]._element)
+        table._tbl.remove(table.rows[-1]._tr)
     
     print(f"After clearing, table has {len(table.rows)} rows")
 
-    # 为每个数据行创建新行，保持模板格式
+    # 为每个数据行克隆模板数据行，保持模板本身的样式
     for i, row_data in enumerate(rows):
         print(f"Processing row {i}: {row_data}")
-        
-        # 添加新行
-        new_row = table.add_row()
-        cells = new_row.cells
-        
-        # 复制模板中第3行的格式（第一个数据行）
-        if i == 0 and len(table.rows) > 3:
-            template_row = table.rows[2]  # 第3行是第一个数据行
-            for j, cell in enumerate(cells):
-                # 复制单元格格式
-                cell._element.get_or_add_tcPr().append(template_row.cells[j]._element.get_or_add_tcPr())
+        table._tbl.append(deepcopy(template_row_xml))
+        cells = table.rows[-1].cells
 
         for j, content in enumerate(row_data):
+            if j >= len(cells):
+                continue
             cell = cells[j]
-            
-            # 获取第一个段落
-            para = cell.paragraphs[0]
-            
-            # 清除所有runs但保留段落格式
-            for run in para.runs:
-                run.clear()
-            
-            # 添加新内容，完全继承模板格式
-            run = para.add_run(content)
+            run = clear_cell_text_preserve_style(cell)
+            run.text = str(content or "")
             print(f"  Cell {j}: '{content}' -> '{run.text}'")
-
-    apply_table_layout(doc, table)
-    apply_table_text_style(table)
 
     print(f"Final table has {len(table.rows)} rows")
     doc.save(output_docx)
@@ -554,16 +561,10 @@ def generate_itinerary(req: ItineraryRequest):
         logger.info("Analyzing itinerary")
         analysis = analyze_itinerary(rows)
         
-        # Prefer a pure-Python PDF path so we do not depend on Office being installed.
-        try:
-            logger.info("Creating PDF directly via reportlab")
-            create_pdf_directly(rows, output_pdf)
-        except Exception as pdf_error:
-            logger.warning(f"Direct PDF generation failed ({pdf_error}), falling back to docx conversion")
-            logger.info("Creating Word document from template")
-            create_word_from_template(rows, "template.docx", output_docx)
-            logger.info(f"Word document saved as: {output_docx}")
-            convert_docx_to_pdf(output_docx, output_pdf)
+        logger.info("Creating Word document from template")
+        create_word_from_template(rows, str(TEMPLATE_DOCX_PATH), output_docx)
+        logger.info(f"Word document saved as: {output_docx}")
+        convert_docx_to_pdf(output_docx, output_pdf)
 
         logger.info("Reading generated file")
         with open(output_pdf, "rb") as pdf_file:

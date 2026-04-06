@@ -17,6 +17,7 @@ import { extractFranceTlsCityFromExcelBuffer } from "@/lib/france-tls-city-excel
 import { normalizeFranceTlsCity } from "@/lib/france-tls-city"
 import { advanceFranceCase, setFranceCaseException } from "@/lib/france-cases"
 import { getVisaCaseDetail } from "@/lib/applicant-crm"
+import { getPythonRuntimeCommand } from "@/lib/python-runtime"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -483,7 +484,7 @@ export async function POST(request: NextRequest) {
       const stderrChunks: Buffer[] = []
       let didTimeout = false
 
-      const pythonProc = spawn("python", ["-u", tlsApplyScript, "--job", jobPath], {
+      const pythonProc = spawn(getPythonRuntimeCommand(), ["-u", tlsApplyScript, "--job", jobPath], {
         cwd: process.cwd(),
         env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
       })

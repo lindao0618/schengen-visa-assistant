@@ -21,7 +21,18 @@ import {
   isFranceMainStatus,
   isFranceSubStatus,
 } from "@/lib/france-case-machine"
+import {
+  DEFAULT_USA_CASE_MAIN_STATUS,
+  DEFAULT_USA_CASE_SUB_STATUS,
+  USA_CASE_TYPE,
+  UsaExceptionCode,
+  UsaMainStatus,
+  UsaSubStatus,
+  isUsaMainStatus,
+  isUsaSubStatus,
+} from "@/lib/usa-case-machine"
 import { advanceFranceCase } from "@/lib/france-cases"
+import { advanceUsaCase } from "@/lib/usa-cases"
 
 type ApplicantWithCasesRecord = Prisma.ApplicantProfileGetPayload<{
   include: {
@@ -897,8 +908,18 @@ export async function createVisaCaseForApplicant(
       })
     }
 
-    const mainStatus = caseType === FRANCE_CASE_TYPE ? DEFAULT_FRANCE_CASE_MAIN_STATUS : "PENDING_PAYMENT"
-    const subStatus = caseType === FRANCE_CASE_TYPE ? DEFAULT_FRANCE_CASE_SUB_STATUS : null
+    let mainStatus: string
+    let subStatus: string | null
+    if (caseType === FRANCE_CASE_TYPE) {
+      mainStatus = DEFAULT_FRANCE_CASE_MAIN_STATUS
+      subStatus = DEFAULT_FRANCE_CASE_SUB_STATUS
+    } else if (caseType === USA_CASE_TYPE) {
+      mainStatus = DEFAULT_USA_CASE_MAIN_STATUS
+      subStatus = DEFAULT_USA_CASE_SUB_STATUS
+    } else {
+      mainStatus = "PENDING_PAYMENT"
+      subStatus = null
+    }
 
     const visaCase = await tx.visaCase.create({
       data: {
@@ -1158,6 +1179,37 @@ export async function updateVisaCaseStatusById(
         input.exceptionCode === undefined || input.exceptionCode === null
           ? input.exceptionCode ?? null
           : (input.exceptionCode as FranceExceptionCode),
+      clearException: input.clearException,
+      reason: input.reason,
+      operatorType: "user",
+      operatorId: userId,
+      allowRegression: input.allowRegression,
+    })
+
+    return updated ? getVisaCaseDetail(userId, role, updated.id) : null
+  } else if (currentCase.caseType === USA_CASE_TYPE) {
+    if (!currentCase.isActive) {
+      await updateVisaCaseBasics(userId, role, caseId, { isActive: true })
+    }
+
+    if (!isUsaMainStatus(input.mainStatus)) {
+      throw new Error("USA case status is invalid")
+    }
+
+    const updated = await advanceUsaCase({
+      userId: currentCase.userId,
+      applicantProfileId: currentCase.applicantProfileId,
+      mainStatus: input.mainStatus as UsaMainStatus,
+      subStatus:
+        input.subStatus === undefined || input.subStatus === null
+          ? input.subStatus ?? null
+          : isUsaSubStatus(input.subStatus)
+            ? (input.subStatus as UsaSubStatus)
+            : null,
+      exceptionCode:
+        input.exceptionCode === undefined || input.exceptionCode === null
+          ? input.exceptionCode ?? null
+          : (input.exceptionCode as UsaExceptionCode),
       clearException: input.clearException,
       reason: input.reason,
       operatorType: "user",

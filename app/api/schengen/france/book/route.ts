@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { spawn } from "child_process"
 import path from "path"
+import { getPythonRuntimeCommand } from "@/lib/python-runtime"
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
     const pythonScript = path.join(process.cwd(), "app", "slot_appoint", "tls_slot_appoint", "submit_and_check(tls）.py")
     
     return new Promise<Response>((resolve) => {
-      const pythonProcess = spawn("python", [pythonScript], {
+      const pythonProcess = spawn(getPythonRuntimeCommand(), [pythonScript], {
         stdio: ["pipe", "pipe", "pipe"]
       })
       const timeoutId = setTimeout(() => {

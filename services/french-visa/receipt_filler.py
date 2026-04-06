@@ -106,6 +106,62 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
         except Exception:
             pass
 
+    def has_element(by: str, value: str) -> bool:
+        try:
+            return len(driver.find_elements(by, value)) > 0
+        except Exception:
+            return False
+
+    def locate_current_step() -> str:
+        for form_id in ("formStep4", "formStep3", "formStep2", "formStep1"):
+            if has_element(By.ID, form_id) or has_element(By.ID, f"{form_id}:btnSuivant"):
+                return form_id
+        return ""
+
+    def get_form_error_messages(form_id: str) -> list[str]:
+        try:
+            messages = driver.execute_script(
+                """
+                const formId = arguments[0];
+                const texts = [];
+                const root = document.getElementById(formId);
+                const selectors = [
+                  '.ui-message-error-summary',
+                  '.ui-message-error-detail',
+                  '.ui-messages-error-summary',
+                  '.ui-messages-error-detail',
+                  '.erreurGlobal',
+                  '.ui-message-fatal-summary',
+                  '.ui-message-fatal-detail',
+                  '.ui-messages-fatal-summary',
+                  '.ui-messages-fatal-detail',
+                ];
+                const pushText = (value) => {
+                  const text = (value || '').trim();
+                  if (text && !texts.includes(text)) {
+                    texts.push(text);
+                  }
+                };
+                if (root) {
+                  selectors.forEach((selector) => {
+                    root.querySelectorAll(selector).forEach((node) => {
+                      pushText(node.innerText || node.textContent || '');
+                    });
+                  });
+                }
+                document.querySelectorAll('#globalErrorMessages li, #globalErrorMessages .ui-messages-error-summary, #globalErrorMessages .ui-messages-error-detail').forEach((node) => {
+                  pushText(node.innerText || node.textContent || '');
+                });
+                return texts;
+                """,
+                form_id,
+            )
+            if isinstance(messages, list):
+                return [str(item).strip() for item in messages if str(item).strip()]
+        except Exception:
+            pass
+        return []
+
     try:
         if callback:
             callback(0, "开始填写回执单...")
@@ -437,6 +493,29 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
             chinese_option.click()
             # 语言切换会触发表单 AJAX 重载，必须等待完成后再填性别，否则会被覆盖
             time.sleep(2.0)
+            active_step = locate_current_step()
+            if active_step == "formStep1":
+                mark_stage("step1-entry")
+                if callback:
+                    callback(40, "妫€娴嬪埌褰撳墠鍋滅暀鍦ㄧ 1 姝ワ紝鍏堣繘鍏ヤ釜浜轰俊鎭楠?..")
+                next_step1 = wait.until(EC.element_to_be_clickable((By.ID, "formStep1:btnSuivant")))
+                try:
+                    next_step1.click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", next_step1)
+                time.sleep(2.5)
+                active_step = locate_current_step()
+                if active_step == "formStep1":
+                    step1_errors = get_form_error_messages("formStep1")
+                    save_debug_snapshot(
+                        "step1-entry-blocked",
+                        error="; ".join(step1_errors) if step1_errors else "step1 did not advance",
+                        extra={"messages": step1_errors},
+                    )
+                    detail = "[step1-entry-blocked] 填写回执单未能从第 1 步进入个人信息页。请先检查国籍、递签地和旅行证件信息是否已完整生成。"
+                    if step1_errors:
+                        detail += f" 当前页面提示：{'；'.join(step1_errors[:3])}"
+                    raise Exception(detail)
             wait.until(EC.presence_of_element_located((By.ID, "formStep2:DDE002_102_label")))
             time.sleep(0.8)
             
@@ -826,6 +905,29 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
 
             next_button_step3 = wait.until(EC.element_to_be_clickable((By.ID, "formStep3:btnSuivant")))
             next_button_step3.click()
+            time.sleep(2.0)
+
+            step3_errors = []
+            transition_deadline = time.time() + 20
+            while time.time() < transition_deadline:
+                current_step = locate_current_step()
+                if current_step == "formStep4" and has_element(By.ID, "formStep4:date-of-arrival_input"):
+                    break
+                if current_step == "formStep3":
+                    step3_errors = get_form_error_messages("formStep3")
+                time.sleep(0.5)
+            else:
+                save_debug_snapshot(
+                    "step3-next-step-timeout",
+                    error="; ".join(step3_errors) if step3_errors else "step3 did not advance",
+                    extra={"messages": step3_errors, "current_step": locate_current_step()},
+                )
+                if step3_errors:
+                    raise Exception(
+                        "[step3-next-step-timeout] 填写回执单第 3 步存在必填项未通过，请检查旧申根签证日期、指纹采集信息和最近一次生物识别签证号。当前页面提示："
+                        + "；".join(step3_errors[:3])
+                    )
+                raise Exception("[step3-next-step-timeout] 填写回执单第 3 步未成功进入旅行信息页。当前网站流程可能已调整，请下载调试文件确认页面结构。")
             
             if callback:
                 callback(75, "正在填写旅行信息...")

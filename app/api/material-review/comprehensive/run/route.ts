@@ -12,10 +12,7 @@ import {
   type ComprehensiveMaterialSource,
   runFranceComprehensiveReview,
 } from "@/lib/comprehensive-material-review"
-import {
-  getApplicantProfile,
-  getApplicantProfileFileByCandidates,
-} from "@/lib/applicant-profiles"
+import { getApplicantProfile, getApplicantProfileFileByCandidates } from "@/lib/applicant-profiles"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 120

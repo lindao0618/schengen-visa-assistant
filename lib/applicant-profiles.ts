@@ -11,11 +11,14 @@ export type ApplicantProfileFileSlot =
   | "usVisaAisExcel"
   | "usVisaDs160ConfirmationPdf"
   | "usVisaDs160PrecheckJson"
+  | "usVisaInterviewBriefJson"
   | "usVisaInterviewBriefDocx"
   | "usVisaInterviewBriefPdf"
   | "schengenPhoto"
   | "schengenExcel"
   | "schengenItineraryPdf"
+  | "schengenExplanationLetterCnDocx"
+  | "schengenExplanationLetterEnDocx"
   | "schengenExplanationLetterCnPdf"
   | "schengenExplanationLetterEnPdf"
   | "schengenHotelReservation"
@@ -56,6 +59,7 @@ export interface ApplicantProfile {
     surname?: string
     birthYear?: string
     passportNumber?: string
+    slotTime?: string // 面签时间
   }
   schengen?: {
     country?: string
@@ -113,11 +117,14 @@ const VALID_SLOTS: ApplicantProfileFileSlot[] = [
   "usVisaAisExcel",
   "usVisaDs160ConfirmationPdf",
   "usVisaDs160PrecheckJson",
+  "usVisaInterviewBriefJson",
   "usVisaInterviewBriefDocx",
   "usVisaInterviewBriefPdf",
   "schengenPhoto",
   "schengenExcel",
   "schengenItineraryPdf",
+  "schengenExplanationLetterCnDocx",
+  "schengenExplanationLetterEnDocx",
   "schengenExplanationLetterCnPdf",
   "schengenExplanationLetterEnPdf",
   "schengenHotelReservation",
@@ -248,6 +255,9 @@ function mapFiles(
 function toApplicantProfile(profile: ApplicantProfileRecord): ApplicantProfile {
   const name = normalizeText(profile.name) || "未命名申请人"
   const passportNumber = normalizeText(profile.passportNumber) || normalizeText(profile.usVisaPassportNumber) || undefined
+  const profileWithSlot = profile as ApplicantProfileRecord & {
+    usVisaSlotTime?: Date | null
+  }
 
   return {
     id: profile.id,
@@ -265,6 +275,7 @@ function toApplicantProfile(profile: ApplicantProfileRecord): ApplicantProfile {
       surname: normalizeText(profile.usVisaSurname) || undefined,
       birthYear: normalizeYear(profile.usVisaBirthYear),
       passportNumber: normalizeText(profile.usVisaPassportNumber) || undefined,
+      slotTime: profileWithSlot.usVisaSlotTime ? profileWithSlot.usVisaSlotTime.toISOString() : undefined,
     },
     schengen: {
       country: normalizeText(profile.schengenCountry) || undefined,
@@ -429,6 +440,7 @@ export async function createApplicantProfile(userId: string, input: ApplicantPro
       usVisaSurname: normalizeText(input.usVisa?.surname) || undefined,
       usVisaBirthYear: normalizeYear(input.usVisa?.birthYear),
       usVisaPassportNumber: normalizeText(input.usVisa?.passportNumber) || undefined,
+      usVisaSlotTime: input.usVisa?.slotTime ? new Date(input.usVisa.slotTime) : null,
       schengenCountry: normalizeText(input.schengen?.country) || undefined,
       schengenVisaCity: normalizeSchengenCity(input.schengen?.city),
     },
@@ -500,6 +512,10 @@ export async function updateApplicantProfile(userId: string, id: string, input: 
         input.usVisa && Object.prototype.hasOwnProperty.call(input.usVisa, "passportNumber")
           ? normalizeText(input.usVisa.passportNumber) || null
           : current.usVisaPassportNumber,
+      usVisaSlotTime:
+        input.usVisa && Object.prototype.hasOwnProperty.call(input.usVisa, "slotTime")
+          ? (input.usVisa.slotTime ? new Date(input.usVisa.slotTime) : null)
+          : current.usVisaSlotTime,
       schengenCountry:
         input.schengen && Object.prototype.hasOwnProperty.call(input.schengen, "country")
           ? normalizeText(input.schengen.country) || null
@@ -540,6 +556,7 @@ export async function updateApplicantProfileUsVisaDetails(
     birthYear?: string
     birthDate?: string
     passportNumber?: string
+    slotTime?: string
   }
 ) {
   const current = await findApplicantProfileRecord(userId, id)
@@ -553,6 +570,9 @@ export async function updateApplicantProfileUsVisaDetails(
     current.usVisaBirthYear ||
     undefined
   const nextPassportNumber = normalizeText(details.passportNumber) || current.usVisaPassportNumber || undefined
+  const nextSlotTime = details.slotTime
+    ? new Date(details.slotTime)
+    : (Object.prototype.hasOwnProperty.call(details, "slotTime") ? null : current.usVisaSlotTime)
 
   const profile = await prisma.applicantProfile.update({
     where: { id: current.id },
@@ -561,8 +581,28 @@ export async function updateApplicantProfileUsVisaDetails(
       usVisaSurname: nextSurname || null,
       usVisaBirthYear: nextBirthYear || null,
       usVisaPassportNumber: nextPassportNumber || null,
+      usVisaSlotTime: nextSlotTime,
       passportNumber: normalizeText(current.passportNumber) || nextPassportNumber || null,
       passportLast4: derivePassportLast4(normalizeText(current.passportNumber) || nextPassportNumber) || null,
+    },
+    include: { files: true },
+  })
+
+  return toApplicantProfile(profile)
+}
+
+export async function updateApplicantProfileUsVisaSlotTime(
+  userId: string,
+  id: string,
+  slotTime: string | null
+) {
+  const current = await findApplicantProfileRecord(userId, id)
+  if (!current) return null
+
+  const profile = await prisma.applicantProfile.update({
+    where: { id: current.id },
+    data: {
+      usVisaSlotTime: slotTime ? new Date(slotTime) : null,
     },
     include: { files: true },
   })

@@ -13,8 +13,20 @@ import {
 
 export const dynamic = "force-dynamic"
 
+function buildContentDisposition(filename: string, inline: boolean) {
+  const type = inline ? "inline" : "attachment"
+  const asciiSafe = /^[\x20-\x7E]*$/.test(filename)
+  if (asciiSafe) {
+    return `${type}; filename="${filename}"`
+  }
+
+  const fallbackExt = filename.includes(".") ? filename.slice(filename.lastIndexOf(".")) : ""
+  const fallbackName = `download${fallbackExt}`
+  return `${type}; filename="${fallbackName}"; filename*=UTF-8''${encodeURIComponent(filename)}`
+}
+
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { id: string; slot: string } },
 ) {
   try {
@@ -38,10 +50,11 @@ export async function GET(
     }
 
     const content = await fs.readFile(file.absolutePath)
+    const inline = request.nextUrl.searchParams.get("download") !== "1"
     return new NextResponse(content, {
       headers: {
         "Content-Type": file.meta.mimeType || "application/octet-stream",
-        "Content-Disposition": `inline; filename="${encodeURIComponent(file.meta.originalName)}"`,
+        "Content-Disposition": buildContentDisposition(file.meta.originalName, inline),
       },
     })
   } catch (error) {

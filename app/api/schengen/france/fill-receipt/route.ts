@@ -13,6 +13,7 @@ import {
 import { authOptions } from "@/lib/auth"
 import { advanceFranceCase, setFranceCaseException } from "@/lib/france-cases"
 import { createTask, updateTask } from "@/lib/french-visa-tasks"
+import { getPythonRuntimeCommand } from "@/lib/python-runtime"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -92,8 +93,21 @@ function refineFillReceiptError(rawDetail: string) {
   if (detail.includes("formStep3:haveOldSchengenVisas")) {
     return "填写回执单第 3 步失败：页面里没有找到“是否有旧申根签证”这一项。已保存截图、HTML 和日志，请先下载现场文件确认 France-visas 页面结构。"
   }
-  if (detail.includes("formStep4:btnSuivant")) {
-    return "填写回执单第 4 步失败：旅行信息页没有顺利进入下一步。已保存截图、HTML 和日志，请检查当前页面是否还有未填写项。"
+  if (detail.includes("退出码 -2") || detail.includes("????????? -2") || detail.includes("閫€鍑虫爬 -2")) {
+    return "填写回执单进程被系统中断或浏览器异常退出。已保留日志、截图和页面 HTML，请先下载调试文件排查。"
+  }
+  if (detail.includes("formStep1:btnSuivant") || detail.includes("step1-entry-blocked")) {
+    return "填写回执单第 1 步未能进入个人信息页。请检查当前国籍、递签地和旅行证件信息是否已完整生成；如仍失败，请下载现场文件确认 France-visas 当前页面结构。"
+  }
+  if (detail.includes("formStep2:DDE002_102_label") || detail.includes("formStep2:visas-input-applicant-employer-zip-code")) {
+    return "填写回执单第 2 步失败：网站个人信息页结构与当前脚本不一致，或第 2 步仍有必填项未通过。已保存截图、HTML 和日志，请下载排查。"
+  }
+  if (
+    detail.includes("step3-next-step-timeout") ||
+    detail.includes("formStep4:date-of-arrival_input") ||
+    detail.includes("formStep4:btnSuivant")
+  ) {
+    return "填写回执单第 3 步或第 4 步失败：旧申根签证信息页没有顺利进入旅行信息页，通常是旧申根日期、指纹采集信息或最近一次生物识别签证号未通过校验。已保存截图、HTML 和日志，请下载排查。"
   }
   return detail
 }
@@ -189,7 +203,7 @@ export async function POST(request: NextRequest) {
     const progressBuffer = { current: "" }
     const prefix = `[${fileName}] `
 
-    const proc = spawn("python", ["-u", scriptPath, inputPath, "--output-dir", outputDir], {
+    const proc = spawn(getPythonRuntimeCommand(), ["-u", scriptPath, inputPath, "--output-dir", outputDir], {
       cwd: process.cwd(),
       env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
     })
@@ -372,11 +386,16 @@ export async function POST(request: NextRequest) {
 
     proc.on("error", async (error) => {
       clearTimeout(timeoutId)
+      const raw = String(error)
+      const normalizedError =
+        raw.includes("ENOENT") || raw.includes("not found")
+          ? "服务器未找到 Python 运行环境。当前环境需要使用 python3，请联系管理员检查部署配置。"
+          : refineFillReceiptError(raw)
       await updateTask(task.task_id, {
         status: "failed",
         progress: 0,
         message: "进程启动失败",
-        error: String(error),
+        error: normalizedError,
       })
     })
 

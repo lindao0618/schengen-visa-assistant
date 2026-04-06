@@ -155,6 +155,27 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    await saveApplicantProfileFileFromBuffer({
+      userId: session.user.id,
+      id: applicantProfileId,
+      slot: "usVisaInterviewBriefJson",
+      buffer: Buffer.from(
+        JSON.stringify(
+          {
+            fields: brief.fields,
+            blocks: brief.blocks,
+            issues: brief.issues,
+            template_mode: hasCustomTemplate ? "custom" : "default",
+          },
+          null,
+          2,
+        ),
+      ),
+      originalName: "us-visa-interview-brief.json",
+      mimeType: "application/json",
+      role: session.user.role,
+    })
+
     const docxBuffer = await fs.readFile(path.join(outputDir, generation.docx_file))
     await saveApplicantProfileFileFromBuffer({
       userId: session.user.id,

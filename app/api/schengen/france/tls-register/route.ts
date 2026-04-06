@@ -15,6 +15,7 @@ import { advanceFranceCase, setFranceCaseException } from "@/lib/france-cases"
 import { spawn } from "child_process"
 import path from "path"
 import fs from "fs/promises"
+import { getPythonRuntimeCommand } from "@/lib/python-runtime"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -317,7 +318,7 @@ export async function POST(request: NextRequest) {
       const tlsRegisterScript = "D:/Ai-user/tls_auto/tls_auto_register.py"
       const stdoutChunks: Buffer[] = []
       const stderrChunks: Buffer[] = []
-      const pythonProc = spawn("python", ["-u", tlsRegisterScript, "--job", jobPath], {
+      const pythonProc = spawn(getPythonRuntimeCommand(), ["-u", tlsRegisterScript, "--job", jobPath], {
         cwd: process.cwd(),
         env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
       })

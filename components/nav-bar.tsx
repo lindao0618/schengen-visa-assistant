@@ -69,14 +69,19 @@ const navigation: NavItem[] = [
     active: (path) => path.startsWith("/material-review"),
     menuItems: [
       {
-        name: "鍗曠嫭鏉愭枡瀹℃牳",
+        name: "单独材料审核",
         href: "/material-review",
-        description: "鍗曚竴鏂囦欢涓婁紶鍜?AI 鏉愭枡瀹℃牳",
+        description: "逐份上传材料，单独检查每份文件",
       },
       {
-        name: "缁煎悎鏉愭枡瀹℃牳",
+        name: "综合材料审核",
         href: "/material-review/comprehensive",
-        description: "琛岀▼銆侀厭搴椼€丗V銆乀LS 绛夎法鏉愭枡涓€鑷存€у鏍?",
+        description: "申根材料交叉比对，检查时间链与身份链",
+      },
+      {
+        name: "美签审核",
+        href: "/material-review/usa-review",
+        description: "对照 Excel、DS-160 和面试必看内容",
       },
     ],
   },
@@ -93,6 +98,12 @@ const navigation: NavItem[] = [
     active: (path) => path.startsWith("/applicants"),
   },
 ]
+
+function getMenuLabel(itemName: string) {
+  if (itemName === "申根签证") return "申根快捷入口"
+  if (itemName === "材料审核") return "材料审核入口"
+  return "快捷入口"
+}
 
 export function NavBar() {
   const pathname = usePathname()
@@ -146,7 +157,7 @@ export function NavBar() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="w-64 rounded-2xl p-2">
                     <DropdownMenuLabel className="px-3 py-2 text-xs uppercase tracking-[0.18em] text-gray-500">
-                      申根快捷入口
+                      {getMenuLabel(item.name)}
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     {item.menuItems.map((menuItem) => {

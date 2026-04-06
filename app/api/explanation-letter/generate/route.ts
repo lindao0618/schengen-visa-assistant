@@ -35,6 +35,19 @@ function normalizeText(value: unknown) {
   return typeof value === "string" ? value.trim() : ""
 }
 
+function buildExplanationLetterFileNames(chineseName: string, englishName: string) {
+  const normalizedChinese = normalizeText(chineseName) || normalizeText(englishName) || "未命名申请人"
+  const normalizedEnglish = normalizeText(englishName) || normalizeText(chineseName) || "Applicant"
+  const englishSlug = normalizedEnglish.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "Applicant"
+
+  return {
+    chineseWord: `${normalizedChinese}-解释信-中文.docx`,
+    chinesePdf: `${normalizedChinese}-解释信-中文.pdf`,
+    englishWord: `${englishSlug}-Explanation-Letter-English.docx`,
+    englishPdf: `${englishSlug}-Explanation-Letter-English.pdf`,
+  }
+}
+
 async function saveBase64ToFile(outputDir: string, base64Data: string, filename: string) {
   const buffer = Buffer.from(base64Data, "base64")
   const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_")
@@ -210,43 +223,73 @@ export async function POST(request: NextRequest) {
         })
 
         const outputDir = getMaterialTaskOutputDir(task.task_id)
-        await saveBase64ToFile(outputDir, data.word_chinese_base64, "word_cn.docx")
-        const pdfChinesePath = await saveBase64ToFile(outputDir, data.pdf_chinese_base64, "pdf_cn.pdf")
+        const generatedFileNames = buildExplanationLetterFileNames(chineseName, englishName)
+        const wordChinesePath = await saveBase64ToFile(outputDir, data.word_chinese_base64, generatedFileNames.chineseWord)
+        const pdfChinesePath = await saveBase64ToFile(outputDir, data.pdf_chinese_base64, generatedFileNames.chinesePdf)
 
         const result: Record<string, unknown> = {
           success: true,
-          download_word_chinese: `/api/material-tasks/download/${task.task_id}/word_cn.docx`,
-          download_pdf_chinese: `/api/material-tasks/download/${task.task_id}/pdf_cn.pdf`,
+          download_word_chinese: `/api/material-tasks/download/${task.task_id}/${encodeURIComponent(generatedFileNames.chineseWord)}`,
+          download_pdf_chinese: `/api/material-tasks/download/${task.task_id}/${encodeURIComponent(generatedFileNames.chinesePdf)}`,
           content_chinese: data.content_chinese,
           content_english: data.content_english,
         }
 
+        let wordEnglishPath: string | undefined
         let pdfEnglishPath: string | undefined
         if (data.word_english_base64) {
-          await saveBase64ToFile(outputDir, data.word_english_base64, "word_en.docx")
-          result.download_word_english = `/api/material-tasks/download/${task.task_id}/word_en.docx`
+          wordEnglishPath = await saveBase64ToFile(outputDir, data.word_english_base64, generatedFileNames.englishWord)
+          result.download_word_english = `/api/material-tasks/download/${task.task_id}/${encodeURIComponent(generatedFileNames.englishWord)}`
         }
 
         if (data.pdf_english_base64) {
-          pdfEnglishPath = await saveBase64ToFile(outputDir, data.pdf_english_base64, "pdf_en.pdf")
-          result.download_pdf_english = `/api/material-tasks/download/${task.task_id}/pdf_en.pdf`
+          pdfEnglishPath = await saveBase64ToFile(outputDir, data.pdf_english_base64, generatedFileNames.englishPdf)
+          result.download_pdf_english = `/api/material-tasks/download/${task.task_id}/${encodeURIComponent(generatedFileNames.englishPdf)}`
         }
 
+        let archivedProfileCnDocxUrl: string | undefined
+        let archivedProfileEnDocxUrl: string | undefined
         let archivedProfileCnPdfUrl: string | undefined
         let archivedProfileEnPdfUrl: string | undefined
 
         if (session?.user?.id && applicantProfileId) {
           try {
+            const archivedCnWord = await saveApplicantProfileFileFromAbsolutePath({
+              userId: session.user.id,
+              id: applicantProfileId,
+              slot: "schengenExplanationLetterCnDocx",
+              sourcePath: wordChinesePath,
+              originalName: generatedFileNames.chineseWord,
+              mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            })
+            if (archivedCnWord) {
+              archivedProfileCnDocxUrl = `/api/applicants/${applicantProfileId}/files/schengenExplanationLetterCnDocx`
+            }
+
             const archivedCn = await saveApplicantProfileFileFromAbsolutePath({
               userId: session.user.id,
               id: applicantProfileId,
               slot: "schengenExplanationLetterCnPdf",
               sourcePath: pdfChinesePath,
-              originalName: "schengen-explanation-letter-cn.pdf",
+              originalName: generatedFileNames.chinesePdf,
               mimeType: "application/pdf",
             })
             if (archivedCn) {
               archivedProfileCnPdfUrl = `/api/applicants/${applicantProfileId}/files/schengenExplanationLetterCnPdf`
+            }
+
+            if (wordEnglishPath) {
+              const archivedEnWord = await saveApplicantProfileFileFromAbsolutePath({
+                userId: session.user.id,
+                id: applicantProfileId,
+                slot: "schengenExplanationLetterEnDocx",
+                sourcePath: wordEnglishPath,
+                originalName: generatedFileNames.englishWord,
+                mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              })
+              if (archivedEnWord) {
+                archivedProfileEnDocxUrl = `/api/applicants/${applicantProfileId}/files/schengenExplanationLetterEnDocx`
+              }
             }
 
             if (pdfEnglishPath) {
@@ -255,7 +298,7 @@ export async function POST(request: NextRequest) {
                 id: applicantProfileId,
                 slot: "schengenExplanationLetterEnPdf",
                 sourcePath: pdfEnglishPath,
-                originalName: "schengen-explanation-letter-en.pdf",
+                originalName: generatedFileNames.englishPdf,
                 mimeType: "application/pdf",
               })
               if (archivedEn) {
@@ -268,6 +311,12 @@ export async function POST(request: NextRequest) {
         }
 
         result.archivedToApplicantProfile = Boolean(archivedProfileCnPdfUrl || archivedProfileEnPdfUrl)
+        if (archivedProfileCnDocxUrl) {
+          result.archivedProfileCnDocxUrl = archivedProfileCnDocxUrl
+        }
+        if (archivedProfileEnDocxUrl) {
+          result.archivedProfileEnDocxUrl = archivedProfileEnDocxUrl
+        }
         if (archivedProfileCnPdfUrl) {
           result.archivedProfileCnPdfUrl = archivedProfileCnPdfUrl
         }

@@ -13,6 +13,7 @@ import {
 import { authOptions } from "@/lib/auth"
 import { advanceFranceCase, setFranceCaseException } from "@/lib/france-cases"
 import { createTask, updateTask } from "@/lib/french-visa-tasks"
+import { getPythonRuntimeCommand } from "@/lib/python-runtime"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -151,7 +152,7 @@ export async function POST(request: NextRequest) {
     let stdout = ""
     const progressBuffer = { current: "" }
 
-    const proc = spawn("python", ["-u", scriptPath, ...inputPaths, "--output-dir", outputDir], {
+    const proc = spawn(getPythonRuntimeCommand(), ["-u", scriptPath, ...inputPaths, "--output-dir", outputDir], {
       cwd: process.cwd(),
       env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
     })

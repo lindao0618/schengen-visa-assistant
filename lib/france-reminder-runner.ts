@@ -1,5 +1,6 @@
 import prisma from "@/lib/db"
 import { formatFranceExceptionLabel, formatFranceStatusLabel, formatReminderChannelLabel } from "@/lib/france-case-labels"
+import { sendEmail, buildReminderEmailContent } from "@/lib/mailer"
 
 type DueReminderLogRecord = Awaited<ReturnType<typeof loadDueReminderLogs>>[number]
 
@@ -148,6 +149,26 @@ export async function processDueFranceReminderLogs(options?: { limit?: number })
     try {
       const renderedContent = renderReminderContent(log)
 
+      // 检查是否需要发送邮件
+      if (log.channel.includes("EMAIL")) {
+        // 获取收件人邮箱
+        const toEmail = log.user.email
+        if (toEmail) {
+          const subject = "【法签提醒】" + log.ruleCode
+          const body = renderReminderBody(log)
+          const statusLabel = formatFranceStatusLabel(log.visaCase.mainStatus, log.visaCase.subStatus)
+
+          const emailContent = buildReminderEmailContent(log.visaCase.applicantProfile.name, body, statusLabel)
+
+          await sendEmail({
+            to: toEmail,
+            subject,
+            text: emailContent.text,
+            html: emailContent.html,
+          })
+        }
+      }
+
       await prisma.reminderLog.update({
         where: { id: log.id },
         data: {
@@ -166,7 +187,7 @@ export async function processDueFranceReminderLogs(options?: { limit?: number })
         sendStatus: "sent",
       })
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "模拟发送失败"
+      const errorMessage = error instanceof Error ? error.message : "发送失败"
       await prisma.reminderLog.update({
         where: { id: log.id },
         data: {

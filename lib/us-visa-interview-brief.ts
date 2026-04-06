@@ -195,9 +195,27 @@ function createValidDate(year: number, month: number, day: number) {
   return parsed
 }
 
+function parseExcelSerialDate(value?: string) {
+  const text = normalizeText(value)
+  if (!/^\d{4,5}(?:\.\d+)?$/.test(text)) return null
+
+  const serial = Math.floor(Number(text))
+  if (!Number.isFinite(serial) || serial <= 0) return null
+
+  const utcDays = serial - 25569
+  const utcMillis = utcDays * 24 * 60 * 60 * 1000
+  const parsed = new Date(utcMillis)
+  if (Number.isNaN(parsed.getTime())) return null
+
+  return createValidDate(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, parsed.getUTCDate())
+}
+
 function parseDate(value?: string) {
   const text = normalizeText(value)
   if (!text) return null
+
+  const serialDate = parseExcelSerialDate(text)
+  if (serialDate) return serialDate
 
   const dayFirst = text.match(/^(\d{1,2})[/. -](\d{1,2})[/. -](\d{4})$/)
   if (dayFirst) {

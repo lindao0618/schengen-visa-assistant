@@ -147,6 +147,7 @@ model ApplicantProfile {
   usVisaSurname        String?
   usVisaBirthYear      String?
   usVisaPassportNumber String?
+  usVisaSlotTime       DateTime?
   schengenCountry      String?
   schengenVisaCity     String?
   createdAt            DateTime @default(now())

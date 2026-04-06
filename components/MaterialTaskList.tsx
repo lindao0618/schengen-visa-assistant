@@ -394,7 +394,10 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function PreviewPdfButton({ href, label = "预览 PDF" }: { href: string; label?: string }) {
-  const previewHref = href.includes("?") ? `${href}&inline=1` : `${href}?inline=1`
+  const previewUrl = new URL(href, "http://localhost")
+  previewUrl.searchParams.delete("download")
+  previewUrl.searchParams.set("inline", "1")
+  const previewHref = `${previewUrl.pathname}${previewUrl.search}${previewUrl.hash}`
   const viewerHref = `${previewHref}#view=FitH&zoom=page-width&pagemode=none`
 
   return (
@@ -444,7 +447,10 @@ function CleanPreviewPdfButton({
   href: string
   label?: string
 }) {
-  const previewHref = href.includes("?") ? `${href}&inline=1` : `${href}?inline=1`
+  const previewUrl = new URL(href, "http://localhost")
+  previewUrl.searchParams.delete("download")
+  previewUrl.searchParams.set("inline", "1")
+  const previewHref = `${previewUrl.pathname}${previewUrl.search}${previewUrl.hash}`
   const viewerHref = `${previewHref}#view=FitH&zoom=page-width&pagemode=none`
 
   return (
@@ -499,6 +505,10 @@ function MaterialResultSummary({
   const download_word_english = result.download_word_english as string | undefined
   const download_pdf_chinese = result.download_pdf_chinese as string | undefined
   const download_pdf_english = result.download_pdf_english as string | undefined
+  const archivedProfileCnDocxUrl = result.archivedProfileCnDocxUrl as string | undefined
+  const archivedProfileEnDocxUrl = result.archivedProfileEnDocxUrl as string | undefined
+  const archivedProfileCnPdfUrl = result.archivedProfileCnPdfUrl as string | undefined
+  const archivedProfileEnPdfUrl = result.archivedProfileEnPdfUrl as string | undefined
   const word_download_url = result.word_download_url as string | undefined
   const analysis_result = result.analysis_result as Record<string, unknown> | undefined
   const archivedToApplicantProfile = Boolean(result.archivedToApplicantProfile)
@@ -575,10 +585,15 @@ function MaterialResultSummary({
 
   if (taskType === "explanation-letter") {
     const links: { href: string; label: string }[] = []
-    if (download_word_chinese) links.push({ href: download_word_chinese, label: "Word 中文" })
-    if (download_word_english) links.push({ href: download_word_english, label: "Word 英文" })
-    if (download_pdf_chinese) links.push({ href: download_pdf_chinese, label: "PDF 中文" })
-    if (download_pdf_english) links.push({ href: download_pdf_english, label: "PDF 英文" })
+    const explanationWordChineseHref = archivedProfileCnDocxUrl ? `${archivedProfileCnDocxUrl}?download=1` : download_word_chinese
+    const explanationWordEnglishHref = archivedProfileEnDocxUrl ? `${archivedProfileEnDocxUrl}?download=1` : download_word_english
+    const explanationPdfChineseHref = archivedProfileCnPdfUrl ? `${archivedProfileCnPdfUrl}?download=1` : download_pdf_chinese
+    const explanationPdfEnglishHref = archivedProfileEnPdfUrl ? `${archivedProfileEnPdfUrl}?download=1` : download_pdf_english
+
+    if (explanationWordChineseHref) links.push({ href: explanationWordChineseHref, label: "Word 中文" })
+    if (explanationWordEnglishHref) links.push({ href: explanationWordEnglishHref, label: "Word 英文" })
+    if (explanationPdfChineseHref) links.push({ href: explanationPdfChineseHref, label: "PDF 中文" })
+    if (explanationPdfEnglishHref) links.push({ href: explanationPdfEnglishHref, label: "PDF 英文" })
     if (links.length === 0) return null
     return (
       <div className="text-xs flex flex-wrap gap-2">

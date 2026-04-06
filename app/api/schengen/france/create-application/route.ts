@@ -12,6 +12,7 @@ import {
 } from "@/lib/applicant-profiles"
 import { advanceFranceCase, setFranceCaseException } from "@/lib/france-cases"
 import { createTask, updateTask } from "@/lib/french-visa-tasks"
+import { getPythonRuntimeCommand } from "@/lib/python-runtime"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -130,7 +131,7 @@ export async function POST(request: NextRequest) {
       const progressBuffer = { current: "" }
       const prefix = `[${fileName}] `
 
-      const proc = spawn("python", ["-u", scriptPath, inputPath, "--output-dir", outputDir], {
+      const proc = spawn(getPythonRuntimeCommand(), ["-u", scriptPath, inputPath, "--output-dir", outputDir], {
         cwd: process.cwd(),
         env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
       })

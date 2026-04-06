@@ -1,20 +1,29 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
 import { spawn } from "child_process"
 import fs from "fs/promises"
 import path from "path"
 
-import { authOptions } from "@/lib/auth"
+import { getServerSession } from "next-auth"
+import { NextRequest, NextResponse } from "next/server"
+
 import {
   getApplicantProfile,
   getApplicantProfileFileByCandidates,
   saveApplicantProfileFileFromAbsolutePath,
 } from "@/lib/applicant-profiles"
+import { authOptions } from "@/lib/auth"
 import { advanceFranceCase, setFranceCaseException } from "@/lib/france-cases"
 import { createTask, updateTask } from "@/lib/french-visa-tasks"
+import { getPythonRuntimeCommand } from "@/lib/python-runtime"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
+
+type SubmitResult = {
+  success: boolean
+  error?: string
+  message?: string
+  pdf_file?: string
+}
 
 function flushProgress(taskId: string, chunk: string, progressBuffer: { current: string }, prefix: string) {
   progressBuffer.current += chunk
@@ -29,6 +38,20 @@ function flushProgress(taskId: string, chunk: string, progressBuffer: { current:
   }
 }
 
+function normalizeSubmitFinalError(detail: string) {
+  const value = detail || "提交最终表失败"
+  if (value.includes("浏览器初始化失败")) {
+    return "提交最终表失败：浏览器初始化失败。请先检查服务器 Playwright 浏览器是否安装完成。"
+  }
+  if (value.includes("Executable doesn't exist")) {
+    return "提交最终表失败：服务器缺少 Playwright Chromium 浏览器，请联系管理员检查部署环境。"
+  }
+  if (value.includes("No module named")) {
+    return "提交最终表失败：服务器缺少 Python 依赖模块，请联系管理员检查部署环境。"
+  }
+  return value
+}
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -39,9 +62,9 @@ export async function POST(request: NextRequest) {
     const userId = session.user.id
     const formData = await request.formData()
     const files: File[] = []
-    for (const file of formData.getAll("file")) {
-      if (file && typeof file === "object" && "arrayBuffer" in file) {
-        files.push(file as File)
+    for (const item of formData.getAll("file")) {
+      if (item && typeof item === "object" && "arrayBuffer" in item) {
+        files.push(item as File)
       }
     }
     if (files.length === 0) {
@@ -54,6 +77,7 @@ export async function POST(request: NextRequest) {
     const applicantProfileId = (formData.get("applicantProfileId") as string | null)?.trim() || ""
     const caseId = (formData.get("caseId") as string | null)?.trim() || ""
     const applicantProfile = applicantProfileId ? await getApplicantProfile(userId, applicantProfileId) : null
+
     if (files.length === 0 && applicantProfileId) {
       const stored = await getApplicantProfileFileByCandidates(userId, applicantProfileId, ["schengenExcel", "franceExcel"])
       if (stored) {
@@ -80,14 +104,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "法签提交最终表服务未找到" }, { status: 500 })
     }
 
-    type SubmitResult = {
-      success: boolean
-      error?: string
-      message?: string
-      pdf_file?: string
-    }
-
     const taskIds: string[] = []
+
     for (const file of files) {
       const fileName = file.name || "submit.xlsx"
       const task = await createTask(userId, "submit-final", `提交最终表 · ${fileName}`, {
@@ -125,10 +143,11 @@ export async function POST(request: NextRequest) {
       }
 
       let stdout = ""
+      let stderr = ""
       const progressBuffer = { current: "" }
       const prefix = `[${fileName}] `
 
-      const proc = spawn("python", ["-u", scriptPath, inputPath, "--output-dir", outputDir], {
+      const proc = spawn(getPythonRuntimeCommand(), ["-u", scriptPath, inputPath, "--output-dir", outputDir], {
         cwd: process.cwd(),
         env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
       })
@@ -151,11 +170,21 @@ export async function POST(request: NextRequest) {
         stdout += chunk.toString()
       })
       proc.stderr?.on("data", (chunk: Buffer) => {
-        flushProgress(task.task_id, chunk.toString(), progressBuffer, prefix)
+        const text = chunk.toString()
+        stderr += text
+        flushProgress(task.task_id, text, progressBuffer, prefix)
       })
 
       proc.on("close", async (code) => {
         clearTimeout(timeoutId)
+
+        if (stdout.trim()) {
+          await fs.writeFile(path.join(outputDir, "runner_stdout.log"), stdout, "utf-8").catch(() => {})
+        }
+        if (stderr.trim()) {
+          await fs.writeFile(path.join(outputDir, "runner_stderr.log"), stderr, "utf-8").catch(() => {})
+        }
+
         try {
           const data = JSON.parse(stdout.trim() || "{}") as SubmitResult
           if (data.success && data.pdf_file) {
@@ -188,6 +217,7 @@ export async function POST(request: NextRequest) {
                 download_pdf: downloadPdf,
                 archived_profile_pdf_url: archivedProfilePdfUrl,
                 pdf_file: data.pdf_file,
+                download_log: `/api/schengen/france/submit-final/download/${outputId}/runner_stderr.log`,
               },
             })
             return
@@ -198,17 +228,26 @@ export async function POST(request: NextRequest) {
               status: "completed",
               progress: 100,
               message: prefix + (data.message || "最终表提交完成"),
-              result: { success: true, message: data.message },
+              result: {
+                success: true,
+                message: data.message,
+                download_log: `/api/schengen/france/submit-final/download/${outputId}/runner_stderr.log`,
+              },
             })
             return
           }
 
+          const normalizedError = normalizeSubmitFinalError(data.error || stderr.trim() || `退出码 ${code}`)
           await updateTask(task.task_id, {
             status: "failed",
             progress: 0,
             message: prefix + "提交失败",
-            error: data.error || `退出码 ${code}`,
-            result: { success: false, error: data.error },
+            error: normalizedError,
+            result: {
+              success: false,
+              error: normalizedError,
+              download_log: `/api/schengen/france/submit-final/download/${outputId}/runner_stderr.log`,
+            },
           })
 
           if (applicantProfileId) {
@@ -218,17 +257,23 @@ export async function POST(request: NextRequest) {
               mainStatus: "DOCS_READY",
               subStatus: "DOCS_GENERATED",
               exceptionCode: "DOCS_REGENERATE_REQUIRED",
-              reason: "France final submission generation failed",
+              reason: normalizedError,
             }).catch((error) => {
               console.error("Failed to set France case exception after submit-final failure", error)
             })
           }
         } catch {
+          const normalizedError = normalizeSubmitFinalError(stdout.trim() || stderr.trim() || `退出码 ${code}`)
           await updateTask(task.task_id, {
             status: "failed",
             progress: 0,
             message: prefix + "解析结果失败",
-            error: stdout.trim() || `退出码 ${code}`,
+            error: normalizedError,
+            result: {
+              success: false,
+              error: normalizedError,
+              download_log: `/api/schengen/france/submit-final/download/${outputId}/runner_stderr.log`,
+            },
           })
 
           if (applicantProfileId) {
@@ -238,7 +283,7 @@ export async function POST(request: NextRequest) {
               mainStatus: "DOCS_READY",
               subStatus: "DOCS_GENERATED",
               exceptionCode: "DOCS_REGENERATE_REQUIRED",
-              reason: "France final submission result parsing failed",
+              reason: normalizedError,
             }).catch((error) => {
               console.error("Failed to set France case exception after submit-final parse failure", error)
             })
@@ -248,11 +293,15 @@ export async function POST(request: NextRequest) {
 
       proc.on("error", async (error) => {
         clearTimeout(timeoutId)
+        const raw = String(error)
         await updateTask(task.task_id, {
           status: "failed",
           progress: 0,
           message: "进程启动失败",
-          error: String(error),
+          error:
+            raw.includes("ENOENT") || raw.includes("not found")
+              ? "服务器未找到 Python 运行环境。当前环境需要使用 python3，请联系管理员检查部署配置。"
+              : raw,
         })
       })
     }

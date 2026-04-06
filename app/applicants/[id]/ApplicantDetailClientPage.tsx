@@ -303,7 +303,7 @@ function normalizeKey(value: string) {
 function extractExcelSheetRows(sheet: unknown): string[][] {
   if (!sheet || typeof sheet !== "object") return []
 
-  const worksheet = sheet as Record<string, { w?: unknown; v?: unknown }>
+  const worksheet = sheet as Record<string, { w?: unknown; v?: unknown; z?: unknown; t?: unknown }>
   const cellRefs = Object.keys(worksheet).filter((key) => !key.startsWith("!"))
   if (!cellRefs.length) return []
 
@@ -319,7 +319,12 @@ function extractExcelSheetRows(sheet: unknown): string[][] {
   for (const ref of cellRefs) {
     const position = utils.decode_cell(ref)
     const cell = worksheet[ref]
-    rows[position.r][position.c] = String(cell?.w ?? cell?.v ?? "")
+    let displayValue = ""
+    if (cell) {
+      const formatted = typeof utils.format_cell === "function" ? utils.format_cell(cell as never) : ""
+      displayValue = String(formatted || (cell.w ?? cell.v ?? ""))
+    }
+    rows[position.r][position.c] = displayValue
   }
 
   return rows
@@ -1147,7 +1152,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
         }
       }
       if (!prev.workbookArrayBuffer) return prev
-      const wb = read(prev.workbookArrayBuffer, { type: "array" })
+      const wb = read(prev.workbookArrayBuffer, { type: "array", cellDates: true, cellNF: true, cellText: true })
       const rows = extractExcelSheetRows(wb.Sheets[sheetName])
       return {
         ...prev,
@@ -1192,7 +1197,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
       if (prev.kind !== "excel" || !prev.workbookArrayBuffer) {
         return { ...prev, excelEditMode: false, excelDirty: false }
       }
-      const wb = read(prev.workbookArrayBuffer, { type: "array" })
+      const wb = read(prev.workbookArrayBuffer, { type: "array", cellDates: true, cellNF: true, cellText: true })
       const activeSheetName = prev.activeExcelSheet || wb.SheetNames[0] || ""
       const activeRows = activeSheetName ? extractExcelSheetRows(wb.Sheets[activeSheetName]) : []
       return {
@@ -1324,7 +1329,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
 
       if (/\.(xlsx|xls)$/.test(filename) || mime.includes("spreadsheet") || mime.includes("excel")) {
         const arrayBuffer = await blob.arrayBuffer()
-        const workbook = read(arrayBuffer, { type: "array" })
+        const workbook = read(arrayBuffer, { type: "array", cellDates: true, cellNF: true, cellText: true })
         const isUsVisaExcelPreview = US_VISA_EXCEL_PREVIEW_SLOTS.has(slot)
         const firstSheetName = isUsVisaExcelPreview
           ? workbook.SheetNames.find((sheetName) => /^sheet1$/i.test(sheetName)) || workbook.SheetNames[0] || ""

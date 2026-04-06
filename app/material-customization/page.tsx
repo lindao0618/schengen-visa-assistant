@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { format } from "date-fns"
 import {
@@ -190,6 +190,8 @@ function ItineraryForm({
   const [taskIds, setTaskIds] = useState<string[]>(loadStoredTaskIds)
   const [isLoading, setIsLoading] = useState(false)
   const [hotelPresetId, setHotelPresetId] = useState<string>("custom")
+  /** 与档案中 Excel 解析结果一致时不再覆盖；Excel 更新后 ISO 变化会再次同步 */
+  const syncedExcelEntryIsoRef = useRef<string | null>(null)
 
   const form = useForm<ItineraryFormValues>({
     resolver: zodResolver(itineraryFormSchema),
@@ -217,6 +219,49 @@ function ItineraryForm({
   useEffect(() => {
     storeTaskIds(taskIds)
   }, [taskIds])
+
+  const applyEntryDateIso = useCallback(
+    (iso: string) => {
+      const parts = iso.split("-").map((p) => Number.parseInt(p, 10))
+      if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return
+      const [y, m, d] = parts
+      const start = new Date(y, m - 1, d)
+      form.setValue("start_date", start, { shouldValidate: true, shouldDirty: false })
+    },
+    [form],
+  )
+
+  const fetchAndSyncEntryDate = useCallback(async () => {
+    if (!activeApplicantId) return
+    try {
+      const response = await fetch(`/api/applicants/${activeApplicantId}/schengen-entry-date`, {
+        cache: "no-store",
+        credentials: "include",
+      })
+      const data = (await response.json()) as { entryDate?: string | null; error?: string }
+      if (!response.ok || data.error) return
+      const iso = data.entryDate
+      if (!iso) return
+      if (iso === syncedExcelEntryIsoRef.current) return
+      syncedExcelEntryIsoRef.current = iso
+      applyEntryDateIso(iso)
+    } catch {
+      /* ignore */
+    }
+  }, [activeApplicantId, applyEntryDateIso])
+
+  useEffect(() => {
+    syncedExcelEntryIsoRef.current = null
+    void fetchAndSyncEntryDate()
+  }, [activeApplicantId, fetchAndSyncEntryDate])
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void fetchAndSyncEntryDate()
+    }
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => document.removeEventListener("visibilitychange", onVisibility)
+  }, [fetchAndSyncEntryDate])
 
   useEffect(() => {
     if (!computedEndDate) return
@@ -304,7 +349,7 @@ function ItineraryForm({
           </Button>
         </div>
         <CardDescription className="text-neutral-600 dark:text-neutral-400">
-          支持酒店预设、7 天模板和自定义天数；选中申请人后会自动归档到档案。
+          支持酒店预设、7 天模板和自定义天数；选中申请人后会自动归档到档案。行程开始日期默认与档案内申根 Excel「入境申根国的日期」一致，更新 Excel 后回到本页或切换回窗口会自动同步。
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -426,12 +471,12 @@ function ItineraryForm({
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="start_date"
-                render={({ field }) => (
+                <FormField
+                  control={form.control}
+                  name="start_date"
+                  render={({ field }) => (
                   <FormItem className="flex flex-col">
-                    <FormLabel>开始日期</FormLabel>
+                    <FormLabel>行程开始日期</FormLabel>
                     <Popover>
                       <PopoverTrigger asChild>
                         <FormControl>
@@ -454,6 +499,11 @@ function ItineraryForm({
                         />
                       </PopoverContent>
                     </Popover>
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                      {activeApplicantId
+                        ? "默认同步档案内申根 Excel 的入境申根国日期；在其他页面更新 Excel 后返回此处或切回浏览器标签即可刷新。"
+                        : "选中申请人并上传申根 Excel 后，将自动带入入境日期作为行程开始日。"}
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}
