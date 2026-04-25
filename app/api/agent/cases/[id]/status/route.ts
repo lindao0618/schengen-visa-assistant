@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { canWriteApplicants } from "@/lib/access-control"
+import { caseWriteForbiddenResponse } from "@/lib/access-control-response"
 import { requireAgentActor } from "@/lib/agent-auth"
 import { updateVisaCaseStatusById } from "@/lib/applicant-crm"
 
@@ -9,6 +11,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   const { actor, response } = await requireAgentActor(request)
   if (!actor) {
     return response
+  }
+  if (!canWriteApplicants(actor.role)) {
+    return caseWriteForbiddenResponse()
   }
 
   const body = await request.json().catch(() => ({}))

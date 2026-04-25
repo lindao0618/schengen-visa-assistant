@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 
+import { canWriteApplicants } from "@/lib/access-control"
+import { applicantWriteForbiddenResponse } from "@/lib/access-control-response"
 import { handleApplicantProfileApiError } from "@/lib/applicant-profile-api-error"
-import { createVisaCaseForApplicant } from "@/lib/applicant-crm"
-import { authOptions } from "@/lib/auth"
+import { createVisaCaseForApplicant, listApplicantCrmData } from "@/lib/applicant-crm"
 import { deriveApplicantCaseTypeFromVisaType } from "@/lib/applicant-crm-labels"
-import { listApplicantCrmData } from "@/lib/applicant-crm"
+import { authOptions } from "@/lib/auth"
 import { createApplicantProfile } from "@/lib/applicant-profiles"
 
 export const dynamic = "force-dynamic"
@@ -56,6 +57,9 @@ export async function POST(request: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: "未登录" }, { status: 401 })
+    }
+    if (!canWriteApplicants(session.user.role)) {
+      return applicantWriteForbiddenResponse()
     }
 
     const body = await request.json().catch(() => ({}))

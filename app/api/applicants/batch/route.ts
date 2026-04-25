@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 
+import { canWriteApplicants } from "@/lib/access-control"
+import { applicantWriteForbiddenResponse } from "@/lib/access-control-response"
 import { handleApplicantProfileApiError } from "@/lib/applicant-profile-api-error"
 import { authOptions } from "@/lib/auth"
 import { deleteApplicantProfilesBatch, updateApplicantProfilesGroupName } from "@/lib/applicant-profiles"
@@ -16,6 +18,9 @@ export async function PATCH(request: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: "未登录" }, { status: 401 })
+    }
+    if (!canWriteApplicants(session.user.role)) {
+      return applicantWriteForbiddenResponse()
     }
 
     const body = await request.json().catch(() => ({}))
@@ -45,6 +50,9 @@ export async function DELETE(request: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: "未登录" }, { status: 401 })
+    }
+    if (!canWriteApplicants(session.user.role)) {
+      return applicantWriteForbiddenResponse()
     }
 
     const body = await request.json().catch(() => ({}))

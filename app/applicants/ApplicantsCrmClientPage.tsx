@@ -60,6 +60,14 @@ import {
   readClientCache,
   writeClientCache,
 } from "@/lib/applicant-client-cache"
+import {
+  canAccessAdminPortal,
+  canAssignCases,
+  canReadAllApplicants,
+  canWriteApplicants,
+  getAppRoleLabel,
+  normalizeAppRole,
+} from "@/lib/access-control"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -549,6 +557,11 @@ function SelectionToggleButton({
 export default function ApplicantsCrmClientPage() {
   const router = useRouter()
   const { data: session } = useSession()
+  const viewerRole = normalizeAppRole(session?.user?.role)
+  const canOpenAdmin = canAccessAdminPortal(viewerRole)
+  const canAssign = canAssignCases(viewerRole)
+  const canReadAll = canReadAllApplicants(viewerRole)
+  const canEditApplicants = canWriteApplicants(viewerRole)
   const [rows, setRows] = useState<ApplicantCrmRow[]>([])
   const [stats, setStats] = useState<ApplicantCrmStats>({
     applicantCount: 0,
@@ -691,7 +704,7 @@ export default function ApplicantsCrmClientPage() {
 
   const fetchAvailableAssignees = useCallback(
     async (mode: "auto" | "manual" = "auto") => {
-      if (session?.user?.role !== "admin") {
+      if (!canAssign) {
         setAvailableAssignees([])
         setAssigneesLoading(false)
         return
@@ -724,22 +737,22 @@ export default function ApplicantsCrmClientPage() {
         setAssigneesLoading(false)
       }
     },
-    [assigneesCacheKey, session?.user?.role],
+    [assigneesCacheKey, canAssign],
   )
 
   useEffect(() => {
-    if (!createDialogOpen || session?.user?.role !== "admin") return
+    if (!createDialogOpen || !canAssign) return
     void fetchAvailableAssignees("auto")
-  }, [createDialogOpen, fetchAvailableAssignees, session?.user?.role])
+  }, [canAssign, createDialogOpen, fetchAvailableAssignees])
 
   const refreshCrmDashboard = useCallback(() => {
     setMessage("")
     void fetchApplicants("manual")
     void fetchSummary("manual")
-    if (createDialogOpen && session?.user?.role === "admin") {
+    if (createDialogOpen && canAssign) {
       void fetchAvailableAssignees("manual")
     }
-  }, [createDialogOpen, fetchApplicants, fetchAvailableAssignees, fetchSummary, session?.user?.role])
+  }, [canAssign, createDialogOpen, fetchApplicants, fetchAvailableAssignees, fetchSummary])
 
   const availableGroupOptions = useMemo(
     () =>
@@ -1097,25 +1110,25 @@ export default function ApplicantsCrmClientPage() {
               <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
                 {"\u5458\u5de5\u5de5\u4f5c\u53f0"}
               </Badge>
-              {session?.user?.role === "admin" && (
+              {canReadAll && (
                 <Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-700">
-                  {"\u7ba1\u7406\u5458\u53ef\u67e5\u770b\u5168\u91cf\u6570\u636e"}
+                  {`${getAppRoleLabel(viewerRole)}视角可查看团队数据`}
                 </Badge>
               )}
             </div>
             <div className="space-y-1">
               <h1 className="text-3xl font-semibold text-gray-900">{"\u7533\u8bf7\u4eba CRM \u5de5\u4f5c\u53f0"}</h1>
               <p className="text-sm text-gray-500">
-                {"\u5458\u5de5\u5728\u8fd9\u91cc\u8ddf\u8fdb\u7533\u8bf7\u4eba\u3001\u6848\u4ef6\u3001\u6750\u6599\u4e0e\u81ea\u52a8\u5316\u6d41\u7a0b\uff1b\u8001\u677f\u548c\u7ba1\u7406\u5458\u53ef\u4ece\u8001\u677f\u540e\u53f0\u67e5\u770b\u5168\u5c40\u6570\u636e\u4e0e\u5f02\u5e38\u3002"}
+                {"\u5728\u8fd9\u91cc\u8ddf\u8fdb\u7533\u8bf7\u4eba\u3001\u6848\u4ef6\u3001\u6750\u6599\u4e0e\u81ea\u52a8\u5316\u6d41\u7a0b\uff1b\u8001\u677f\u548c\u4e3b\u7ba1\u53ef\u4ece\u540e\u53f0\u67e5\u770b\u5168\u5c40\u6570\u636e\u4e0e\u5f02\u5e38\u3002"}
               </p>
           </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {session?.user?.role === "admin" && (
+            {canOpenAdmin && (
               <Button variant="outline" asChild>
                 <Link href="/admin">
                   <Shield className="mr-2 h-4 w-4" />
-                  {"\u8001\u677f\u540e\u53f0"}
+                  {"\u7ba1\u7406\u540e\u53f0"}
                 </Link>
               </Button>
             )}
@@ -1123,10 +1136,12 @@ export default function ApplicantsCrmClientPage() {
               <RefreshCw className={cn("mr-2 h-4 w-4", (refreshing || summaryLoading) && "animate-spin")} />
               {"\u5237\u65b0\u6570\u636e"}
             </Button>
-            <Button onClick={() => setCreateDialogOpen(true)}>
-              <UserPlus className="mr-2 h-4 w-4" />
-              {"\u65b0\u5efa\u7533\u8bf7\u4eba"}
-            </Button>
+            {canEditApplicants ? (
+              <Button onClick={() => setCreateDialogOpen(true)}>
+                <UserPlus className="mr-2 h-4 w-4" />
+                {"\u65b0\u5efa\u7533\u8bf7\u4eba"}
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -1286,7 +1301,7 @@ export default function ApplicantsCrmClientPage() {
             <CardDescription>{"\u70b9\u51fb\u884c\u6216\u201c\u67e5\u770b\u8be6\u60c5\u201d\u8fdb\u5165\u7533\u8bf7\u4eba\u5de5\u4f5c\u53f0\u3002"}</CardDescription>
           </CardHeader>
           <CardContent>
-            {selectedApplicantIds.length > 0 && (
+            {canEditApplicants && selectedApplicantIds.length > 0 && (
               <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-blue-100 bg-blue-50/80 p-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="space-y-1">
                   <div className="text-sm font-semibold text-blue-900">已选中 {selectedApplicantIds.length} 位申请人</div>
@@ -1641,7 +1656,7 @@ export default function ApplicantsCrmClientPage() {
                       }
                     />
                   </div>
-                  {session?.user?.role === "admin" ? (
+                  {canAssign ? (
                     <div className="space-y-2 md:col-span-2">
                       <Label>{"\u5206\u914d\u7ed9\u8c01"}</Label>
                       <Select
@@ -1661,7 +1676,7 @@ export default function ApplicantsCrmClientPage() {
                           <SelectItem value="__unset__">{"\u6682\u4e0d\u5206\u914d"}</SelectItem>
                           {availableAssignees.map((option) => (
                             <SelectItem key={option.id} value={option.id}>
-                              {(option.name || option.email) + ` (${option.role})`}
+                              {(option.name || option.email) + ` (${getAppRoleLabel(option.role)})`}
                             </SelectItem>
                           ))}
                         </SelectContent>

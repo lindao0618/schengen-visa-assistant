@@ -3,6 +3,13 @@ import * as fs from "fs/promises"
 import * as path from "path"
 
 import prisma from "@/lib/db"
+import { canAssignCases, normalizeAppRole } from "@/lib/access-control"
+import {
+  buildApplicantAccessWhere,
+  buildAssignableUserWhere,
+  buildCaseAccessWhere,
+  resolveViewerRole,
+} from "@/lib/access-control-server"
 import { ApplicantProfile, getApplicantProfile, listApplicantProfiles } from "@/lib/applicant-profiles"
 import { buildApplicantSchengenIntakeView, buildApplicantUsVisaIntakeView } from "@/lib/agent-file-parsing"
 import {
@@ -349,43 +356,6 @@ function parseDateValueForUsaPatch(
   return parsed ?? fallback
 }
 
-async function resolveIsAdmin(userId: string, role?: string) {
-  if (role === "admin") return true
-  if (role) return false
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { role: true },
-  })
-  return user?.role === "admin"
-}
-
-function buildApplicantAccessWhere(userId: string, isAdmin: boolean): Prisma.ApplicantProfileWhereInput {
-  if (isAdmin) return {}
-  return {
-    OR: [
-      { userId },
-      {
-        visaCases: {
-          some: {
-            assignedToUserId: userId,
-          },
-        },
-      },
-    ],
-  }
-}
-
-function buildCaseAccessWhere(userId: string, isAdmin: boolean): Prisma.VisaCaseWhereInput {
-  if (isAdmin) return {}
-  return {
-    OR: [
-      { userId },
-      { assignedToUserId: userId },
-      { applicantProfile: { userId } },
-    ],
-  }
-}
-
 function getPrimaryCase(cases: ApplicantWithCasesRecord["visaCases"]) {
   return cases.find((item) => item.isActive) ?? cases[0] ?? null
 }
@@ -463,7 +433,7 @@ function mapSelectorCase(caseRecord: ApplicantWithCasesRecord["visaCases"][numbe
     travelDate: toIsoString(caseRecord.travelDate),
     submissionDate: toIsoString(caseRecord.submissionDate),
     assignedToUserId: caseRecord.assignedToUserId,
-    assignedRole: caseRecord.assignedRole,
+    assignedRole: caseRecord.assignedRole ? normalizeAppRole(caseRecord.assignedRole) : null,
     isActive: caseRecord.isActive,
     updatedAt: caseRecord.updatedAt.toISOString(),
     createdAt: caseRecord.createdAt.toISOString(),
@@ -578,7 +548,7 @@ function mapCaseSummary(caseRecord: VisaCaseRecord): ApplicantCaseSummary {
     travelDate: toIsoString(caseRecord.travelDate),
     submissionDate: toIsoString(caseRecord.submissionDate),
     assignedToUserId: caseRecord.assignedToUserId,
-    assignedRole: caseRecord.assignedRole,
+    assignedRole: caseRecord.assignedRole ? normalizeAppRole(caseRecord.assignedRole) : null,
     isActive: caseRecord.isActive,
     updatedAt: caseRecord.updatedAt.toISOString(),
     createdAt: caseRecord.createdAt.toISOString(),
@@ -593,7 +563,7 @@ function mapCaseSummary(caseRecord: VisaCaseRecord): ApplicantCaseSummary {
           id: caseRecord.assignedTo.id,
           name: caseRecord.assignedTo.name,
           email: caseRecord.assignedTo.email,
-          role: caseRecord.assignedTo.role,
+          role: normalizeAppRole(caseRecord.assignedTo.role),
         }
       : null,
     latestHistory: caseRecord.statusHistory[0]
@@ -639,7 +609,7 @@ export async function listApplicantCrmData(
   role: string | undefined,
   filters: ApplicantCrmFilters = {},
 ) {
-  const isAdmin = await resolveIsAdmin(userId, role)
+  const viewerRole = await resolveViewerRole(userId, role)
   const keyword = normalizeText(filters.keyword).toLowerCase()
   const visaTypes = (filters.visaTypes ?? []).filter(Boolean)
   const statuses = (filters.statuses ?? []).filter(Boolean)
@@ -652,14 +622,14 @@ export async function listApplicantCrmData(
   const includeAvailableAssignees = Boolean(filters.includeAvailableAssignees)
 
   const applicants = await prisma.applicantProfile.findMany({
-    where: buildApplicantAccessWhere(userId, isAdmin),
+    where: buildApplicantAccessWhere(userId, viewerRole),
     orderBy: { updatedAt: "desc" },
     include: {
       user: {
         select: { id: true, name: true, email: true, role: true },
       },
       visaCases: {
-        where: isAdmin ? {} : buildCaseAccessWhere(userId, isAdmin),
+        where: buildCaseAccessWhere(userId, viewerRole),
         orderBy: [{ isActive: "desc" }, { updatedAt: "desc" }],
         include: {
           assignedTo: {
@@ -703,12 +673,13 @@ export async function listApplicantCrmData(
       ? await listApplicantProfiles(userId, role)
       : applicants.map(mapApplicantProfileSummary)
     : []
-  const availableAssignees = includeAvailableAssignees && isAdmin
+  const availableAssignees = includeAvailableAssignees && canAssignCases(viewerRole)
     ? await prisma.user.findMany({
-        where: { status: "active" },
+        where: buildAssignableUserWhere(),
         orderBy: [{ role: "asc" }, { createdAt: "asc" }],
         select: { id: true, name: true, email: true, role: true },
       })
+        .then((items) => items.map((item) => ({ ...item, role: normalizeAppRole(item.role) })))
     : []
 
   const filterOptions = {
@@ -735,17 +706,17 @@ export async function listApplicantCrmData(
 }
 
 export async function getApplicantCrmStats(userId: string, role: string | undefined) {
-  const isAdmin = await resolveIsAdmin(userId, role)
+  const viewerRole = await resolveViewerRole(userId, role)
   const now = Date.now()
   const lastSevenDays = 7 * 24 * 60 * 60 * 1000
 
   const applicants = await prisma.applicantProfile.findMany({
-    where: buildApplicantAccessWhere(userId, isAdmin),
+    where: buildApplicantAccessWhere(userId, viewerRole),
     select: {
       id: true,
       updatedAt: true,
       visaCases: {
-        where: isAdmin ? {} : buildCaseAccessWhere(userId, isAdmin),
+        where: buildCaseAccessWhere(userId, viewerRole),
         orderBy: [{ isActive: "desc" }, { updatedAt: "desc" }],
         select: {
           isActive: true,
@@ -774,14 +745,14 @@ export async function getApplicantCrmStats(userId: string, role: string | undefi
 }
 
 export async function listApplicantCrmAvailableAssignees(userId: string, role: string | undefined) {
-  const isAdmin = await resolveIsAdmin(userId, role)
-  if (!isAdmin) return []
+  const viewerRole = await resolveViewerRole(userId, role)
+  if (!canAssignCases(viewerRole)) return []
 
   return prisma.user.findMany({
-    where: { status: "active" },
+    where: buildAssignableUserWhere(),
     orderBy: [{ role: "asc" }, { createdAt: "asc" }],
     select: { id: true, name: true, email: true, role: true },
-  })
+  }).then((items) => items.map((item) => ({ ...item, role: normalizeAppRole(item.role) })))
 }
 
 async function loadCaseRecord(
@@ -789,11 +760,11 @@ async function loadCaseRecord(
   role: string | undefined,
   caseId: string,
 ) {
-  const isAdmin = await resolveIsAdmin(userId, role)
+  const viewerRole = await resolveViewerRole(userId, role)
   return prisma.visaCase.findFirst({
     where: {
       id: caseId,
-      ...buildCaseAccessWhere(userId, isAdmin),
+      ...buildCaseAccessWhere(userId, viewerRole),
     },
     include: {
       user: {
@@ -818,12 +789,12 @@ async function loadCaseRecord(
 }
 
 export async function getApplicantCrmDetail(userId: string, role: string | undefined, applicantProfileId: string) {
-  const [profile, isAdmin] = await Promise.all([
+  const [profile, viewerRole] = await Promise.all([
     getApplicantProfile(userId, applicantProfileId, role, {
       includeUsVisaFullIntake: true,
       includeSchengenFullIntake: true,
     }),
-    resolveIsAdmin(userId, role),
+    resolveViewerRole(userId, role),
   ])
 
   if (!profile) return null
@@ -856,7 +827,7 @@ export async function getApplicantCrmDetail(userId: string, role: string | undef
   const cases = await prisma.visaCase.findMany({
     where: {
       applicantProfileId,
-      ...buildCaseAccessWhere(userId, isAdmin),
+      ...buildCaseAccessWhere(userId, viewerRole),
     },
     orderBy: [{ isActive: "desc" }, { updatedAt: "desc" }],
     include: {
@@ -880,12 +851,13 @@ export async function getApplicantCrmDetail(userId: string, role: string | undef
     },
   })
 
-  const availableAssignees = isAdmin
+  const availableAssignees = canAssignCases(viewerRole)
     ? await prisma.user.findMany({
-        where: { status: "active" },
+        where: buildAssignableUserWhere(),
         orderBy: [{ role: "asc" }, { createdAt: "asc" }],
         select: { id: true, name: true, email: true, role: true },
       })
+        .then((items) => items.map((item) => ({ ...item, role: normalizeAppRole(item.role) })))
     : []
 
   return {
@@ -901,11 +873,11 @@ export async function listVisaCases(
   role: string | undefined,
   options?: { applicantProfileId?: string },
 ) {
-  const isAdmin = await resolveIsAdmin(userId, role)
+  const viewerRole = await resolveViewerRole(userId, role)
   const cases = await prisma.visaCase.findMany({
     where: {
       ...(options?.applicantProfileId ? { applicantProfileId: options.applicantProfileId } : {}),
-      ...buildCaseAccessWhere(userId, isAdmin),
+      ...buildCaseAccessWhere(userId, viewerRole),
     },
     orderBy: [{ isActive: "desc" }, { updatedAt: "desc" }],
     include: {
@@ -937,19 +909,22 @@ async function normalizeAssigneeForSave(
   role: string | undefined,
   assignedToUserId: string | null | undefined,
 ) {
-  const isAdmin = await resolveIsAdmin(userId, role)
+  const viewerRole = await resolveViewerRole(userId, role)
   if (!assignedToUserId) {
-    return isAdmin ? null : userId
+    return canAssignCases(viewerRole) ? null : userId
   }
-  if (!isAdmin && assignedToUserId !== userId) {
+  if (!canAssignCases(viewerRole) && assignedToUserId !== userId) {
     return userId
   }
 
-  const assignee = await prisma.user.findUnique({
-    where: { id: assignedToUserId },
+  const assignee = await prisma.user.findFirst({
+    where: {
+      id: assignedToUserId,
+      ...buildAssignableUserWhere(),
+    },
     select: { id: true, role: true },
   })
-  if (!assignee) return isAdmin ? null : userId
+  if (!assignee) return canAssignCases(viewerRole) ? null : userId
   return assignee.id
 }
 
@@ -958,11 +933,11 @@ export async function createVisaCaseForApplicant(
   role: string | undefined,
   input: VisaCaseInput,
 ) {
-  const isAdmin = await resolveIsAdmin(userId, role)
+  const viewerRole = await resolveViewerRole(userId, role)
   const applicant = await prisma.applicantProfile.findFirst({
     where: {
       id: input.applicantProfileId,
-      ...buildApplicantAccessWhere(userId, isAdmin),
+      ...buildApplicantAccessWhere(userId, viewerRole),
     },
     select: { id: true, userId: true },
   })
@@ -971,13 +946,16 @@ export async function createVisaCaseForApplicant(
 
   const caseType = normalizeText(input.caseType) || FRANCE_CASE_TYPE
   const assignedToUserId = await normalizeAssigneeForSave(userId, role, normalizeOptionalText(input.assignedToUserId))
+  const assignee = assignedToUserId
+    ? await prisma.user.findUnique({
+        where: { id: assignedToUserId },
+        select: { role: true },
+      })
+    : null
   const assignedRole = assignedToUserId
-    ? (
-        await prisma.user.findUnique({
-          where: { id: assignedToUserId },
-          select: { role: true },
-        })
-      )?.role ?? null
+    ? assignee?.role
+      ? normalizeAppRole(assignee.role)
+      : null
     : null
   const isActive = input.isActive ?? true
   const now = new Date()
@@ -1173,13 +1151,16 @@ export async function updateVisaCaseBasics(
     role,
     patch.assignedToUserId === undefined ? currentCase.assignedToUserId : patch.assignedToUserId,
   )
+  const assignee = assignedToUserId
+    ? await prisma.user.findUnique({
+        where: { id: assignedToUserId },
+        select: { role: true },
+      })
+    : null
   const assignedRole = assignedToUserId
-    ? (
-        await prisma.user.findUnique({
-          where: { id: assignedToUserId },
-          select: { role: true },
-        })
-      )?.role ?? null
+    ? assignee?.role
+      ? normalizeAppRole(assignee.role)
+      : null
     : null
 
   await prisma.$transaction(async (tx) => {

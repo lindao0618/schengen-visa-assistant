@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { canWriteApplicants } from "@/lib/access-control"
+import { applicantWriteForbiddenResponse } from "@/lib/access-control-response"
 import { requireAgentActor } from "@/lib/agent-auth"
 import { getApplicantCrmDetail } from "@/lib/applicant-crm"
-import {
-  deleteApplicantProfile,
-  updateApplicantProfile,
-} from "@/lib/applicant-profiles"
+import { deleteApplicantProfile, updateApplicantProfile } from "@/lib/applicant-profiles"
 
 export const dynamic = "force-dynamic"
 
@@ -28,6 +27,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   if (!actor) {
     return response
   }
+  if (!canWriteApplicants(actor.role)) {
+    return applicantWriteForbiddenResponse()
+  }
 
   const body = await request.json().catch(() => ({}))
   const profile = await updateApplicantProfile(actor.userId, params.id, body ?? {}, actor.role)
@@ -42,6 +44,9 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   const { actor, response } = await requireAgentActor(request)
   if (!actor) {
     return response
+  }
+  if (!canWriteApplicants(actor.role)) {
+    return applicantWriteForbiddenResponse()
   }
 
   const deleted = await deleteApplicantProfile(actor.userId, params.id, actor.role)

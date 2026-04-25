@@ -1,50 +1,51 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from "@/components/ui/table"
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger 
-} from "@/components/ui/dropdown-menu"
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
-} from "@/components/ui/select"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { 
-  Search, 
-  Filter, 
-  MoreHorizontal, 
-  RefreshCw,
-  Eye,
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useSession } from "next-auth/react"
+import {
   Edit,
-  Trash2,
+  Eye,
+  Filter,
+  MoreHorizontal,
+  RefreshCw,
   Shield,
-  ShieldOff
+  ShieldOff,
+  Users,
 } from "lucide-react"
 
-interface User {
+import {
+  APP_ROLE_OPTIONS,
+  AppRole,
+  canManageUsers,
+  getAppRoleLabel,
+  normalizeAppRole,
+} from "@/lib/access-control"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+
+interface UserRecord {
   id: string
   email: string
   name: string
   status: "active" | "inactive" | "banned"
-  role: "user" | "admin"
+  role: AppRole
   createdAt: string
   updatedAt: string
   _count: {
@@ -55,19 +56,58 @@ interface User {
   }
 }
 
+function getRoleBadge(role: AppRole) {
+  switch (role) {
+    case "boss":
+      return <Badge className="bg-slate-900 text-white hover:bg-slate-900">老板</Badge>
+    case "supervisor":
+      return <Badge className="bg-blue-600 text-white hover:bg-blue-600">主管</Badge>
+    case "service":
+      return <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">客服</Badge>
+    case "specialist":
+    default:
+      return <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">专员</Badge>
+  }
+}
+
+function getStatusBadge(status: UserRecord["status"]) {
+  switch (status) {
+    case "active":
+      return <Badge variant="outline" className="text-green-600">启用中</Badge>
+    case "inactive":
+      return <Badge variant="secondary">未启用</Badge>
+    case "banned":
+      return <Badge variant="destructive">已禁用</Badge>
+    default:
+      return <Badge variant="secondary">{status}</Badge>
+  }
+}
+
+function formatDate(dateString: string) {
+  return new Date(dateString).toLocaleDateString("zh-CN", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
+}
+
 export default function UsersPage() {
-  const [users, setUsers] = useState<User[]>([])
+  const { data: session } = useSession()
+  const [users, setUsers] = useState<UserRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [roleFilter, setRoleFilter] = useState<string>("all")
-  const [detailUser, setDetailUser] = useState<User | null>(null)
-  const [editUser, setEditUser] = useState<User | null>(null)
+  const [detailUser, setDetailUser] = useState<UserRecord | null>(null)
+  const [editUser, setEditUser] = useState<UserRecord | null>(null)
   const [editName, setEditName] = useState("")
-  const [editRole, setEditRole] = useState<"user" | "admin">("user")
-  const [editStatus, setEditStatus] = useState<"active" | "inactive" | "banned">("active")
+  const [editRole, setEditRole] = useState<AppRole>("specialist")
+  const [editStatus, setEditStatus] = useState<UserRecord["status"]>("active")
   const [editPassword, setEditPassword] = useState("")
   const [editLoading, setEditLoading] = useState(false)
+
+  const viewerRole = normalizeAppRole(session?.user?.role)
+  const canEditUsers = canManageUsers(viewerRole)
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -79,10 +119,17 @@ export default function UsersPage() {
         page: "1",
         pageSize: "100",
       })
-      const response = await fetch(`/api/admin/users?${params.toString()}`)
+      const response = await fetch(`/api/admin/users?${params.toString()}`, {
+        cache: "no-store",
+      })
       const data = await response.json()
       if (data.success) {
-        setUsers(data.users || [])
+        setUsers(
+          (data.users || []).map((user: UserRecord) => ({
+            ...user,
+            role: normalizeAppRole(user.role),
+          })),
+        )
       }
     } catch (error) {
       console.error("获取用户列表失败:", error)
@@ -92,42 +139,26 @@ export default function UsersPage() {
   }, [roleFilter, searchTerm, statusFilter])
 
   useEffect(() => {
-    fetchUsers()
+    void fetchUsers()
   }, [fetchUsers])
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "active":
-        return <Badge variant="outline" className="text-green-600">活跃</Badge>
-      case "inactive":
-        return <Badge variant="secondary">非活跃</Badge>
-      case "banned":
-        return <Badge variant="destructive">已禁用</Badge>
-      default:
-        return <Badge variant="secondary">{status}</Badge>
+  const stats = useMemo(() => {
+    const activeCount = users.filter((user) => user.status === "active").length
+    const managementCount = users.filter((user) => user.role === "boss" || user.role === "supervisor").length
+    const specialistCount = users.filter((user) => user.role === "specialist").length
+    const serviceCount = users.filter((user) => user.role === "service").length
+
+    return {
+      activeCount,
+      managementCount,
+      specialistCount,
+      serviceCount,
     }
-  }
+  }, [users])
 
-  const getRoleBadge = (role: string) => {
-    switch (role) {
-      case "admin":
-        return <Badge variant="default">管理员</Badge>
-      case "user":
-        return <Badge variant="outline">普通用户</Badge>
-      default:
-        return <Badge variant="secondary">{role}</Badge>
-    }
-  }
+  const handleStatusChange = async (userId: string, newStatus: UserRecord["status"]) => {
+    if (!canEditUsers) return
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("zh-CN", {
-      year: "numeric",
-      month: "short",
-      day: "numeric"
-    })
-  }
-
-  const handleStatusChange = async (userId: string, newStatus: string) => {
     try {
       const response = await fetch("/api/admin/users", {
         method: "PATCH",
@@ -136,34 +167,20 @@ export default function UsersPage() {
       })
       const data = await response.json()
       if (data.success) {
-        setUsers(users.map(user =>
-          user.id === userId ? { ...user, status: newStatus as any } : user
-        ))
+        setUsers((current) =>
+          current.map((user) =>
+            user.id === userId ? { ...user, status: newStatus } : user,
+          ),
+        )
       }
     } catch (error) {
       console.error("更新用户状态失败:", error)
     }
   }
 
-  const handleRoleChange = async (userId: string, newRole: string) => {
-    try {
-      const response = await fetch("/api/admin/users", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, role: newRole }),
-      })
-      const data = await response.json()
-      if (data.success) {
-        setUsers(users.map(user =>
-          user.id === userId ? { ...user, role: newRole as any } : user
-        ))
-      }
-    } catch (error) {
-      console.error("更新用户角色失败:", error)
-    }
-  }
+  const openEdit = (user: UserRecord) => {
+    if (!canEditUsers) return
 
-  const openEdit = (user: User) => {
     setEditUser(user)
     setEditName(user.name || "")
     setEditRole(user.role)
@@ -172,7 +189,8 @@ export default function UsersPage() {
   }
 
   const handleEditSave = async () => {
-    if (!editUser) return
+    if (!editUser || !canEditUsers) return
+
     setEditLoading(true)
     try {
       const response = await fetch("/api/admin/users", {
@@ -188,12 +206,17 @@ export default function UsersPage() {
       })
       const data = await response.json()
       if (data.success) {
-        setUsers((prev) =>
-          prev.map((u) =>
-            u.id === editUser.id
-              ? { ...u, name: editName, role: editRole, status: editStatus }
-              : u
-          )
+        setUsers((current) =>
+          current.map((user) =>
+            user.id === editUser.id
+              ? {
+                  ...user,
+                  name: editName,
+                  role: editRole,
+                  status: editStatus,
+                }
+              : user,
+          ),
         )
         setEditUser(null)
         setEditPassword("")
@@ -207,106 +230,90 @@ export default function UsersPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-blue-600" />
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      {/* 页面标题 */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">用户管理</h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-2">
-            管理系统用户，查看用户信息和状态
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">团队账号</h1>
+          <p className="mt-2 text-gray-600 dark:text-gray-400">
+            按老板、主管、专员、客服四种角色管理内部成员与状态。
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <Button variant="outline" className="w-full sm:w-auto" onClick={fetchUsers}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            刷新列表
-          </Button>
-        </div>
+        <Button variant="outline" className="w-full sm:w-auto" onClick={fetchUsers}>
+          <RefreshCw className="mr-2 h-4 w-4" />
+          刷新列表
+        </Button>
       </div>
 
-      {/* 统计卡片 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="hover:shadow-lg transition-shadow">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">总用户数</CardTitle>
+            <CardTitle className="text-sm font-medium">总账号数</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{users.length}</div>
-            <p className="text-xs text-muted-foreground">
-              活跃用户: {users.filter(u => u.status === "active").length}
-            </p>
+            <p className="text-xs text-muted-foreground">活跃账号 {stats.activeCount}</p>
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">活跃用户</CardTitle>
+            <CardTitle className="text-sm font-medium">后台角色</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{users.filter(u => u.status === "active").length}</div>
-            <p className="text-xs text-muted-foreground">
-              占比: {users.length ? Math.round((users.filter(u => u.status === "active").length / users.length) * 100) : 0}%
-            </p>
+            <div className="text-2xl font-bold">{stats.managementCount}</div>
+            <p className="text-xs text-muted-foreground">老板 + 主管</p>
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">管理员</CardTitle>
+            <CardTitle className="text-sm font-medium">专员</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{users.filter(u => u.role === "admin").length}</div>
-            <p className="text-xs text-muted-foreground">
-              系统管理员
-            </p>
+            <div className="text-2xl font-bold">{stats.specialistCount}</div>
+            <p className="text-xs text-muted-foreground">处理案件与自动化</p>
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">禁用用户</CardTitle>
+            <CardTitle className="text-sm font-medium">客服</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{users.filter(u => u.status === "banned").length}</div>
-            <p className="text-xs text-muted-foreground">
-              需要关注
-            </p>
+            <div className="text-2xl font-bold">{stats.serviceCount}</div>
+            <p className="text-xs text-muted-foreground">只读查看与下载</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* 搜索和过滤 */}
-      <Card className="hover:shadow-lg transition-shadow">
+      <Card>
         <CardHeader>
-          <CardTitle>搜索和过滤</CardTitle>
+          <CardTitle>搜索和筛选</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="搜索用户名或邮箱..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Input
+              placeholder="搜索姓名或邮箱..."
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+            />
+
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger>
                 <SelectValue placeholder="选择状态" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">所有状态</SelectItem>
-                <SelectItem value="active">活跃</SelectItem>
-                <SelectItem value="inactive">非活跃</SelectItem>
+                <SelectItem value="all">全部状态</SelectItem>
+                <SelectItem value="active">启用中</SelectItem>
+                <SelectItem value="inactive">未启用</SelectItem>
                 <SelectItem value="banned">已禁用</SelectItem>
               </SelectContent>
             </Select>
@@ -316,42 +323,45 @@ export default function UsersPage() {
                 <SelectValue placeholder="选择角色" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">所有角色</SelectItem>
-                <SelectItem value="user">普通用户</SelectItem>
-                <SelectItem value="admin">管理员</SelectItem>
+                <SelectItem value="all">全部角色</SelectItem>
+                {APP_ROLE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
 
-            <Button variant="outline" onClick={() => {
-              setSearchTerm("")
-              setStatusFilter("all")
-              setRoleFilter("all")
-            }}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSearchTerm("")
+                setStatusFilter("all")
+                setRoleFilter("all")
+              }}
+            >
               <Filter className="mr-2 h-4 w-4" />
-              重置过滤
+              重置筛选
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* 用户列表 */}
-      <Card className="hover:shadow-lg transition-shadow">
+      <Card>
         <CardHeader>
-          <CardTitle>用户列表</CardTitle>
-          <CardDescription>
-            共 {users.length} 个用户
-          </CardDescription>
+          <CardTitle>成员列表</CardTitle>
+          <CardDescription>共 {users.length} 个账号</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="min-w-[200px]">用户信息</TableHead>
+                  <TableHead className="min-w-[220px]">账号信息</TableHead>
                   <TableHead className="min-w-[100px]">状态</TableHead>
-                  <TableHead className="min-w-[100px]">角色</TableHead>
-                  <TableHead className="min-w-[80px]">任务数</TableHead>
-                  <TableHead className="min-w-[80px]">材料数</TableHead>
+                  <TableHead className="min-w-[120px]">角色</TableHead>
+                  <TableHead className="min-w-[90px]">任务数</TableHead>
+                  <TableHead className="min-w-[90px]">材料数</TableHead>
                   <TableHead className="min-w-[120px]">注册时间</TableHead>
                   <TableHead className="min-w-[120px]">最近更新</TableHead>
                   <TableHead className="min-w-[80px]">操作</TableHead>
@@ -362,7 +372,7 @@ export default function UsersPage() {
                   <TableRow key={user.id}>
                     <TableCell>
                       <div>
-                        <div className="font-medium">{user.name}</div>
+                        <div className="font-medium">{user.name || "-"}</div>
                         <div className="text-sm text-gray-500">{user.email}</div>
                       </div>
                     </TableCell>
@@ -384,34 +394,34 @@ export default function UsersPage() {
                             <Eye className="mr-2 h-4 w-4" />
                             查看详情
                           </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => openEdit(user)}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            编辑用户
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => handleStatusChange(user.id, user.status === "active" ? "banned" : "active")}
-                          >
-                            {user.status === "active" ? (
-                              <>
-                                <ShieldOff className="mr-2 h-4 w-4" />
-                                禁用用户
-                              </>
-                            ) : (
-                              <>
-                                <Shield className="mr-2 h-4 w-4" />
-                                启用用户
-                              </>
-                            )}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => handleRoleChange(user.id, user.role === "user" ? "admin" : "user")}
-                          >
-                            {user.role === "user" ? "设为管理员" : "取消管理员"}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-red-600">
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            删除用户
-                          </DropdownMenuItem>
+                          {canEditUsers ? (
+                            <DropdownMenuItem onSelect={() => openEdit(user)}>
+                              <Edit className="mr-2 h-4 w-4" />
+                              编辑账号
+                            </DropdownMenuItem>
+                          ) : null}
+                          {canEditUsers ? (
+                            <DropdownMenuItem
+                              onSelect={() =>
+                                handleStatusChange(
+                                  user.id,
+                                  user.status === "active" ? "banned" : "active",
+                                )
+                              }
+                            >
+                              {user.status === "active" ? (
+                                <>
+                                  <ShieldOff className="mr-2 h-4 w-4" />
+                                  禁用账号
+                                </>
+                              ) : (
+                                <>
+                                  <Shield className="mr-2 h-4 w-4" />
+                                  启用账号
+                                </>
+                              )}
+                            </DropdownMenuItem>
+                          ) : null}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -426,14 +436,14 @@ export default function UsersPage() {
       <Dialog open={!!detailUser} onOpenChange={(open) => !open && setDetailUser(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>用户详情</DialogTitle>
-            <DialogDescription>查看该用户的基础信息与统计</DialogDescription>
+            <DialogTitle>账号详情</DialogTitle>
+            <DialogDescription>查看该成员的基础信息与工作量概览。</DialogDescription>
           </DialogHeader>
-          {detailUser && (
+          {detailUser ? (
             <div className="space-y-2 text-sm">
               <div>邮箱：{detailUser.email}</div>
               <div>姓名：{detailUser.name || "-"}</div>
-              <div>角色：{detailUser.role}</div>
+              <div>角色：{getAppRoleLabel(detailUser.role)}</div>
               <div>状态：{detailUser.status}</div>
               <div>注册时间：{formatDate(detailUser.createdAt)}</div>
               <div>最近更新：{formatDate(detailUser.updatedAt)}</div>
@@ -442,9 +452,11 @@ export default function UsersPage() {
               <div>材料数：{detailUser._count.documents}</div>
               <div>申请数：{detailUser._count.applications}</div>
             </div>
-          )}
+          ) : null}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDetailUser(null)}>关闭</Button>
+            <Button variant="outline" onClick={() => setDetailUser(null)}>
+              关闭
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -452,36 +464,42 @@ export default function UsersPage() {
       <Dialog open={!!editUser} onOpenChange={(open) => !open && setEditUser(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>编辑用户</DialogTitle>
-            <DialogDescription>修改用户名称、角色与状态</DialogDescription>
+            <DialogTitle>编辑账号</DialogTitle>
+            <DialogDescription>修改姓名、角色、状态，必要时可直接重置密码。</DialogDescription>
           </DialogHeader>
-          {editUser && (
+          {editUser ? (
             <div className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm text-gray-600">姓名</label>
-                <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+                <Input value={editName} onChange={(event) => setEditName(event.target.value)} />
               </div>
               <div className="space-y-2">
                 <label className="text-sm text-gray-600">角色</label>
-                <Select value={editRole} onValueChange={(v) => setEditRole(v as "user" | "admin")}>
+                <Select value={editRole} onValueChange={(value) => setEditRole(value as AppRole)}>
                   <SelectTrigger>
                     <SelectValue placeholder="选择角色" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="user">普通用户</SelectItem>
-                    <SelectItem value="admin">管理员</SelectItem>
+                    {APP_ROLE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <label className="text-sm text-gray-600">状态</label>
-                <Select value={editStatus} onValueChange={(v) => setEditStatus(v as "active" | "inactive" | "banned")}>
+                <Select
+                  value={editStatus}
+                  onValueChange={(value) => setEditStatus(value as UserRecord["status"])}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="选择状态" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="active">活跃</SelectItem>
-                    <SelectItem value="inactive">非活跃</SelectItem>
+                    <SelectItem value="active">启用中</SelectItem>
+                    <SelectItem value="inactive">未启用</SelectItem>
                     <SelectItem value="banned">已禁用</SelectItem>
                   </SelectContent>
                 </Select>
@@ -492,16 +510,16 @@ export default function UsersPage() {
                   type="password"
                   placeholder="留空则不修改"
                   value={editPassword}
-                  onChange={(e) => setEditPassword(e.target.value)}
+                  onChange={(event) => setEditPassword(event.target.value)}
                 />
-                <p className="text-xs text-muted-foreground">
-                  出于安全原因不支持查看原密码，可在此重置。
-                </p>
+                <p className="text-xs text-muted-foreground">系统只支持重置密码，不显示原密码。</p>
               </div>
             </div>
-          )}
+          ) : null}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditUser(null)}>取消</Button>
+            <Button variant="outline" onClick={() => setEditUser(null)}>
+              取消
+            </Button>
             <Button onClick={handleEditSave} disabled={editLoading}>
               {editLoading ? "保存中..." : "保存"}
             </Button>

@@ -2,14 +2,12 @@ import fs from "fs/promises"
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 
+import { canWriteApplicants } from "@/lib/access-control"
+import { applicantWriteForbiddenResponse } from "@/lib/access-control-response"
 import { handleApplicantProfileApiError } from "@/lib/applicant-profile-api-error"
-import { authOptions } from "@/lib/auth"
 import { saveApplicantProfileFilesWithAnalysis } from "@/lib/applicant-profile-file-workflow"
-import {
-  getApplicantProfile,
-  getApplicantProfileFile,
-  isApplicantProfileFileSlot,
-} from "@/lib/applicant-profiles"
+import { authOptions } from "@/lib/auth"
+import { getApplicantProfile, getApplicantProfileFile, isApplicantProfileFileSlot } from "@/lib/applicant-profiles"
 import { auditUsVisaExcelBuffer } from "@/lib/us-visa-excel-audit"
 import { autoFixUsVisaExcelBuffer } from "@/lib/us-visa-excel-autofix"
 
@@ -21,9 +19,12 @@ export async function POST(_request: Request, { params }: { params: { id: string
     if (!session?.user?.id) {
       return NextResponse.json({ error: "未登录" }, { status: 401 })
     }
+    if (!canWriteApplicants(session.user.role)) {
+      return applicantWriteForbiddenResponse()
+    }
 
     if (!isApplicantProfileFileSlot(params.slot) || !US_VISA_EXCEL_SLOTS.has(params.slot)) {
-      return NextResponse.json({ error: "该文件类型不支持美签自动修正" }, { status: 400 })
+      return NextResponse.json({ error: "该文件类型不支持美签自动修复" }, { status: 400 })
     }
 
     const file = await getApplicantProfileFile(session.user.id, params.id, params.slot, session.user.role)
@@ -52,6 +53,7 @@ export async function POST(_request: Request, { params }: { params: { id: string
       ],
       session.user.role,
     )
+
     const profile = result?.profile || await getApplicantProfile(session.user.id, params.id, session.user.role, {
       includeUsVisaFullIntake: true,
     })

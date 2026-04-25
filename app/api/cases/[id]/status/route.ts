@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 
-import { authOptions } from "@/lib/auth"
+import { canWriteApplicants } from "@/lib/access-control"
+import { caseWriteForbiddenResponse } from "@/lib/access-control-response"
 import { updateVisaCaseStatusById } from "@/lib/applicant-crm"
+import { authOptions } from "@/lib/auth"
 
 export const dynamic = "force-dynamic"
 
@@ -10,6 +12,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) {
     return NextResponse.json({ error: "未登录" }, { status: 401 })
+  }
+  if (!canWriteApplicants(session.user.role)) {
+    return caseWriteForbiddenResponse()
   }
 
   try {

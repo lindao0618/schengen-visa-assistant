@@ -1,13 +1,11 @@
 import fs from "fs/promises"
 import { NextRequest, NextResponse } from "next/server"
 
+import { canWriteApplicants } from "@/lib/access-control"
+import { applicantWriteForbiddenResponse } from "@/lib/access-control-response"
 import { requireAgentActor } from "@/lib/agent-auth"
 import { saveApplicantProfileFilesWithAnalysis } from "@/lib/applicant-profile-file-workflow"
-import {
-  deleteApplicantProfileFile,
-  getApplicantProfileFile,
-  isApplicantProfileFileSlot,
-} from "@/lib/applicant-profiles"
+import { deleteApplicantProfileFile, getApplicantProfileFile, isApplicantProfileFileSlot } from "@/lib/applicant-profiles"
 
 export const dynamic = "force-dynamic"
 
@@ -69,6 +67,9 @@ export async function PUT(
   if (!actor) {
     return response
   }
+  if (!canWriteApplicants(actor.role)) {
+    return applicantWriteForbiddenResponse()
+  }
 
   if (!isApplicantProfileFileSlot(params.slot)) {
     return NextResponse.json({ error: "不支持的文件槽位" }, { status: 400 })
@@ -124,6 +125,9 @@ export async function DELETE(
   const { actor, response } = await requireAgentActor(request)
   if (!actor) {
     return response
+  }
+  if (!canWriteApplicants(actor.role)) {
+    return applicantWriteForbiddenResponse()
   }
 
   if (!isApplicantProfileFileSlot(params.slot)) {

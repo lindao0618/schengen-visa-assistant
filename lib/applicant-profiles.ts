@@ -2,6 +2,9 @@ import fs from "fs/promises"
 import path from "path"
 import { nanoid } from "nanoid"
 import { Prisma } from "@prisma/client"
+
+import { canReadAllApplicants } from "@/lib/access-control"
+import { buildApplicantAccessWhere, resolveViewerRole } from "@/lib/access-control-server"
 import prisma from "@/lib/db"
 import { normalizeFranceTlsCity } from "@/lib/france-tls-city"
 import { extractFranceTlsCityFromExcelBuffer } from "@/lib/france-tls-city-excel"
@@ -556,47 +559,21 @@ async function ensureStorageRoot() {
   await fs.mkdir(STORAGE_ROOT, { recursive: true })
 }
 
-async function resolveIsAdmin(userId: string, role?: string) {
-  if (role === "admin") return true
-  if (role) return false
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { role: true },
-  })
-  return user?.role === "admin"
-}
-
-function buildApplicantAccessWhere(userId: string, isAdmin: boolean) {
-  if (isAdmin) return {}
-  return {
-    OR: [
-      { userId },
-      {
-        visaCases: {
-          some: {
-            assignedToUserId: userId,
-          },
-        },
-      },
-    ],
-  }
-}
-
 async function findApplicantProfileRecord(userId: string, id: string, role?: string) {
-  const isAdmin = await resolveIsAdmin(userId, role)
+  const viewerRole = await resolveViewerRole(userId, role)
   return prisma.applicantProfile.findFirst({
     where: {
       id,
-      ...buildApplicantAccessWhere(userId, isAdmin),
+      ...buildApplicantAccessWhere(userId, viewerRole),
     },
     include: { files: true },
   })
 }
 
 async function findApplicantProfileRecordForDelete(userId: string, id: string, role?: string) {
-  const isAdmin = await resolveIsAdmin(userId, role)
+  const viewerRole = await resolveViewerRole(userId, role)
   return prisma.applicantProfile.findFirst({
-    where: isAdmin ? { id } : { id, userId },
+    where: canReadAllApplicants(viewerRole) ? { id } : { id, userId },
     include: { files: true },
   })
 }
@@ -612,9 +589,9 @@ export function isApplicantProfileFileSlot(value: string): value is ApplicantPro
 }
 
 export async function listApplicantProfiles(userId: string, role?: string) {
-  const isAdmin = await resolveIsAdmin(userId, role)
+  const viewerRole = await resolveViewerRole(userId, role)
   const profiles = await prisma.applicantProfile.findMany({
-    where: buildApplicantAccessWhere(userId, isAdmin),
+    where: buildApplicantAccessWhere(userId, viewerRole),
     include: { files: true },
     orderBy: { updatedAt: "desc" },
   })
@@ -623,9 +600,9 @@ export async function listApplicantProfiles(userId: string, role?: string) {
 }
 
 export async function listFranceAutomationApplicantProfiles(userId: string, role?: string) {
-  const isAdmin = await resolveIsAdmin(userId, role)
+  const viewerRole = await resolveViewerRole(userId, role)
   const profiles = await prisma.applicantProfile.findMany({
-    where: buildApplicantAccessWhere(userId, isAdmin),
+    where: buildApplicantAccessWhere(userId, viewerRole),
     include: {
       files: {
         where: {
@@ -939,7 +916,7 @@ export async function deleteApplicantProfile(userId: string, id: string, role?: 
     where: { id: current.id },
   })
 
-  const profileDir = path.join(STORAGE_ROOT, userId, id)
+  const profileDir = path.join(STORAGE_ROOT, current.userId, id)
   await fs.rm(profileDir, { recursive: true, force: true })
   return true
 }
@@ -955,11 +932,11 @@ export async function updateApplicantProfilesGroupName(
     return { updatedIds: [] }
   }
 
-  const isAdmin = await resolveIsAdmin(userId, role)
+  const viewerRole = await resolveViewerRole(userId, role)
   const allowedProfiles = await prisma.applicantProfile.findMany({
     where: {
       id: { in: uniqueIds },
-      ...buildApplicantAccessWhere(userId, isAdmin),
+      ...buildApplicantAccessWhere(userId, viewerRole),
     },
     select: { id: true },
   })
@@ -998,7 +975,7 @@ export async function saveApplicantProfileFiles(
   if (!current) return null
 
   await ensureStorageRoot()
-  const profileDir = path.join(STORAGE_ROOT, userId, id)
+  const profileDir = path.join(STORAGE_ROOT, current.userId, id)
   await fs.mkdir(profileDir, { recursive: true })
 
   for (const entry of entries) {
@@ -1026,7 +1003,7 @@ export async function saveApplicantProfileFiles(
     })
   }
 
-  const profile = await findApplicantProfileRecord(userId, id)
+  const profile = await findApplicantProfileRecord(userId, id, role)
   return profile ? toApplicantProfile(profile) : null
 }
 
@@ -1044,7 +1021,7 @@ export async function saveApplicantProfileFileFromAbsolutePath(params: {
   if (!current) return null
 
   await ensureStorageRoot()
-  const profileDir = path.join(STORAGE_ROOT, userId, id)
+  const profileDir = path.join(STORAGE_ROOT, current.userId, id)
   await fs.mkdir(profileDir, { recursive: true })
 
   const sourceStat = await fs.stat(sourcePath)
@@ -1072,7 +1049,7 @@ export async function saveApplicantProfileFileFromAbsolutePath(params: {
     size: sourceStat.size,
   })
 
-  const profile = await findApplicantProfileRecord(userId, id)
+  const profile = await findApplicantProfileRecord(userId, id, role)
   return profile ? toApplicantProfile(profile) : null
 }
 
@@ -1090,7 +1067,7 @@ export async function saveApplicantProfileFileFromBuffer(params: {
   if (!current) return null
 
   await ensureStorageRoot()
-  const profileDir = path.join(STORAGE_ROOT, userId, id)
+  const profileDir = path.join(STORAGE_ROOT, current.userId, id)
   await fs.mkdir(profileDir, { recursive: true })
 
   const storedName = `${slot}-${Date.now()}-${sanitizeFilename(originalName || "file")}`
@@ -1116,7 +1093,7 @@ export async function saveApplicantProfileFileFromBuffer(params: {
     size: buffer.byteLength,
   })
 
-  const profile = await findApplicantProfileRecord(userId, id)
+  const profile = await findApplicantProfileRecord(userId, id, role)
   return profile ? toApplicantProfile(profile) : null
 }
 

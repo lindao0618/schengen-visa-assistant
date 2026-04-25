@@ -3,6 +3,7 @@
 import { useEffect } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
+import { canAccessAdminPortal } from "@/lib/access-control"
 import { Header } from "./components/header"
 import { Sidebar } from "./components/sidebar"
 
@@ -25,7 +26,7 @@ export default function AdminLayout({
       return
     }
 
-    if (session.user?.role !== "admin") {
+    if (!canAccessAdminPortal(session.user?.role)) {
       router.push("/dashboard")
     }
   }, [pathname, router, session, status])
@@ -34,7 +35,7 @@ export default function AdminLayout({
     return <>{children}</>
   }
 
-  if (status === "loading" || !session || session.user?.role !== "admin") {
+  if (status === "loading" || !session || !canAccessAdminPortal(session.user?.role)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
         <div className="text-center">

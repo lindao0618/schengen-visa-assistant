@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { canWriteApplicants } from "@/lib/access-control"
+import { applicantWriteForbiddenResponse } from "@/lib/access-control-response"
 import { requireAgentActor } from "@/lib/agent-auth"
-import { deriveApplicantCaseTypeFromVisaType } from "@/lib/applicant-crm-labels"
 import { createVisaCaseForApplicant, listApplicantCrmData } from "@/lib/applicant-crm"
+import { deriveApplicantCaseTypeFromVisaType } from "@/lib/applicant-crm-labels"
 import { createApplicantProfile } from "@/lib/applicant-profiles"
 
 export const dynamic = "force-dynamic"
@@ -48,6 +50,9 @@ export async function POST(request: NextRequest) {
   const { actor, response } = await requireAgentActor(request)
   if (!actor) {
     return response
+  }
+  if (!canWriteApplicants(actor.role)) {
+    return applicantWriteForbiddenResponse()
   }
 
   const body = await request.json().catch(() => ({}))

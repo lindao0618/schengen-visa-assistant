@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 
+import { canWriteApplicants } from "@/lib/access-control"
+import { applicantWriteForbiddenResponse } from "@/lib/access-control-response"
 import { handleApplicantProfileApiError } from "@/lib/applicant-profile-api-error"
-import { authOptions } from "@/lib/auth"
 import { getApplicantCrmDetail } from "@/lib/applicant-crm"
-import {
-  deleteApplicantProfile,
-  updateApplicantProfile,
-} from "@/lib/applicant-profiles"
+import { authOptions } from "@/lib/auth"
+import { deleteApplicantProfile, updateApplicantProfile } from "@/lib/applicant-profiles"
 
 export const dynamic = "force-dynamic"
 
@@ -40,6 +39,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     if (!session?.user?.id) {
       return NextResponse.json({ error: "未登录" }, { status: 401 })
     }
+    if (!canWriteApplicants(session.user.role)) {
+      return applicantWriteForbiddenResponse()
+    }
 
     const body = await request.json().catch(() => ({}))
     const profile = await updateApplicantProfile(session.user.id, params.id, body ?? {}, session.user.role)
@@ -58,6 +60,9 @@ export async function DELETE(_request: NextRequest, { params }: { params: { id: 
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: "未登录" }, { status: 401 })
+    }
+    if (!canWriteApplicants(session.user.role)) {
+      return applicantWriteForbiddenResponse()
     }
 
     const deleted = await deleteApplicantProfile(session.user.id, params.id, session.user.role)

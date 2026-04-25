@@ -42,6 +42,10 @@ import {
   prefetchJsonIntoClientCache,
   readClientCache,
 } from "@/lib/applicant-client-cache"
+import {
+  canWriteApplicants,
+  normalizeAppRole,
+} from "@/lib/access-control"
 import { formatFranceStatusLabel } from "@/lib/france-case-labels"
 import { cn } from "@/lib/utils"
 
@@ -437,6 +441,8 @@ function ApplicantOptionRow({
 export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSelectorProps = {}) {
   const router = useRouter()
   const { data: session } = useSession()
+  const viewerRole = normalizeAppRole(session?.user?.role)
+  const canEditApplicants = canWriteApplicants(viewerRole)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [profiles, setProfiles] = useState<ApplicantSelectorOption[]>([])
   const [selectedId, setSelectedId] = useState("")
@@ -823,7 +829,12 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
           </Popover>
 
           {activeProfile && (
-            <Button variant="outline" className="rounded-2xl border-slate-200 bg-slate-900 text-white shadow-sm hover:bg-slate-800 hover:text-white" asChild>
+            <Button
+              variant="outline"
+              className="rounded-2xl border-slate-200 bg-slate-900 text-white shadow-sm hover:bg-slate-800 hover:text-white"
+              title={canEditApplicants ? "编辑当前档案" : "查看当前档案"}
+              asChild
+            >
               <Link href={`/applicants/${activeProfile.id}?tab=materials`} onMouseEnter={prefetchActiveApplicantDetail}>
                 <PencilLine className="mr-2 h-4 w-4" />
                 编辑当前档案
@@ -853,7 +864,7 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
               <Clock3 className="h-3.5 w-3.5" />
               {formatDateTime(activeProfile.updatedAt)}
             </span>
-            {session?.user?.role === "admin" && (
+            {(viewerRole === "boss" || viewerRole === "supervisor") && (
               <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-violet-600">
                 <ShieldCheck className="h-3.5 w-3.5" />
                 管理员视角可查看全部

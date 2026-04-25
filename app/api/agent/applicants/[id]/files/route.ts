@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { canWriteApplicants } from "@/lib/access-control"
+import { applicantWriteForbiddenResponse } from "@/lib/access-control-response"
 import { requireAgentActor } from "@/lib/agent-auth"
 import { saveApplicantProfileFilesWithAnalysis } from "@/lib/applicant-profile-file-workflow"
-import {
-  ApplicantProfileFileSlot,
-  isApplicantProfileFileSlot,
-} from "@/lib/applicant-profiles"
+import { ApplicantProfileFileSlot, isApplicantProfileFileSlot } from "@/lib/applicant-profiles"
 
 export const dynamic = "force-dynamic"
 
@@ -13,6 +12,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const { actor, response } = await requireAgentActor(request)
   if (!actor) {
     return response
+  }
+  if (!canWriteApplicants(actor.role)) {
+    return applicantWriteForbiddenResponse()
   }
 
   const formData = await request.formData()

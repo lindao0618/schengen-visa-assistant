@@ -1,5 +1,6 @@
 import { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
+import { normalizeAppRole } from "./access-control"
 import { verifyUserPassword } from "./users"
 
 const nextAuthSecret = process.env.NEXTAUTH_SECRET
@@ -61,7 +62,7 @@ export const authOptions: NextAuthOptions = {
             id: user.id,
             name: user.name || user.email.split('@')[0],
             email: user.email,
-            role: user.role
+            role: normalizeAppRole(user.role)
           };
         } catch (error) {
           console.error("认证过程中出错:", error)
@@ -77,16 +78,19 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id
-        token.role = user.role
+        token.role = normalizeAppRole(user.role)
         token.name = user.name ?? undefined
         token.email = user.email ?? undefined
+      }
+      if (token.role) {
+        token.role = normalizeAppRole(token.role as string)
       }
       return token
     },
     async session({ session, token }) {
       if (token) {
         session.user.id = token.id as string
-        session.user.role = token.role as string
+        session.user.role = normalizeAppRole(token.role as string)
         session.user.name = (token.name ?? session.user?.name) ?? null
         session.user.email = (token.email ?? session.user?.email) ?? null
       }
