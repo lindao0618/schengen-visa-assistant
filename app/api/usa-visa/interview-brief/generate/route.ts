@@ -119,6 +119,7 @@ export async function POST(request: NextRequest) {
     await writeOutputAccessMetadata(outputDir, {
       userId: session.user.id,
       outputId,
+      applicantProfileId,
     })
 
     let customTemplatePath: string | null = null

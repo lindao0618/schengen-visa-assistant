@@ -30,6 +30,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { ACTIVE_APPLICANT_CASE_KEY, ACTIVE_APPLICANT_PROFILE_KEY } from "@/components/applicant-profile-selector"
 import {
+  canAssignCases,
+  canTriggerAutomation as canTriggerAutomationForRole,
+  canWriteApplicants,
+  getAppRoleLabel,
+  isReadOnlyRole,
+  normalizeAppRole,
+} from "@/lib/access-control"
+import {
   CRM_PRIORITY_OPTIONS,
   CRM_REGION_OPTIONS,
   CRM_VISA_TYPE_OPTIONS,
@@ -1150,6 +1158,7 @@ function UploadGrid({
   slots,
   onUpload,
   onPreview,
+  canUpload = true,
   emptyMessage = "当前还没有材料。",
   tone = "slate",
 }: {
@@ -1158,6 +1167,7 @@ function UploadGrid({
   slots: readonly { key: string; label: string; accept: string }[]
   onUpload: (event: ChangeEvent<HTMLInputElement>, slot: string) => Promise<void>
   onPreview: (slot: string, meta: { originalName: string; uploadedAt: string }) => Promise<void>
+  canUpload?: boolean
   emptyMessage?: string
   tone?: "slate" | "sky" | "emerald" | "amber"
 }) {
@@ -1209,7 +1219,11 @@ function UploadGrid({
         return (
           <div key={slot.key} className={cn("rounded-2xl border p-4 shadow-sm transition", styles.card)}>
             <div className={cn("mb-2 text-base font-semibold", styles.title)}>{slot.label}</div>
-            <Input type="file" accept={slot.accept} onChange={(event) => void onUpload(event, slot.key)} className="bg-white/90" />
+            {canUpload ? (
+              <Input type="file" accept={slot.accept} onChange={(event) => void onUpload(event, slot.key)} className="bg-white/90" />
+            ) : (
+              <div className={cn("rounded-xl border border-dashed px-3 py-2 text-xs", styles.meta)}>只读查看，不能上传或覆盖</div>
+            )}
             {meta ? (
               <div className={cn("mt-3 space-y-1 text-xs", styles.meta)}>
                 <div className="truncate text-sm font-medium">{meta.originalName}</div>
@@ -1244,9 +1258,20 @@ function UploadGrid({
   )
 }
 
-export default function ApplicantDetailClientPage({ applicantId }: { applicantId: string }) {
+export default function ApplicantDetailClientPage({
+  applicantId,
+  viewerRole,
+}: {
+  applicantId: string
+  viewerRole?: string | null
+}) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const normalizedViewerRole = useMemo(() => normalizeAppRole(viewerRole), [viewerRole])
+  const canEditApplicant = useMemo(() => canWriteApplicants(normalizedViewerRole), [normalizedViewerRole])
+  const canAssignCase = useMemo(() => canAssignCases(normalizedViewerRole), [normalizedViewerRole])
+  const canRunAutomation = useMemo(() => canTriggerAutomationForRole(normalizedViewerRole), [normalizedViewerRole])
+  const isReadOnlyViewer = useMemo(() => isReadOnlyRole(normalizedViewerRole), [normalizedViewerRole])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState("")
   const [savingProfile, setSavingProfile] = useState(false)
@@ -1396,6 +1421,10 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
   }, [detail?.profile.id, selectedCaseId])
 
   const saveProfile = async () => {
+    if (!canEditApplicant) {
+      setMessage("当前角色为只读，不能修改申请人信息")
+      return
+    }
     setSavingProfile(true)
     setMessage("")
 
@@ -1458,6 +1487,10 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
   }
 
   const deleteApplicant = async () => {
+    if (!canEditApplicant) {
+      setMessage("当前角色为只读，不能删除申请人")
+      return
+    }
     if (!window.confirm("删除申请人后，对应材料和案件会一起删除，确定继续吗？")) return
 
     setDeletingApplicant(true)
@@ -1478,6 +1511,11 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
   }
 
   const uploadFiles = async (event: ChangeEvent<HTMLInputElement>, slot: string) => {
+    if (!canEditApplicant) {
+      setMessage("当前角色为只读，不能上传或覆盖材料")
+      event.target.value = ""
+      return
+    }
     const file = event.target.files?.[0]
     if (!file) return
 
@@ -1589,6 +1627,10 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
   }
 
   const autoFixUsVisaAuditIssues = async () => {
+    if (!canRunAutomation) {
+      setMessage("当前角色不能触发自动化处理")
+      return
+    }
     if (auditDialog.scope !== "usVisa" || !auditDialog.slot || auditDialog.autoFixing) return
 
     setAuditDialog((prev) => ({
@@ -1740,6 +1782,10 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
   }
 
   const saveExcelFromPreview = async () => {
+    if (!canEditApplicant) {
+      setMessage("当前角色为只读，不能回写 Excel 到档案")
+      return
+    }
     const snap = preview
     if (snap.kind !== "excel" || !snap.workbookArrayBuffer || !snap.excelSlot) return
     const slot = snap.excelSlot
@@ -1936,6 +1982,10 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
   }
 
   const saveCase = async () => {
+    if (!canEditApplicant) {
+      setMessage("当前角色为只读，不能修改 Case")
+      return
+    }
     if (!selectedCaseId) {
       setMessage("请先选择一个 Case")
       return
@@ -1966,6 +2016,10 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
   }
 
   const createCase = async () => {
+    if (!canEditApplicant) {
+      setMessage("当前角色为只读，不能创建 Case")
+      return
+    }
     setCreatingCase(true)
     setMessage("")
 
@@ -2041,7 +2095,10 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
               </Link>
             </Button>
             <div>
-              <h1 className="text-3xl font-semibold text-gray-900">{detail.profile.name || detail.profile.label}</h1>
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-3xl font-semibold text-gray-900">{detail.profile.name || detail.profile.label}</h1>
+                <Badge variant={isReadOnlyViewer ? "outline" : "secondary"}>{getAppRoleLabel(normalizedViewerRole)}</Badge>
+              </div>
               <p className="mt-1 text-sm text-gray-500">
                 CRM 详情页统一管理申请人基础信息、Case、材料文档、法签进度与提醒日志。
               </p>
@@ -2051,7 +2108,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
             <Button variant="outline" onClick={() => void loadDetail()}>
               刷新详情
             </Button>
-            <Button variant="destructive" onClick={() => void deleteApplicant()} disabled={deletingApplicant}>
+            <Button variant="destructive" onClick={() => void deleteApplicant()} disabled={deletingApplicant || !canEditApplicant}>
               <Trash2 className="mr-2 h-4 w-4" />
               {deletingApplicant ? "删除中..." : "删除申请人"}
             </Button>
@@ -2095,14 +2152,15 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
           <TabsContent value="basic" className="space-y-6">
             <Section title="CRM 基本信息" description="申请人主实体信息，后续搜索和 CRM 列表会优先使用这里的字段。" tone="slate">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <Field label="申请人姓名" value={basicForm.name} onChange={(value) => setBasicForm((prev) => ({ ...prev, name: value }))} />
-                <Field label="手机号" value={basicForm.phone} onChange={(value) => setBasicForm((prev) => ({ ...prev, phone: value }))} />
-                <Field label="邮箱" value={basicForm.email} onChange={(value) => setBasicForm((prev) => ({ ...prev, email: value }))} />
-                <Field label="微信" value={basicForm.wechat} onChange={(value) => setBasicForm((prev) => ({ ...prev, wechat: value }))} />
+                <Field label="申请人姓名" value={basicForm.name} onChange={(value) => setBasicForm((prev) => ({ ...prev, name: value }))} disabled={isReadOnlyViewer} />
+                <Field label="手机号" value={basicForm.phone} onChange={(value) => setBasicForm((prev) => ({ ...prev, phone: value }))} disabled={isReadOnlyViewer} />
+                <Field label="邮箱" value={basicForm.email} onChange={(value) => setBasicForm((prev) => ({ ...prev, email: value }))} disabled={isReadOnlyViewer} />
+                <Field label="微信" value={basicForm.wechat} onChange={(value) => setBasicForm((prev) => ({ ...prev, wechat: value }))} disabled={isReadOnlyViewer} />
                 <Field
                   label="通用护照号"
                   value={basicForm.passportNumber}
                   onChange={(value) => setBasicForm((prev) => ({ ...prev, passportNumber: value }))}
+                  disabled={isReadOnlyViewer}
                 />
                 <ReadOnlyField label="护照尾号" value={detail.profile.passportLast4 || "-"} />
               </div>
@@ -2114,6 +2172,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                   value={basicForm.note}
                   onChange={(event) => setBasicForm((prev) => ({ ...prev, note: event.target.value }))}
                   placeholder="记录客户沟通、特殊说明或内部备注"
+                  disabled={isReadOnlyViewer}
                 />
               </div>
             </Section>
@@ -2125,16 +2184,19 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                   label="姓"
                   value={basicForm.usVisaSurname}
                   onChange={(value) => setBasicForm((prev) => ({ ...prev, usVisaSurname: value }))}
+                  disabled={isReadOnlyViewer}
                 />
                 <Field
                   label="出生年份"
                   value={basicForm.usVisaBirthYear}
                   onChange={(value) => setBasicForm((prev) => ({ ...prev, usVisaBirthYear: value }))}
+                  disabled={isReadOnlyViewer}
                 />
                 <Field
                   label="美签护照号"
                   value={basicForm.usVisaPassportNumber}
                   onChange={(value) => setBasicForm((prev) => ({ ...prev, usVisaPassportNumber: value }))}
+                  disabled={isReadOnlyViewer}
                 />
               </div>
               <ParsedIntakeAccordion
@@ -2154,6 +2216,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                 <div className="space-y-2">
                   <Label>申根国家</Label>
                   <Select
+                    disabled={isReadOnlyViewer}
                     value={basicForm.schengenCountry || "france"}
                     onValueChange={(value) => setBasicForm((prev) => ({ ...prev, schengenCountry: value }))}
                   >
@@ -2168,6 +2231,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                 <div className="space-y-2">
                   <Label>TLS 递签城市</Label>
                   <Select
+                    disabled={isReadOnlyViewer}
                     value={basicForm.schengenVisaCity || "__unset__"}
                     onValueChange={(value) =>
                       setBasicForm((prev) => ({
@@ -2227,7 +2291,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
             </Section>
 
             <div className="flex justify-end">
-              <Button onClick={() => void saveProfile()} disabled={savingProfile} className="rounded-2xl bg-slate-900 text-white hover:bg-slate-800">
+              <Button onClick={() => void saveProfile()} disabled={savingProfile || !canEditApplicant} className="rounded-2xl bg-slate-900 text-white hover:bg-slate-800">
                 <Save className="mr-2 h-4 w-4" />
                 {savingProfile ? "保存中..." : "保存申请人"}
               </Button>
@@ -2265,7 +2329,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
           <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
               <Section title="Case 列表" description="一个申请人可以挂多个 Case。当前激活中的 France Case 会驱动法签自动化和提醒。" tone="amber">
                 <div className="space-y-3">
-                  <Button onClick={() => setCreateCaseOpen(true)} className="w-full rounded-2xl bg-amber-500 text-white hover:bg-amber-600">
+                  <Button onClick={() => setCreateCaseOpen(true)} disabled={!canEditApplicant} className="w-full rounded-2xl bg-amber-500 text-white hover:bg-amber-600">
                     <Plus className="mr-2 h-4 w-4" />
                     新建 Case
                   </Button>
@@ -2334,6 +2398,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                       <div className="space-y-2">
                         <Label>签证类型</Label>
                         <Select
+                          disabled={isReadOnlyViewer}
                           value={caseForm.visaType || caseForm.caseType}
                           onValueChange={(value) =>
                             setCaseForm((prev) => ({
@@ -2383,6 +2448,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                       <div className="space-y-2">
                         <Label>地区</Label>
                         <Select
+                          disabled={isReadOnlyViewer}
                           value={caseForm.applyRegion || "__unset__"}
                           onValueChange={(value) =>
                             setCaseForm((prev) => ({
@@ -2408,6 +2474,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                         <div className="space-y-2">
                           <Label>TLS 城市</Label>
                           <Select
+                            disabled={isReadOnlyViewer}
                             value={caseForm.tlsCity || "__unset__"}
                             onValueChange={(value) =>
                               setCaseForm((prev) => ({
@@ -2437,6 +2504,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                           label="抢号区间"
                           value={caseForm.bookingWindow}
                           onChange={(value) => setCaseForm((prev) => ({ ...prev, bookingWindow: value }))}
+                          disabled={isReadOnlyViewer}
                         />
                       ) : (
                         <ReadOnlyField label="抢号区间" value="-" />
@@ -2447,6 +2515,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                       <div className="space-y-2">
                         <Label>优先级</Label>
                         <Select
+                          disabled={isReadOnlyViewer}
                           value={caseForm.priority}
                           onValueChange={(value) => setCaseForm((prev) => ({ ...prev, priority: value }))}
                         >
@@ -2476,6 +2545,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                           type="date"
                           value={caseForm.travelDate}
                           onChange={(value) => setCaseForm((prev) => ({ ...prev, travelDate: value }))}
+                          disabled={isReadOnlyViewer}
                         />
                       ) : null}
                       {caseForm.caseType !== "france-schengen" ? (
@@ -2484,11 +2554,13 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                           type="date"
                           value={caseForm.submissionDate}
                           onChange={(value) => setCaseForm((prev) => ({ ...prev, submissionDate: value }))}
+                          disabled={isReadOnlyViewer}
                         />
                       ) : null}
                       <div className="space-y-2">
                         <Label>分配给</Label>
                         <Select
+                          disabled={!canAssignCase || isReadOnlyViewer}
                           value={caseForm.assignedToUserId || "__unset__"}
                           onValueChange={(value) =>
                             setCaseForm((prev) => ({
@@ -2513,6 +2585,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                       <div className="space-y-2">
                         <Label>当前案件</Label>
                         <Select
+                          disabled={isReadOnlyViewer}
                           value={caseForm.isActive ? "yes" : "no"}
                           onValueChange={(value) =>
                             setCaseForm((prev) => ({ ...prev, isActive: value === "yes" }))
@@ -2539,10 +2612,12 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                           <SlotTimeField
                             value={caseForm.slotTime}
                             onChange={(value) => setCaseForm((prev) => ({ ...prev, slotTime: value }))}
+                            disabled={isReadOnlyViewer}
                           />
                           <div className="space-y-2">
                             <Label>是否接受 VIP</Label>
                             <Select
+                              disabled={isReadOnlyViewer}
                               value={caseForm.acceptVip || "__unset__"}
                               onValueChange={(value) =>
                                 setCaseForm((prev) => ({
@@ -2567,7 +2642,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                     )}
 
                     <div className="flex justify-end">
-                      <Button onClick={() => void saveCase()} disabled={savingCase} className="rounded-2xl bg-amber-500 text-white hover:bg-amber-600">
+                      <Button onClick={() => void saveCase()} disabled={savingCase || !canEditApplicant} className="rounded-2xl bg-amber-500 text-white hover:bg-amber-600">
                         <Save className="mr-2 h-4 w-4" />
                         {savingCase ? "保存中..." : "保存 Case"}
                       </Button>
@@ -2598,7 +2673,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                       </div>
                     </div>
                     {hasUsVisaInterviewSource ? (
-                      <Button asChild className="rounded-2xl bg-slate-900 text-white hover:bg-slate-800">
+                      <Button asChild className="rounded-2xl bg-slate-900 text-white hover:bg-slate-800" disabled={!canRunAutomation}>
                         <Link href={interviewBriefHref}>
                           <FileText className="mr-2 h-4 w-4" />
                           去生成面试必看
@@ -2615,17 +2690,17 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                 <div className="space-y-3">
                   <div className="text-base font-semibold text-sky-950">上传材料</div>
                   <div className="text-sm text-sky-800/70">先放照片和 DS-160 / AIS 信息表，后续自动化与材料整理都会用到。</div>
-                  <UploadGrid applicantId={applicantId} files={files} slots={usVisaUploadedSlots} onUpload={uploadFiles} onPreview={openPreview} tone="sky" />
+                  <UploadGrid applicantId={applicantId} files={files} slots={usVisaUploadedSlots} onUpload={uploadFiles} onPreview={openPreview} canUpload={canEditApplicant} tone="sky" />
                 </div>
                 <div className="space-y-3">
                   <div className="text-base font-semibold text-sky-950">递签材料</div>
                   <div className="text-sm text-sky-800/70">这里放 DS-160 确认页和预检查结果，方便后续复核与递签。</div>
-                  <UploadGrid applicantId={applicantId} files={files} slots={usVisaSubmissionSlots} onUpload={uploadFiles} onPreview={openPreview} tone="sky" />
+                  <UploadGrid applicantId={applicantId} files={files} slots={usVisaSubmissionSlots} onUpload={uploadFiles} onPreview={openPreview} canUpload={canEditApplicant} tone="sky" />
                 </div>
                 <div className="space-y-3">
                   <div className="text-base font-semibold text-sky-950">面试必看材料</div>
                   <div className="text-sm text-sky-800/70">生成后的 PDF 可直接预览，Word 和 PDF 都可以从这里下载。</div>
-                  <UploadGrid applicantId={applicantId} files={files} slots={usVisaInterviewBriefSlots} onUpload={uploadFiles} onPreview={openPreview} tone="sky" />
+                  <UploadGrid applicantId={applicantId} files={files} slots={usVisaInterviewBriefSlots} onUpload={uploadFiles} onPreview={openPreview} canUpload={canEditApplicant} tone="sky" />
                 </div>
               </div>
             </Section>
@@ -2635,17 +2710,17 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                 <div className="space-y-3">
                   <div className="text-base font-semibold text-emerald-950">上传材料</div>
                   <div className="text-sm text-emerald-800/70">基础照片、信息表和护照扫描件统一放这里，方便后续申根流程继续接力。</div>
-                  <UploadGrid applicantId={applicantId} files={files} slots={schengenUploadedSlots} onUpload={uploadFiles} onPreview={openPreview} tone="emerald" />
+                  <UploadGrid applicantId={applicantId} files={files} slots={schengenUploadedSlots} onUpload={uploadFiles} onPreview={openPreview} canUpload={canEditApplicant} tone="emerald" />
                 </div>
                 <div className="space-y-3">
                   <div className="text-base font-semibold text-emerald-950">递签材料</div>
                   <div className="text-sm text-emerald-800/70">TLS、申请 JSON、回执 PDF 和最终表统一归档在这一组。</div>
-                  <UploadGrid applicantId={applicantId} files={files} slots={schengenSubmissionSlots} onUpload={uploadFiles} onPreview={openPreview} tone="emerald" />
+                  <UploadGrid applicantId={applicantId} files={files} slots={schengenSubmissionSlots} onUpload={uploadFiles} onPreview={openPreview} canUpload={canEditApplicant} tone="emerald" />
                 </div>
                 <div className="space-y-3">
                   <div className="text-base font-semibold text-emerald-950">材料文档</div>
                   <div className="text-sm text-emerald-800/70">行程单、解释信、预订单等辅助材料集中放这里，避免和递签件混在一起。</div>
-                  <UploadGrid applicantId={applicantId} files={files} slots={schengenMaterialDocumentSlots} onUpload={uploadFiles} onPreview={openPreview} tone="emerald" />
+                  <UploadGrid applicantId={applicantId} files={files} slots={schengenMaterialDocumentSlots} onUpload={uploadFiles} onPreview={openPreview} canUpload={canEditApplicant} tone="emerald" />
                 </div>
               </div>
             </Section>
@@ -2764,6 +2839,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
             <div className="space-y-2">
               <Label>签证类型</Label>
               <Select
+                disabled={isReadOnlyViewer}
                 value={newCaseForm.visaType || newCaseForm.caseType}
                 onValueChange={(value) =>
                   setNewCaseForm((prev) => ({
@@ -2789,6 +2865,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
             <div className="space-y-2">
               <Label>地区</Label>
               <Select
+                disabled={isReadOnlyViewer}
                 value={newCaseForm.applyRegion || "__unset__"}
                 onValueChange={(value) =>
                   setNewCaseForm((prev) => ({
@@ -2814,6 +2891,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
               <div className="space-y-2">
                 <Label>TLS 城市</Label>
                 <Select
+                  disabled={isReadOnlyViewer}
                   value={newCaseForm.tlsCity || "__unset__"}
                   onValueChange={(value) =>
                     setNewCaseForm((prev) => ({
@@ -2843,6 +2921,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                 label="抢号区间"
                 value={newCaseForm.bookingWindow}
                 onChange={(value) => setNewCaseForm((prev) => ({ ...prev, bookingWindow: value }))}
+                disabled={isReadOnlyViewer}
               />
             ) : (
               <ReadOnlyField label="抢号区间" value="-" />
@@ -2851,6 +2930,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
               <div className="space-y-2">
                 <Label>是否接受 VIP</Label>
                 <Select
+                  disabled={isReadOnlyViewer}
                   value={newCaseForm.acceptVip || "__unset__"}
                   onValueChange={(value) =>
                     setNewCaseForm((prev) => ({
@@ -2874,7 +2954,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
             )}
             <div className="space-y-2">
               <Label>优先级</Label>
-              <Select value={newCaseForm.priority} onValueChange={(value) => setNewCaseForm((prev) => ({ ...prev, priority: value }))}>
+              <Select disabled={isReadOnlyViewer} value={newCaseForm.priority} onValueChange={(value) => setNewCaseForm((prev) => ({ ...prev, priority: value }))}>
                 <SelectTrigger
                   className={
                     newCaseForm.priority === "urgent"
@@ -2898,6 +2978,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
             <div className="space-y-2">
               <Label>分配给</Label>
               <Select
+                disabled={!canAssignCase || isReadOnlyViewer}
                 value={newCaseForm.assignedToUserId || "__unset__"}
                 onValueChange={(value) =>
                   setNewCaseForm((prev) => ({
@@ -2919,20 +3000,21 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                 </SelectContent>
               </Select>
             </div>
-            <Field label="出行时间" type="date" value={newCaseForm.travelDate} onChange={(value) => setNewCaseForm((prev) => ({ ...prev, travelDate: value }))} />
-            <Field label="递签时间" type="date" value={newCaseForm.submissionDate} onChange={(value) => setNewCaseForm((prev) => ({ ...prev, submissionDate: value }))} />
+            <Field label="出行时间" type="date" value={newCaseForm.travelDate} onChange={(value) => setNewCaseForm((prev) => ({ ...prev, travelDate: value }))} disabled={isReadOnlyViewer} />
+            <Field label="递签时间" type="date" value={newCaseForm.submissionDate} onChange={(value) => setNewCaseForm((prev) => ({ ...prev, submissionDate: value }))} disabled={isReadOnlyViewer} />
           </div>
             {newCaseForm.caseType === "france-schengen" && (
               <SlotTimeField
                 value={newCaseForm.slotTime}
                 onChange={(value) => setNewCaseForm((prev) => ({ ...prev, slotTime: value }))}
+                disabled={isReadOnlyViewer}
               />
             )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateCaseOpen(false)}>
               取消
             </Button>
-            <Button onClick={() => void createCase()} disabled={creatingCase}>
+            <Button onClick={() => void createCase()} disabled={creatingCase || !canEditApplicant}>
               {creatingCase ? "创建中..." : "创建 Case"}
             </Button>
           </DialogFooter>
@@ -2999,7 +3081,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                   ) : null}
                   {preview.excelEditMode ? (
                     <>
-                      <Button size="sm" onClick={() => void saveExcelFromPreview()} disabled={preview.excelSaving}>
+                      <Button size="sm" onClick={() => void saveExcelFromPreview()} disabled={preview.excelSaving || !canEditApplicant}>
                         {preview.excelSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                         {preview.excelSaving ? "保存中…" : "保存到档案"}
                       </Button>
@@ -3008,10 +3090,11 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                       </Button>
                     </>
                   ) : (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() =>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={!canEditApplicant}
+                        onClick={() =>
                         setPreview((p) => ({
                           ...p,
                           excelEditMode: true,
@@ -3228,7 +3311,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
 
           <DialogFooter>
             {auditDialog.status === "error" && auditDialog.scope === "usVisa" ? (
-              <Button variant="outline" onClick={() => void autoFixUsVisaAuditIssues()} disabled={auditDialog.autoFixing}>
+              <Button variant="outline" onClick={() => void autoFixUsVisaAuditIssues()} disabled={auditDialog.autoFixing || !canRunAutomation}>
                 {auditDialog.autoFixing ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -3255,17 +3338,25 @@ function Field({
   onChange,
   type = "text",
   placeholder,
+  disabled = false,
 }: {
   label: string
   value: string
   onChange: (value: string) => void
   type?: string
   placeholder?: string
+  disabled?: boolean
 }) {
   return (
     <div className="space-y-2">
       <Label>{label}</Label>
-      <Input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+      <Input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
     </div>
   )
 }
@@ -3289,10 +3380,12 @@ function BookingWindowRangeField({
   label,
   value,
   onChange,
+  disabled = false,
 }: {
   label: string
   value: string
   onChange: (value: string) => void
+  disabled?: boolean
 }) {
   const { start, end } = splitBookingWindow(value)
   const endDateInputRef = useRef<HTMLInputElement | null>(null)
@@ -3315,6 +3408,7 @@ function BookingWindowRangeField({
         <Input
           type="date"
           value={start}
+          disabled={disabled}
           onChange={(event) => {
             const nextStart = event.target.value
             const nextEnd = end && nextStart && end < nextStart ? "" : end
@@ -3329,6 +3423,7 @@ function BookingWindowRangeField({
           type="date"
           min={start || undefined}
           value={end}
+          disabled={disabled}
           onChange={(event) => onChange(mergeBookingWindow(start, event.target.value))}
         />
       </div>
@@ -3366,9 +3461,11 @@ function excelColumnMinWidthClass(cellIndex: number) {
 function SlotTimeField({
   value,
   onChange,
+  disabled = false,
 }: {
   value: string
   onChange: (value: string) => void
+  disabled?: boolean
 }) {
   const { date, time } = splitDateTimeLocal(value)
 
@@ -3379,6 +3476,7 @@ function SlotTimeField({
         <Input
           type="date"
           value={date}
+          disabled={disabled}
           onChange={(event) => {
             const nextDate = event.target.value
             if (!nextDate) {
@@ -3390,6 +3488,7 @@ function SlotTimeField({
           }}
         />
         <Select
+          disabled={disabled}
           value={time || "__unset__"}
           onValueChange={(next) => {
             if (next === "__unset__") {

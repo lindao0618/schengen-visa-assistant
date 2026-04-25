@@ -62,6 +62,8 @@ export async function POST(request: NextRequest) {
       userId,
       taskId: task.task_id,
       outputId,
+      applicantProfileId: applicantProfileId || undefined,
+      caseId: caseId || undefined,
     })
 
     const scriptPath = path.join(process.cwd(), "services", "ds160-submitter", "ds160_submitter_cli.py")
@@ -112,6 +114,8 @@ export async function POST(request: NextRequest) {
             taskId: task.task_id,
             outputId,
             preferredFilename: data.pdf_file,
+            applicantProfileId: applicantProfileId || undefined,
+            caseId: caseId || undefined,
           })
           data.download_url = `/api/usa-visa/ds160/submit/download/${outputId}/${encodeURIComponent(data.pdf_file)}`
           data.download_url_simple = `/api/usa-visa/ds160/submit/download/${outputId}`

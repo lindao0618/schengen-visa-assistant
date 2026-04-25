@@ -608,6 +608,8 @@ export async function POST(request: NextRequest) {
     await writeOutputAccessMetadata(tempDir, {
       userId: session.user.id,
       tempId,
+      applicantProfileId: applicantProfileId || undefined,
+      caseId: caseId || undefined,
     })
 
     const excelPath = path.join(tempDir, 'ds160_data.xlsx')

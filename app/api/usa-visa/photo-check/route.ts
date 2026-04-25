@@ -240,6 +240,8 @@ export async function POST(request: NextRequest) {
     await writeOutputAccessMetadata(outputDir, {
       userId: session.user.id,
       outputId,
+      applicantProfileId: applicantProfileId || undefined,
+      caseId: caseId || undefined,
     });
 
     const originalFilename = sourcePhotoName || (photo instanceof File ? photo.name : 'photo.jpg');
@@ -266,6 +268,8 @@ export async function POST(request: NextRequest) {
         userId: session.user.id,
         taskId: task.task_id,
         outputId,
+        applicantProfileId: applicantProfileId || undefined,
+        caseId: caseId || undefined,
       });
       runPhotoCheckInBackground(task.task_id, {
         userId: session.user.id,

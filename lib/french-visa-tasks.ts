@@ -22,6 +22,12 @@ export interface TaskMeta {
   caseId?: string
 }
 
+export interface FrenchVisaTaskAccessMetadata {
+  userId?: string
+  applicantProfileId?: string
+  caseId?: string
+}
+
 export interface FrenchVisaTaskResponse {
   task_id: string
   type: TaskType
@@ -60,6 +66,19 @@ function extractTaskMeta(result: unknown): TaskMeta {
     applicantProfileId: typeof record?.applicantProfileId === "string" ? record.applicantProfileId : undefined,
     applicantName: typeof record?.applicantName === "string" ? record.applicantName : undefined,
     caseId: typeof record?.caseId === "string" ? record.caseId : undefined,
+  }
+}
+
+function toAccessMetadata(record: {
+  userId?: string | null
+  applicantProfileId?: string | null
+  result?: unknown
+}): FrenchVisaTaskAccessMetadata {
+  const meta = extractTaskMeta(record.result)
+  return {
+    userId: record.userId ?? undefined,
+    applicantProfileId: record.applicantProfileId ?? meta.applicantProfileId,
+    caseId: meta.caseId,
   }
 }
 
@@ -408,4 +427,38 @@ export async function listTasks(
       .sort((a, b) => (b.updated_at ?? b.created_at) - (a.updated_at ?? a.created_at))
       .slice(0, limit)
   )
+}
+
+export async function getTaskAccessMetadataAny(taskId: string): Promise<FrenchVisaTaskAccessMetadata | null> {
+  let fromPrisma: FrenchVisaTaskAccessMetadata | null = null
+  let fromFile: FrenchVisaTaskAccessMetadata | null = null
+
+  try {
+    const row = await prisma.frenchVisaTask.findUnique({
+      where: { taskId },
+      select: {
+        userId: true,
+        applicantProfileId: true,
+        result: true,
+      },
+    })
+    if (row) {
+      fromPrisma = toAccessMetadata(row)
+    }
+  } catch (e) {
+    if (!isPrismaConnectionError(e)) return null
+  }
+
+  try {
+    fromFile = await taskStore.runExclusive(async () => {
+      const tasks = await taskStore.readRecords()
+      const task = tasks[taskId]
+      if (!task) return null
+      return toAccessMetadata(task)
+    })
+  } catch {
+    fromFile = null
+  }
+
+  return fromPrisma ?? fromFile
 }

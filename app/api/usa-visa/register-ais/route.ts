@@ -294,6 +294,8 @@ export async function POST(request: NextRequest) {
         userId: session.user.id,
         taskId: task.task_id,
         outputId,
+        applicantProfileId: applicantProfileId || undefined,
+        caseId: caseId || undefined,
       })
       const excelPath = path.join(outputDir, name.replace(/[^a-zA-Z0-9._-]/g, '_') || 'data.xlsx')
       await fs.writeFile(excelPath, Buffer.from(await file.arrayBuffer()))

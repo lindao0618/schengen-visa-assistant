@@ -33,5 +33,5 @@ export default async function ApplicantDetailPage({
     redirect(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`)
   }
 
-  return <ApplicantDetailClientPage applicantId={params.id} />
+  return <ApplicantDetailClientPage applicantId={params.id} viewerRole={session.user.role} />
 }
