@@ -148,8 +148,12 @@ model ApplicantProfile {
   usVisaBirthYear      String?
   usVisaPassportNumber String?
   usVisaSlotTime       DateTime?
+  usVisaIntakeJson     Json?
+  schengenIntakeJson   Json?
   schengenCountry      String?
   schengenVisaCity     String?
+  schengenFraNumber    String?
+  groupName            String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

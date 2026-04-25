@@ -9,10 +9,58 @@ import fs from 'fs/promises';
 import { createTask, updateTask } from '@/lib/usa-visa-tasks';
 import { getApplicantProfile, getApplicantProfileFileByCandidates, saveApplicantProfileFileFromAbsolutePath } from '@/lib/applicant-profiles';
 import { writeOutputAccessMetadata } from '@/lib/task-route-access';
+import { getPythonRuntimeCommand } from '@/lib/python-runtime';
 
 const execAsync = promisify(exec);
 
 export const dynamic = 'force-dynamic';
+const PYTHON_RUNTIME = getPythonRuntimeCommand();
+
+function quoteShellArg(value: string) {
+  if (!value) return '""';
+  return `"${value.replace(/(["`$\\])/g, "\\$1")}"`;
+}
+
+function extractPhotoProcessError(stdout: string, stderr: string) {
+  const lines = `${stdout}\n${stderr}`
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('PROGRESS:') && !line.startsWith('{'));
+
+  return lines.slice(-6).join('\n').trim();
+}
+
+function extractPhotoProcessJsonError(stdout: string, stderr: string) {
+  const jsonLine = `${stdout}\n${stderr}`
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('{'))
+    .pop();
+
+  if (!jsonLine) return '';
+
+  try {
+    const parsed = JSON.parse(jsonLine) as { message?: unknown; error?: unknown };
+    const message = typeof parsed.message === 'string' ? parsed.message.trim() : '';
+    const error = typeof parsed.error === 'string' ? parsed.error.trim() : '';
+
+    if (message && error && error !== message) {
+      return `${message}\n${error}`;
+    }
+
+    return message || error;
+  } catch {
+    return '';
+  }
+}
+
+function getPhotoProcessFailureMessage(stdout: string, stderr: string, code: number | null) {
+  return (
+    extractPhotoProcessJsonError(stdout, stderr) ||
+    extractPhotoProcessError(stdout, stderr) ||
+    `Process exited with code ${code ?? 'unknown'}`
+  );
+}
 
 const hasChinese = (text: string) => /[\u4e00-\u9fff]/.test(text);
 const hasEnglish = (text: string) => /[A-Za-z]/.test(text);
@@ -146,6 +194,8 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     let photo = formData.get('photo');
+    let sourcePhotoPath = '';
+    let sourcePhotoName = '';
     const applicantProfileId = (formData.get('applicantProfileId') as string | null)?.trim() || '';
     const caseId = (formData.get('caseId') as string | null)?.trim() || '';
     const applicantProfile = applicantProfileId ? await getApplicantProfile(session.user.id, applicantProfileId) : null;
@@ -162,6 +212,8 @@ export async function POST(request: NextRequest) {
       photo = new File([fileBuffer], stored.meta.originalName, {
         type: stored.meta.mimeType || 'image/jpeg',
       });
+      sourcePhotoPath = stored.absolutePath;
+      sourcePhotoName = stored.meta.originalName;
     }
 
     if (!photo) {
@@ -184,17 +236,23 @@ export async function POST(request: NextRequest) {
     const outputId = `photo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const outputDir = path.join(process.cwd(), 'temp', 'photo-check-outputs', outputId);
     const tempDir = path.join(outputDir, 'input');
-    await fs.mkdir(tempDir, { recursive: true });
     await fs.mkdir(outputDir, { recursive: true });
     await writeOutputAccessMetadata(outputDir, {
       userId: session.user.id,
       outputId,
     });
 
-    const originalFilename = photo instanceof File ? photo.name : 'photo.jpg';
-    const photoBuffer = await photo.arrayBuffer();
-    const photoPath = path.join(tempDir, 'photo.jpg');
-    await fs.writeFile(photoPath, Buffer.from(photoBuffer));
+    const originalFilename = sourcePhotoName || (photo instanceof File ? photo.name : 'photo.jpg');
+    let photoPath = sourcePhotoPath;
+    let shouldCleanupTempDir = false;
+
+    if (!photoPath) {
+      await fs.mkdir(tempDir, { recursive: true });
+      const photoBuffer = await photo.arrayBuffer();
+      photoPath = path.join(tempDir, 'photo.jpg');
+      await fs.writeFile(photoPath, Buffer.from(photoBuffer));
+      shouldCleanupTempDir = true;
+    }
 
     // 异步模式：创建任务，后台执行，任务列表会显示进度
     if (asyncMode) {
@@ -215,7 +273,7 @@ export async function POST(request: NextRequest) {
         photoPath,
         outputDir,
         outputId,
-        tempDir,
+        tempDir: shouldCleanupTempDir ? tempDir : null,
         useWebsite,
         originalFilename,
       }).catch((err) => {
@@ -236,9 +294,11 @@ export async function POST(request: NextRequest) {
       }).catch((error) => {
         console.error('[PhotoCheck] replace profile photo failed:', error);
       });
-      try {
-        await fs.rm(tempDir, { recursive: true, force: true });
-      } catch {}
+      if (shouldCleanupTempDir) {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch {}
+      }
       return NextResponse.json({ ...result, service_type: 'local_python' });
     } catch (localError) {
       console.warn('本地Python服务失败，尝试外部API:', localError);
@@ -262,7 +322,14 @@ async function runPhotoCheckSync(
 ): Promise<Record<string, unknown>> {
   const pythonServicePath = path.join(process.cwd(), 'services', 'photo-checker');
   const { stdout, stderr } = await execAsync(
-    ['python', path.join(pythonServicePath, 'checker.py'), photoPath, '--output-dir', outputDir, ...(useWebsite ? ['--website'] : [])].map((s) => (s.includes(' ') ? `"${s}"` : s)).join(' '),
+    [
+      quoteShellArg(PYTHON_RUNTIME),
+      quoteShellArg(path.join(pythonServicePath, 'checker.py')),
+      quoteShellArg(photoPath),
+      '--output-dir',
+      quoteShellArg(outputDir),
+      ...(useWebsite ? ['--website'] : []),
+    ].join(' '),
     {
       timeout: 90000,
       maxBuffer: 1024 * 1024 * 5,
@@ -287,7 +354,7 @@ interface PhotoCheckParams {
   photoPath: string;
   outputDir: string;
   outputId: string;
-  tempDir: string;
+  tempDir: string | null;
   useWebsite: boolean;
   originalFilename?: string;
 }
@@ -297,14 +364,26 @@ async function runPhotoCheckInBackground(taskId: string, params: PhotoCheckParam
   const pythonServicePath = path.join(process.cwd(), 'services', 'photo-checker');
   const scriptPath = path.join(pythonServicePath, 'checker.py');
   const args = [scriptPath, photoPath, '--output-dir', outputDir, ...(useWebsite ? ['--website'] : [])];
+  const photoStats = await fs.stat(photoPath);
+
+  console.info('[PhotoCheck] Launching python task', {
+    taskId,
+    runtime: PYTHON_RUNTIME,
+    scriptPath,
+    photoPath,
+    photoSize: photoStats.size,
+    outputDir,
+    useWebsite,
+  });
 
   await new Promise<void>((resolve, reject) => {
-    const proc = spawn('python', args, {
+    const proc = spawn(PYTHON_RUNTIME, args, {
       cwd: pythonServicePath,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' },
     });
     let stdout = '';
+    let stderr = '';
     let progressBuffer = '';
     const flushProgress = (chunk: string) => {
       progressBuffer += chunk;
@@ -325,8 +404,9 @@ async function runPhotoCheckInBackground(taskId: string, params: PhotoCheckParam
       flushProgress(t);
     });
     proc.stderr?.on('data', (d: Buffer) => {
-      stdout += d.toString();
-      flushProgress(d.toString());
+      const text = d.toString();
+      stderr += text;
+      flushProgress(text);
     });
     const timeoutId = setTimeout(() => {
       if (!proc.killed) {
@@ -335,24 +415,36 @@ async function runPhotoCheckInBackground(taskId: string, params: PhotoCheckParam
       void translatePhotoErrorMessage('Timeout').then((translated) =>
         updateTask(taskId, { status: 'failed', progress: 0, message: '检测超时（90秒）', error: translated })
       );
-      reject(new Error('Timeout'));
+      resolve();
     }, 90000);
 
     proc.on('close', async (code) => {
       clearTimeout(timeoutId);
-      try {
-        await fs.rm(tempDir, { recursive: true, force: true });
-      } catch {}
+      if (tempDir) {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch {}
+      }
       if (code !== 0) {
-        const translated = await translatePhotoErrorMessage('Process exited');
+        const rawError = getPhotoProcessFailureMessage(stdout, stderr, code);
+        const translated = await translatePhotoErrorMessage(rawError);
+        console.error('[PhotoCheck] Python process failed:', {
+          taskId,
+          code,
+          rawError,
+          stdoutTail: stdout.trim().split('\n').slice(-10),
+          stderrTail: stderr.trim().split('\n').slice(-10),
+          photoPath,
+          outputDir,
+        });
         await updateTask(taskId, { status: 'failed', progress: 0, message: translated, error: translated });
-        reject(new Error('Process exited with code ' + code));
+        resolve();
         return;
       }
       const jsonLine = stdout.trim().split('\n').filter((l) => l.startsWith('{')).pop();
       if (!jsonLine) {
         await updateTask(taskId, { status: 'failed', progress: 0, message: '未获取到检测结果', error: '无有效输出' });
-        reject(new Error('No JSON output'));
+        resolve();
         return;
       }
       let result: Record<string, unknown>;
@@ -361,7 +453,7 @@ async function runPhotoCheckInBackground(taskId: string, params: PhotoCheckParam
       } catch (parseErr) {
         console.error('[PhotoCheck] parse result failed:', parseErr);
         await updateTask(taskId, { status: 'failed', progress: 0, message: '解析结果失败', error: '无有效输出' });
-        reject(parseErr);
+        resolve();
         return;
       }
       if (result.processed_photo_file) {
@@ -395,7 +487,8 @@ async function runPhotoCheckInBackground(taskId: string, params: PhotoCheckParam
       void translatePhotoErrorMessage(String(e)).then((translated) =>
         updateTask(taskId, { status: 'failed', progress: 0, message: '进程启动失败', error: translated })
       );
-      reject(e);
+      console.error('[PhotoCheck] Python spawn failed:', e);
+      resolve();
     });
   });
 }

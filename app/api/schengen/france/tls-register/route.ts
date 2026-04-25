@@ -35,18 +35,11 @@ function getCaptchaConfig() {
     process.env.CAPTCHA_API_KEY ||
     ""
 
-  if (capsolverApiKey && twocaptchaApiKey) {
-    return {
-      captcha_provider: "capsolver",
-      capsolver_api_key: capsolverApiKey,
-      twocaptcha_api_key: twocaptchaApiKey,
-    }
+  if (twocaptchaApiKey) {
+    return { captcha_provider: "2captcha", capsolver_api_key: capsolverApiKey, twocaptcha_api_key: twocaptchaApiKey }
   }
   if (capsolverApiKey) {
     return { captcha_provider: "capsolver", capsolver_api_key: capsolverApiKey, twocaptcha_api_key: "" }
-  }
-  if (twocaptchaApiKey) {
-    return { captcha_provider: "2captcha", capsolver_api_key: "", twocaptcha_api_key: twocaptchaApiKey }
   }
   return { captcha_provider: "manual", capsolver_api_key: "", twocaptcha_api_key: "" }
 }
@@ -67,7 +60,9 @@ function getUcConfig() {
   const ucChromeVersionRaw = process.env.TLS_UC_CHROME_VERSION || ""
   const ucChromeVersion = ucChromeVersionRaw ? Number.parseInt(ucChromeVersionRaw, 10) : undefined
   const proxy = process.env.TLS_PROXY || process.env.HTTPS_PROXY || process.env.HTTP_PROXY || ""
-  const headless = process.env.TLS_HEADLESS === "true"
+  const xvfbEnabled = (process.env.TLS_USE_XVFB || "").trim().toLowerCase() !== "false" && process.platform !== "win32"
+  const headlessRaw = (process.env.TLS_HEADLESS || "").trim().toLowerCase()
+  const headless = headlessRaw ? headlessRaw !== "false" : !xvfbEnabled
   return { uc_chromedriver_path: ucChromedriverPath, uc_chrome_version: ucChromeVersion, proxy: proxy.trim(), headless }
 }
 
@@ -252,7 +247,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: "未配置验证码密钥：请在 .env.local 设置 CAPSOLVER_API_KEY（推荐）或 TWOCAPTCHA_API_KEY/CAPTCHA_API_KEY。",
+          error: "未配置验证码密钥：请在 .env.local 设置 TWOCAPTCHA_API_KEY/CAPTCHA_API_KEY（默认）或 CAPSOLVER_API_KEY。",
           captcha: { provider: captchaCfg.captcha_provider, ...captchaDiag },
         },
         { status: 400 },
@@ -260,24 +255,27 @@ export async function POST(request: NextRequest) {
     }
     const ucCfg = getUcConfig()
 
+    const runResultsPath = path.join(outputDir, "run_results.json")
+    const artifactsPath = path.join(outputDir, "artifacts")
+    const browserChannel = (process.env.TLS_BROWSER_CHANNEL || process.env.PLAYWRIGHT_BROWSER_CHANNEL || "").trim()
     const jobObj: Record<string, unknown> = {
       location,
-      accounts_path: accountsJsonFileName,
+      accounts_path: accountsPath,
       interactive_manual_steps: false,
       auto_submit: true,
       accept_all_visible_checkboxes: false,
       captcha_provider: captchaCfg.captcha_provider,
       capsolver_api_key: captchaCfg.capsolver_api_key,
       twocaptcha_api_key: captchaCfg.twocaptcha_api_key,
-      browser_channel: "chrome",
+      ...(browserChannel ? { browser_channel: browserChannel } : {}),
       headless: ucCfg.headless,
       slow_mo_ms: 75,
       pause_between_accounts_sec: 2,
       navigation_timeout_ms: 45000,
       post_navigation_wait_ms: 1500,
       user_data_dir: ".tls_profile",
-      results_path: "run_results.json",
-      artifacts_dir: "artifacts",
+      results_path: runResultsPath,
+      artifacts_dir: artifactsPath,
       ...(() => {
         const { uc_chromedriver_path, uc_chrome_version, proxy } = ucCfg
         return {
@@ -315,10 +313,52 @@ export async function POST(request: NextRequest) {
     }
 
     void (async () => {
-      const tlsRegisterScript = "D:/Ai-user/tls_auto/tls_auto_register.py"
+      const configuredTlsRegisterScript =
+        process.env.TLS_REGISTER_SCRIPT_PATH || process.env.TLS_REGISTER_SCRIPT || "D:/Ai-user/tls_auto/tls_auto_register.py"
+      const tlsRegisterScriptCandidates = [
+        configuredTlsRegisterScript,
+        "/opt/visa-assistant/tls_auto/tls_auto_register.py",
+      ].filter(Boolean)
+      let tlsRegisterScript = ""
+      for (const candidate of tlsRegisterScriptCandidates) {
+        try {
+          await fs.access(candidate)
+          tlsRegisterScript = candidate
+          break
+        } catch {
+          // try next candidate
+        }
+      }
+      if (!tlsRegisterScript) {
+        const missingScriptError = `TLS 注册脚本不存在，请配置 TLS_REGISTER_SCRIPT_PATH。已尝试: ${tlsRegisterScriptCandidates.join(", ")}`
+        await updateTask(task.task_id, {
+          status: "failed",
+          progress: 0,
+          message: "TLS 账户注册失败",
+          error: missingScriptError,
+          result: { success: false, message: "TLS 账户注册失败，脚本路径未配置", detail: missingScriptError },
+        })
+        if (applicantProfileId) {
+          await setFranceCaseException({
+            userId,
+            applicantProfileId,
+            mainStatus: "TLS_PROCESSING",
+            subStatus: "TLS_REGISTERING",
+            exceptionCode: "TLS_REGISTER_FAILED",
+            reason: missingScriptError,
+          }).catch((error) => {
+            console.error("Failed to set France case exception after tls-register script missing", error)
+          })
+        }
+        return
+      }
       const stdoutChunks: Buffer[] = []
       const stderrChunks: Buffer[] = []
-      const pythonProc = spawn(getPythonRuntimeCommand(), ["-u", tlsRegisterScript, "--job", jobPath], {
+      const pythonBin = getPythonRuntimeCommand()
+      const useXvfb = (process.env.TLS_USE_XVFB || "").trim().toLowerCase() !== "false" && process.platform !== "win32"
+      const command = useXvfb ? "xvfb-run" : pythonBin
+      const args = useXvfb ? ["-a", pythonBin, "-u", tlsRegisterScript, "--job", jobPath] : ["-u", tlsRegisterScript, "--job", jobPath]
+      const pythonProc = spawn(command, args, {
         cwd: process.cwd(),
         env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
       })
@@ -349,7 +389,6 @@ export async function POST(request: NextRequest) {
         await fs.writeFile(path.join(outputDir, "runner_stderr.log"), stderrLog, "utf-8").catch(() => {})
       }
 
-      const runResultsPath = path.join(outputDir, "run_results.json")
       let parsed: unknown = null
       let parseError: string | null = null
       try {
@@ -363,13 +402,25 @@ export async function POST(request: NextRequest) {
       const debugDownloads = await collectDebugDownloads(outputDir, outputId)
       const stderrDownload = debugDownloads.find((item) => item.filename === "runner_stderr.log")?.url
       const stdoutDownload = debugDownloads.find((item) => item.filename === "runner_stdout.log")?.url
+      const isMissingResultsFile = Boolean(parseError && parseError.includes("ENOENT") && parseError.includes("run_results.json"))
+      if (!parsed && parseError) {
+        const fallbackPayload = {
+          success: false,
+          message: "TLS runner did not generate run_results.json",
+          exit_code: exitCode,
+          parse_error: parseError,
+          stderr_tail: stderrLog.trim().slice(-1200),
+          stdout_tail: stdoutLog.trim().slice(-1200),
+        }
+        await fs.writeFile(runResultsPath, JSON.stringify(fallbackPayload, null, 2), "utf-8").catch(() => {})
+      }
       if (exitCode !== 0 || !parsed || !summary.hasAnyResult || summary.successCount === 0) {
         const displayError =
           summary.friendlyError ||
           summary.sampleError ||
-          parseError ||
           stderrLog.trim().slice(-1200) ||
           stdoutLog.trim().slice(-1200) ||
+          (isMissingResultsFile ? "TLS runner 未产出结果文件（run_results.json），请查看运行日志。" : parseError) ||
           `退出码 ${exitCode}`
         const displayMessage = summary.friendlyError
           ? `TLS 账户注册失败：${summary.friendlyError}`

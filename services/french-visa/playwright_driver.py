@@ -2,6 +2,7 @@
 Playwright 的 Selenium 兼容适配器
 将 Playwright page 包装成 Selenium driver 风格接口，供现有法签自动化代码使用。
 """
+import time
 from typing import Any, List, Optional, Tuple
 from selenium.webdriver.common.by import By
 
@@ -19,7 +20,14 @@ class PlaywrightElement:
         self._locator.clear(timeout=15000)
 
     def send_keys(self, text: str) -> None:
-        self._locator.press_sequentially(str(text) if text is not None else "", delay=50)
+        value = str(text) if text is not None else ""
+        if len(value) > 1:
+            try:
+                self._locator.fill(value, timeout=15000)
+                return
+            except Exception:
+                pass
+        self._locator.press_sequentially(value, delay=10)
 
     def submit(self) -> None:
         self._locator.evaluate("el => { const f = el.form || el.closest('form'); if (f) f.submit(); }")
@@ -68,8 +76,35 @@ class PlaywrightDriver:
     def page_source(self) -> str:
         return self._page.content()
 
+    def _is_transient_navigation_error(self, error: Exception) -> bool:
+        text = str(error).lower()
+        transient_markers = [
+            "err_connection_closed",
+            "err_http2_protocol_error",
+            "err_connection_reset",
+            "err_network_changed",
+            "err_timed_out",
+            "timeout 60000ms exceeded",
+            'waiting until "domcontentloaded"',
+        ]
+        return any(marker in text for marker in transient_markers)
+
     def get(self, url: str) -> None:
-        self._page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        last_error = None
+        for attempt in range(4):
+            try:
+                self._page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                return
+            except Exception as error:
+                last_error = error
+                if not self._is_transient_navigation_error(error) or attempt == 3:
+                    raise
+                try:
+                    self._page.wait_for_timeout(1000 + attempt * 1000)
+                except Exception:
+                    time.sleep(1 + attempt)
+        if last_error:
+            raise last_error
 
     def refresh(self) -> None:
         try:

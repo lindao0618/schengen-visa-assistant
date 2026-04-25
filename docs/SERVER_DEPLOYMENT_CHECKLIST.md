@@ -342,4 +342,4 @@ curl http://127.0.0.1:5001/
 - Do not sync local `venv` or runtime cache directories to the server.
 - Install LibreOffice, otherwise Word-to-PDF fallback can fail.
 - If Playwright fails, re-run `python -m playwright install chromium` inside `.venv-server`.
-- If DS-160 or AIS tasks fail from the Next app, first confirm `PATH` in `visa-next.service` contains `/opt/visa-assistant/.venv-server/bin`.
+- If DS-160, AIS, or photo-check tasks fail from the Next app, set `PYTHON_BIN=/opt/visa-assistant/.venv-server/bin/python` or make sure the app resolves `.venv-server/bin/python` first.

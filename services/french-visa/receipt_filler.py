@@ -28,6 +28,78 @@ except ImportError:
     from automation import FrenchVisaAutomation
 
 
+def _strip_column_names(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out.columns = [str(c).strip() if c is not None and str(c).strip().lower() != "nan" else "" for c in out.columns]
+    return out
+
+
+def _pick_preferred_receipt_sheet(sheet_names: list[str]) -> Optional[str]:
+    """优先使用与 FV 脚本配套的横排总表，避免默认读到客户重命名的竖表 sheet0。"""
+    for sn in sheet_names:
+        if "自动生成的横排信息表" in str(sn):
+            return str(sn)
+    return None
+
+
+def _receipt_email_column_candidates(df: pd.DataFrame) -> list:
+    return [c for c in df.columns if "邮箱账号" in str(c) and "密码" not in str(c)]
+
+
+def _row_looks_like_applicant(row: pd.Series, df: pd.DataFrame) -> bool:
+    for c in _receipt_email_column_candidates(df):
+        v = row.get(c)
+        if v is not None and pd.notna(v) and "@" in str(v):
+            return True
+    return False
+
+
+def _narrow_to_primary_applicant_row(df: pd.DataFrame) -> pd.DataFrame:
+    """横排模板下方常有空行或统计行，取第一条带申请邮箱的数据行。"""
+    work = df.dropna(how="all")
+    if work.empty:
+        return work
+    for idx, row in work.iterrows():
+        if _row_looks_like_applicant(row, work):
+            return work.loc[idx : idx].reset_index(drop=True)
+    return work.iloc[0:1].reset_index(drop=True)
+
+
+def _load_receipt_excel_dataframe(file_path: str) -> pd.DataFrame:
+    xl = pd.ExcelFile(file_path)
+    preferred = _pick_preferred_receipt_sheet(xl.sheet_names)
+    if preferred:
+        raw = pd.read_excel(file_path, sheet_name=preferred)
+        raw = _strip_column_names(raw)
+        picked = _narrow_to_primary_applicant_row(raw)
+        if picked.empty:
+            raise ValueError(f"工作表「{preferred}」中没有有效数据行")
+        return picked
+
+    df = pd.read_excel(file_path)
+    df = df.transpose()
+    df = df.reset_index()
+    df.columns = df.iloc[0]
+    df = df.iloc[1:]
+    df = df.reset_index(drop=True)
+    df = _strip_column_names(df)
+    return df
+
+
+def _df_cell_first_row(df: pd.DataFrame, *column_names: str):
+    """同一字段在模板中可能为「大学…」或「工作…」列名，取首个有内容的列。"""
+    for name in column_names:
+        if name not in df.columns:
+            continue
+        val = df[name].iloc[0]
+        if pd.notna(val) and str(val).strip() and str(val).strip().lower() not in ("nan", "none"):
+            return val
+    for name in column_names:
+        if name in df.columns:
+            return df[name].iloc[0]
+    raise KeyError(column_names[0])
+
+
 def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output_dir: str = "",
                      use_incognito: bool = False, original_filename: Optional[str] = None,
                      callback: Optional[Callable[[int, str], None]] = None) -> Dict[str, Any]:
@@ -166,16 +238,10 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
         if callback:
             callback(0, "开始填写回执单...")
         
-        # 读取Excel文件（默认转置格式）
+        # 读取 Excel：若存在「自动生成的横排信息表」则直接按列读取；否则沿用旧版「首表 + 转置」逻辑
         if callback:
             callback(5, "正在读取Excel文件...")
-        df = pd.read_excel(file_path)
-        df = df.transpose()
-        df = df.reset_index()
-        df.columns = df.iloc[0]
-        df = df.iloc[1:]
-        df = df.reset_index(drop=True)
-        df.columns = df.columns.str.strip()
+        df = _load_receipt_excel_dataframe(file_path)
         
         if callback:
             callback(10, "Excel文件读取成功")
@@ -257,12 +323,38 @@ def fill_receipt_form(file_path: str, download_dir: Optional[str] = None, output
                 valid_until_date = str(df['截止时间（Valid until）'].iloc[0])
                 effective_date = str(df['生效时间（Effective date）'].iloc[0])
         
-        university_address = str(df['大学地址（University address）'].iloc[0]).replace(',', ' ')
-        university_postcode = df['大学邮编（University postcode）'].iloc[0]
-        university_phone = df['大学电话（University phone number）'].iloc[0]
-        university_email = df['大学邮箱（University email）'].iloc[0]
-        university_name = df['大学名称（University name）'].iloc[0]
-        university_city = df['大学所在城市（University city）'].iloc[0]
+        university_address = str(
+            _df_cell_first_row(
+                df,
+                "大学地址（University address）",
+                "工作地址（University address）",
+            )
+        ).replace(',', ' ')
+        university_postcode = _df_cell_first_row(
+            df,
+            "大学邮编（University postcode）",
+            "工作邮编（University postcode）",
+        )
+        university_phone = _df_cell_first_row(
+            df,
+            "大学电话（University phone number）",
+            "工作电话（University phone number）",
+        )
+        university_email = _df_cell_first_row(
+            df,
+            "大学邮箱（University email）",
+            "工作邮箱（University email）",
+        )
+        university_name = _df_cell_first_row(
+            df,
+            "大学名称（University name）",
+            "工作名称（University name）",
+        )
+        university_city = _df_cell_first_row(
+            df,
+            "大学所在城市（University city）",
+            "工作所在城市（University city）",
+        )
         
         entry_date = pd.to_datetime(df['入境申根国的日期'].iloc[0]).strftime('%d/%m/%Y')
         departure_date = pd.to_datetime(df['离开申根国的日期'].iloc[0]).strftime('%d/%m/%Y')

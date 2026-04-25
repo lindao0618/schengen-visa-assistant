@@ -118,9 +118,26 @@ def submit_ds160(
                 accept_downloads=True,
             )
             page = context.new_page()
+            # CEAC 页面在高峰期经常超过 30s，统一放宽默认超时
+            page.set_default_timeout(60000)
+
+            def goto_with_retry(url: str, wait_until: str = "domcontentloaded", timeout_ms: int = 90000, retries: int = 3):
+                last_error = None
+                for attempt in range(retries):
+                    try:
+                        page.goto(url, wait_until=wait_until, timeout=timeout_ms)
+                        return
+                    except Exception as e:
+                        last_error = e
+                        if attempt < retries - 1:
+                            time.sleep(2)
+                            continue
+                raise last_error
+
             try:
                 # 步骤1: 访问网站
-                page.goto("https://ceac.state.gov/genniv/", wait_until="networkidle", timeout=30000)
+                # networkidle 在该站点容易卡住，改为 domcontentloaded + 重试
+                goto_with_retry("https://ceac.state.gov/genniv/", wait_until="domcontentloaded", timeout_ms=90000, retries=3)
                 page.wait_for_timeout(2000)
 
                 # 步骤2: 选择 England London
@@ -282,7 +299,12 @@ def submit_ds160(
                 page.wait_for_timeout(3000)
                 if "complete_done.aspx" not in page.url:
                     try:
-                        page.goto("https://ceac.state.gov/GenNIV/general/esign/complete_done.aspx?node=Done", wait_until="networkidle", timeout=30000)
+                        goto_with_retry(
+                            "https://ceac.state.gov/GenNIV/general/esign/complete_done.aspx?node=Done",
+                            wait_until="domcontentloaded",
+                            timeout_ms=90000,
+                            retries=2,
+                        )
                         page.wait_for_timeout(3000)
                     except Exception:
                         pass

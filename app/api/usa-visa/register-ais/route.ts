@@ -7,6 +7,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import { getApplicantProfile, getApplicantProfileFileByCandidates } from '@/lib/applicant-profiles'
 import { writeOutputAccessMetadata } from '@/lib/task-route-access'
+import { getPythonRuntimeCommand } from '@/lib/python-runtime'
 
 /** 当 Python 未返回 screenshot 时，扫描输出目录查找最新错误截图 */
 async function findLatestAisErrorScreenshot(outputDir: string) {
@@ -37,6 +38,10 @@ const env = {
   SMTP_PASSWORD: process.env.SMTP_PASSWORD || process.env.SMTP_PASS || '',
   SMTP_HOST: process.env.SMTP_HOST || 'smtp.163.com',
   SMTP_PORT: process.env.SMTP_PORT || '465',
+  AIS_EXECUTION_PROFILE: process.env.AIS_EXECUTION_PROFILE || 'unified-v1',
+  AIS_HEADLESS: process.env.AIS_HEADLESS || 'true',
+  AIS_LOCALE: process.env.AIS_LOCALE || 'en-GB',
+  AIS_TIMEZONE: process.env.AIS_TIMEZONE || 'Europe/London',
 }
 
 async function runAisRegisterInBackground(
@@ -49,6 +54,7 @@ async function runAisRegisterInBackground(
   extraEmail: string,
   testMode: boolean
 ): Promise<void> {
+  const pythonRuntime = getPythonRuntimeCommand()
   const scriptPath = path.join(process.cwd(), 'services', 'us-ais-register', 'us_ais_register_cli.py')
   const args = [
     '-u',
@@ -63,7 +69,15 @@ async function runAisRegisterInBackground(
 
   const prefix = excelFileName ? `[${excelFileName}] ` : ''
   let stdout = ''
+  let stderr = ''
   let progressBuffer = ''
+  const debugLogs: string[] = []
+  const pushDebugLog = (line: string) => {
+    const text = String(line || '').trim()
+    if (!text) return
+    debugLogs.push(text)
+    if (debugLogs.length > 120) debugLogs.shift()
+  }
   const flushProgress = (chunk: string) => {
     progressBuffer += chunk
     const lines = progressBuffer.split(/\r?\n/)
@@ -74,15 +88,46 @@ async function runAisRegisterInBackground(
         const pct = parseInt(m[1], 10)
         const msg = m[2].trim()
         void updateTask(taskId, { status: 'running', progress: pct, message: prefix + msg })
+        continue
       }
+      const traceMatch = line.match(/^TRACE:([^:]+):([^:]+):(.*)$/)
+      if (traceMatch) {
+        const [, ts, stage, detail] = traceMatch
+        const clean = `[${ts}] ${stage}${detail ? ` - ${detail.trim()}` : ''}`
+        pushDebugLog(clean)
+        continue
+      }
+      const traceJsonMatch = line.match(/^TRACE_JSON:(\{.*\})$/)
+      if (traceJsonMatch) {
+        try {
+          const payload = JSON.parse(traceJsonMatch[1]) as { ts?: string; stage?: string; detail?: string }
+          const ts = payload.ts || ''
+          const stage = payload.stage || 'unknown'
+          const detail = (payload.detail || '').trim()
+          const clean = `[${ts}] ${stage}${detail ? ` - ${detail}` : ''}`
+          pushDebugLog(clean)
+          continue
+        } catch {
+          // fall through to plain log
+        }
+      }
+      const trimmed = line.trim()
+      if (trimmed) pushDebugLog(trimmed)
     }
   }
 
   const outputId = `ais-${taskId}`
-  const proc = spawn('python', args, { cwd: process.cwd(), env, stdio: ['pipe', 'pipe', 'pipe'] })
+  const proc = spawn(pythonRuntime, args, { cwd: process.cwd(), env, stdio: ['pipe', 'pipe', 'pipe'] })
+  pushDebugLog(`[runtime] python=${pythonRuntime}`)
+  pushDebugLog(`[runtime] execution_profile=${env.AIS_EXECUTION_PROFILE};headless=${env.AIS_HEADLESS};locale=${env.AIS_LOCALE};timezone=${env.AIS_TIMEZONE}`)
   proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString() })
-  proc.stderr?.on('data', (d: Buffer) => { flushProgress(d.toString()) })
+  proc.stderr?.on('data', (d: Buffer) => {
+    const text = d.toString()
+    stderr += text
+    flushProgress(text)
+  })
   proc.on('close', async (code) => {
+    clearTimeout(timeoutId)
     try {
       const data = JSON.parse(stdout.trim() || '{}') as {
         success?: boolean
@@ -90,13 +135,32 @@ async function runAisRegisterInBackground(
         error?: string
         email?: string
         screenshot?: string
+        chinese_name?: string
+        account_password?: string
+        payment_url?: string
+        payment_screenshot?: string
       }
       if (data.success) {
+        const paymentScreenshot = data.payment_screenshot
+          ? {
+              filename: data.payment_screenshot,
+              downloadUrl: `/api/usa-visa/ais-register/download/${outputId}/${encodeURIComponent(data.payment_screenshot)}`,
+            }
+          : undefined
         await updateTask(taskId, {
           status: 'completed',
           progress: 100,
           message: prefix + (data.message || 'AIS 账号注册完成'),
-          result: { success: true, email: data.email, message: data.message },
+          result: {
+            success: true,
+            email: data.email,
+            message: data.message,
+            chineseName: data.chinese_name,
+            password: data.account_password || password,
+            paymentUrl: data.payment_url || '',
+            ...(paymentScreenshot ? { paymentScreenshot } : {}),
+            debugLogs: debugLogs.slice(-60),
+          },
         })
       } else {
         let screenshotFilename: string | undefined = data.screenshot ?? undefined
@@ -110,34 +174,57 @@ async function runAisRegisterInBackground(
               downloadUrl: `/api/usa-visa/ais-register/download/${outputId}/${encodeURIComponent(screenshotFilename)}`,
             }
           : undefined
+        const latestLogs = debugLogs.slice(-10)
+        const lastStepHint = latestLogs.length > 0 ? `；最后步骤：${latestLogs[latestLogs.length - 1]}` : ''
         await updateTask(taskId, {
           status: 'failed',
           progress: 0,
           message: prefix + '注册失败',
-          error: data.error || `退出码 ${code}`,
+          error: `${data.error || `退出码 ${code}`}${lastStepHint}`,
           result: {
             success: false,
             error: data.error,
             email: data.email,
+            debugLogs: debugLogs.slice(-60),
             ...(screenshot && { screenshot }),
           },
         })
       }
     } catch {
+      const latestLogs = debugLogs.slice(-10)
+      const detail = latestLogs.length ? `\n---stderr日志---\n${latestLogs.join('\n')}` : ''
       await updateTask(taskId, {
         status: 'failed',
         progress: 0,
         message: prefix + '解析结果失败',
-        error: stdout || `退出码 ${code}`,
+        error: (stdout || `退出码 ${code}`) + detail,
+        result: {
+          debugLogs: debugLogs.slice(-60),
+        },
       })
     }
   })
   proc.on('error', async (err) => {
-    await updateTask(taskId, { status: 'failed', progress: 0, message: '进程启动失败', error: String(err) })
+    clearTimeout(timeoutId)
+    await updateTask(taskId, {
+      status: 'failed',
+      progress: 0,
+      message: '进程启动失败',
+      error: String(err),
+      result: { debugLogs: debugLogs.slice(-60) },
+    })
   })
-  setTimeout(() => {
+  const timeoutId = setTimeout(() => {
+    const latestLogs = debugLogs.slice(-10)
+    const timeoutDetail = latestLogs.length ? `；最后步骤：${latestLogs[latestLogs.length - 1]}` : ''
     proc.kill()
-    void updateTask(taskId, { status: 'failed', progress: 0, message: '执行超时（10分钟）', error: 'Timeout' })
+    void updateTask(taskId, {
+      status: 'failed',
+      progress: 0,
+      message: '执行超时（10分钟）',
+      error: `Timeout${timeoutDetail}`,
+      result: { debugLogs: debugLogs.slice(-60) },
+    })
   }, 600000)
 }
 

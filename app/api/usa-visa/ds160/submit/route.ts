@@ -7,6 +7,9 @@ import { authOptions } from "@/lib/auth"
 import { getApplicantProfile, saveApplicantProfileFileFromAbsolutePath } from "@/lib/applicant-profiles"
 import { createTask, updateTask } from "@/lib/usa-visa-tasks"
 import { writeOutputAccessMetadata } from "@/lib/task-route-access"
+import { getPythonRuntimeCommand } from "@/lib/python-runtime"
+
+const PYTHON_RUNTIME = getPythonRuntimeCommand()
 
 export async function POST(request: NextRequest) {
   try {
@@ -75,7 +78,7 @@ export async function POST(request: NextRequest) {
     ]
     if (test_mode) args.push("--test-mode")
 
-    const proc = spawn("python", args, {
+    const proc = spawn(PYTHON_RUNTIME, args, {
       cwd: process.cwd(),
       env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
     })

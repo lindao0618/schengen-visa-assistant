@@ -137,18 +137,11 @@ function getCaptchaConfig() {
     ""
 
   // Pass both keys when set so tls_apply.py can fallback if Capsolver API fails (e.g. connection reset).
-  if (capsolverApiKey && twocaptchaApiKey) {
-    return {
-      captcha_provider: "capsolver",
-      capsolver_api_key: capsolverApiKey,
-      twocaptcha_api_key: twocaptchaApiKey,
-    }
+  if (twocaptchaApiKey) {
+    return { captcha_provider: "2captcha", capsolver_api_key: capsolverApiKey, twocaptcha_api_key: twocaptchaApiKey }
   }
   if (capsolverApiKey) {
     return { captcha_provider: "capsolver", capsolver_api_key: capsolverApiKey, twocaptcha_api_key: "" }
-  }
-  if (twocaptchaApiKey) {
-    return { captcha_provider: "2captcha", capsolver_api_key: "", twocaptcha_api_key: twocaptchaApiKey }
   }
   return { captcha_provider: "manual", capsolver_api_key: "", twocaptcha_api_key: "" }
 }
@@ -169,7 +162,9 @@ function getUcConfig() {
   const ucChromeVersionRaw = process.env.TLS_UC_CHROME_VERSION || ""
   const ucChromeVersion = ucChromeVersionRaw ? Number.parseInt(ucChromeVersionRaw, 10) : undefined
   const proxy = process.env.TLS_PROXY || process.env.HTTPS_PROXY || process.env.HTTP_PROXY || ""
-  const headless = process.env.TLS_HEADLESS === "true"
+  const xvfbEnabled = (process.env.TLS_USE_XVFB || "").trim().toLowerCase() !== "false" && process.platform !== "win32"
+  const headlessRaw = (process.env.TLS_HEADLESS || "").trim().toLowerCase()
+  const headless = headlessRaw ? headlessRaw !== "false" : !xvfbEnabled
   return { uc_chromedriver_path: ucChromedriverPath, uc_chrome_version: ucChromeVersion, proxy: proxy.trim(), headless }
 }
 
@@ -421,7 +416,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: "未配置验证码密钥：请在 .env.local 设置 CAPSOLVER_API_KEY（推荐）或 TWOCAPTCHA_API_KEY/CAPTCHA_API_KEY。",
+          error: "未配置验证码密钥：请在 .env.local 设置 TWOCAPTCHA_API_KEY/CAPTCHA_API_KEY（默认）或 CAPSOLVER_API_KEY。",
           captcha: { provider: captchaConfig.captcha_provider, ...captchaDiag },
         },
         { status: 400 },
@@ -430,6 +425,7 @@ export async function POST(request: NextRequest) {
     const ucConfig = getUcConfig()
     const debugHoldBrowserMs = Number.parseInt(process.env.TLS_APPLY_DEBUG_HOLD_BROWSER_MS || "0", 10)
     const profileTtlSeconds = Number.parseInt(process.env.TLS_APPLY_PROFILE_TTL_SECONDS || "3600", 10)
+    const browserChannel = (process.env.TLS_APPLY_BROWSER_CHANNEL || process.env.TLS_BROWSER_CHANNEL || process.env.PLAYWRIGHT_BROWSER_CHANNEL || "").trim()
     const jobObj: Record<string, unknown> = {
       location,
       account: { email, password },
@@ -437,7 +433,7 @@ export async function POST(request: NextRequest) {
       captcha_provider: captchaConfig.captcha_provider,
       capsolver_api_key: captchaConfig.capsolver_api_key,
       twocaptcha_api_key: captchaConfig.twocaptcha_api_key,
-      browser_channel: "chrome",
+      ...(browserChannel ? { browser_channel: browserChannel } : {}),
       headless: ucConfig.headless,
       slow_mo_ms: 80,
       navigation_timeout_ms: 60000,
@@ -479,12 +475,49 @@ export async function POST(request: NextRequest) {
     })
 
     void (async () => {
-      const tlsApplyScript = "D:/Ai-user/tls_auto/tls_apply.py"
+      const configuredTlsApplyScript =
+        process.env.TLS_APPLY_SCRIPT_PATH || process.env.TLS_APPLY_SCRIPT || "D:/Ai-user/tls_auto/tls_apply.py"
+      const tlsApplyScriptCandidates = [configuredTlsApplyScript, "/opt/visa-assistant/tls_auto/tls_apply.py"].filter(Boolean)
+      let tlsApplyScript = ""
+      for (const candidate of tlsApplyScriptCandidates) {
+        try {
+          await fs.access(candidate)
+          tlsApplyScript = candidate
+          break
+        } catch {
+          // try next candidate
+        }
+      }
+      if (!tlsApplyScript) {
+        const missingScriptError = `TLS 填表脚本不存在，请配置 TLS_APPLY_SCRIPT_PATH。已尝试: ${tlsApplyScriptCandidates.join(", ")}`
+        await updateTask(task.task_id, {
+          status: "failed",
+          progress: 0,
+          message: "TLS 填表失败",
+          error: missingScriptError,
+          result: { success: false, message: "TLS 填表失败，脚本路径未配置", detail: missingScriptError },
+        })
+        await setFranceCaseException({
+          userId,
+          applicantProfileId,
+          mainStatus: "TLS_PROCESSING",
+          subStatus: "PENDING_SUBMISSION",
+          exceptionCode: "FV_FILL_FAILED",
+          reason: missingScriptError,
+        }).catch((error) => {
+          console.error("Failed to set France case exception after tls-apply script missing", error)
+        })
+        return
+      }
       const stdoutChunks: Buffer[] = []
       const stderrChunks: Buffer[] = []
       let didTimeout = false
 
-      const pythonProc = spawn(getPythonRuntimeCommand(), ["-u", tlsApplyScript, "--job", jobPath], {
+      const pythonBin = getPythonRuntimeCommand()
+      const useXvfb = (process.env.TLS_USE_XVFB || "").trim().toLowerCase() !== "false" && process.platform !== "win32"
+      const command = useXvfb ? "xvfb-run" : pythonBin
+      const args = useXvfb ? ["-a", pythonBin, "-u", tlsApplyScript, "--job", jobPath] : ["-u", tlsApplyScript, "--job", jobPath]
+      const pythonProc = spawn(command, args, {
         cwd: process.cwd(),
         env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
       })
@@ -535,9 +568,13 @@ export async function POST(request: NextRequest) {
       const stderrDownload = debugDownloads.find((item) => item.filename === "runner_stderr.log")?.url
       const stdoutDownload = debugDownloads.find((item) => item.filename === "runner_stdout.log")?.url
       const failureMessage = didTimeout ? "TLS 填表超时，已自动停止" : "TLS 填表失败"
+      const isMissingResultsFile = Boolean(parseError && parseError.includes("ENOENT") && parseError.includes("apply_results.json"))
       const failureDetail = didTimeout
         ? `TLS 填表超过 ${Math.round(TLS_APPLY_PROCESS_TIMEOUT_MS / 1000)} 秒仍未完成，系统已自动停止。`
-        : parseError || stderrLog.trim().slice(-1200) || stdoutLog.trim().slice(-1200) || `退出码 ${exitCode}`
+        : stderrLog.trim().slice(-1200) ||
+          stdoutLog.trim().slice(-1200) ||
+          (isMissingResultsFile ? "TLS runner 未产出结果文件（apply_results.json），请查看运行日志。" : parseError) ||
+          `退出码 ${exitCode}`
       const stageSummary = buildTlsApplyStageSummary(parsed)
       const logicalFailureDetail = parsed ? getTlsApplyFailureFromResults(parsed) : ""
       const normalizedFailureDetail = refineApplyFailureDetail(failureDetail)
@@ -609,7 +646,7 @@ export async function POST(request: NextRequest) {
         phone: applicantProfile.phone || "",
         paymentAccount: email,
         paymentPassword: password,
-        paymentLink: "https://visas-fr.tlscontact.com/en-us/country/gb",
+        paymentLink: "https://visas-fr.tlscontact.com/en-us/",
       },
       message: "已创建 TLS 填表任务，请在下方任务列表查看进度。",
     })

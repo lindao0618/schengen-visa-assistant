@@ -1,5 +1,12 @@
 import { read, utils, write } from "xlsx"
 
+/**
+ * 美签 Excel「自动修正」：
+ * - 电话：只保留数字
+ * - 地址等文本：按 DS-160 安全字符规则清洗（与历史行为一致）
+ * - 日期：不处理——凡判定为日期（含整格 ISO、Excel 序列号、常见日期文）一律跳过文本清洗
+ */
+
 type FixKind = "phone" | "text"
 
 type FixRule = {
@@ -137,6 +144,57 @@ function sanitizeDigitsOnlyPhone(value: string): string {
   return normalizeText(value).replace(/\D/g, "")
 }
 
+/** 单元格内任意位置出现常见日期片段则不清洗（含混在地址里的年月日 / 日月年） */
+function valueContainsDateLikeContent(value: string): boolean {
+  const raw = normalizeText(value)
+  if (!raw) return false
+
+  // 数值：YYYY-MM-DD / YYYY/MM/DD（年月日）
+  if (/\d{4}[./-]\d{1,2}[./-]\d{1,2}/.test(raw)) return true
+  // 数值：DD/MM/YYYY、D-M-YYYY（日月年）
+  if (/\d{1,2}[./-]\d{1,2}[./-]\d{4}/.test(raw)) return true
+  // 中文：年月日
+  if (/\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}/.test(raw)) return true
+  // 中文：月日…（常与年连用）
+  if (/\d{1,2}\s*月\s*\d{1,2}\s*日/.test(raw)) return true
+  if (/\d{1,2}\s*月\s*\d{1,2}\s*日\s*,?\s*\d{4}\s*年/.test(raw)) return true
+
+  const ascii = normalizeAscii(raw)
+  if (/\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+\d{4}\b/i.test(ascii)) return true
+  if (/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b/i.test(ascii)) return true
+
+  return false
+}
+
+/** 整格为 Excel 日期序列号（常见日历区间），不清洗 */
+function isLikelyExcelDateSerialToken(value: string): boolean {
+  const t = normalizeText(value)
+  if (!/^\d{4,5}(?:\.\d+)?$/.test(t)) return false
+  const serial = Math.floor(Number(t))
+  if (!Number.isFinite(serial)) return false
+  return serial >= 20_000 && serial <= 55_000
+}
+
+/**
+ * 整格只有日期、无其它文字时不清洗：同时覆盖
+ * - 年月日：2024-12-25、2024/1/5、2024.12.25、20241225、2024年12月25日
+ * - 日月年：25/12/2024、5-1-2024、12月25日2024年
+ */
+function isWholeCellDateOnly(value: string): boolean {
+  const raw = normalizeText(value)
+  if (!raw) return false
+
+  if (/^\d{4}[./-]\d{1,2}[./-]\d{1,2}$/.test(raw)) return true
+  if (/^\d{1,2}[./-]\d{1,2}[./-]\d{4}$/.test(raw)) return true
+
+  if (/^\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*(日|号)?$/.test(raw)) return true
+  if (/^\d{1,2}\s*月\s*\d{1,2}\s*日\s*,?\s*\d{4}\s*年$/.test(raw)) return true
+
+  if (/^(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])$/.test(raw)) return true
+
+  return false
+}
+
 function sanitizeDs160SafeText(value: string): string {
   let text = normalizeAscii(normalizeText(value)).toUpperCase()
   if (!text) return ""
@@ -231,7 +289,7 @@ function matchesAnyAlias(value: unknown, aliases: string[]): boolean {
   if (!normalized) return false
   return aliases.some((alias) => {
     const normalizedAlias = normalizeKey(alias)
-    return Boolean(normalizedAlias) && (normalized === normalizedAlias || normalized.includes(normalizedAlias) || normalizedAlias.includes(normalized))
+    return Boolean(normalizedAlias) && (normalized === normalizedAlias || normalized.includes(normalizedAlias))
   })
 }
 
@@ -262,7 +320,14 @@ function setSheetCellString(sheet: Record<string, unknown>, rowIndex: number, co
 }
 
 export function autoFixUsVisaExcelBuffer(buffer: Buffer): UsVisaExcelAutoFixResult {
-  const workbook = read(buffer, { type: "buffer", raw: false, cellDates: false })
+  // cellDates:false + raw:false：sheet_to_json 会按单元格格式输出显示字符串，避免把日期读成裸序列号再误洗
+  const workbook = read(buffer, {
+    type: "buffer",
+    raw: false,
+    cellDates: false,
+    cellNF: true,
+    cellStyles: true,
+  })
   const target = getTargetSheet(workbook)
   if (!target?.sheet) {
     return { changed: false, fixedCount: 0, changes: [], buffer }
@@ -272,7 +337,6 @@ export function autoFixUsVisaExcelBuffer(buffer: Buffer): UsVisaExcelAutoFixResu
     header: 1,
     defval: "",
     raw: false,
-    // Keep blank rows so matrix row indexes still match worksheet row numbers when writing back.
     blankrows: true,
   }) as unknown[][]
 
@@ -288,6 +352,15 @@ export function autoFixUsVisaExcelBuffer(buffer: Buffer): UsVisaExcelAutoFixResu
 
     const before = normalizeText(located.value)
     if (!before) continue
+
+    if (
+      rule.kind === "text" &&
+      (valueContainsDateLikeContent(before) ||
+        isLikelyExcelDateSerialToken(before) ||
+        isWholeCellDateOnly(before))
+    ) {
+      continue
+    }
 
     const after = rule.kind === "phone" ? sanitizeDigitsOnlyPhone(before) : sanitizeDs160SafeText(before)
     if (!after || after === before) continue

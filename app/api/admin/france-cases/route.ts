@@ -7,7 +7,7 @@ import {
   listFranceReminderLogsForAdmin,
   updateFranceReminderLogStatus,
 } from "@/lib/france-cases"
-import { processDueFranceReminderLogs } from "@/lib/france-reminder-runner"
+import { runFranceReminderTasks } from "@/lib/france-reminder-runner"
 
 export const dynamic = "force-dynamic"
 
@@ -143,7 +143,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const result = await processDueFranceReminderLogs({ limit })
+    const taskResult = await runFranceReminderTasks({ limit })
+    const result = {
+      scanned: taskResult.process.scanned,
+      processed: taskResult.process.processed,
+      sent: taskResult.process.sent,
+      failed: taskResult.process.failed,
+      skipped: taskResult.process.skipped,
+      scanCreated3Day: taskResult.scan.created3Day,
+      scanCreated1Day: taskResult.scan.created1Day,
+      scanTotalCreated: taskResult.scan.totalCreated,
+      scanScannedCases: taskResult.scan.scanned,
+    }
 
     return NextResponse.json({
       success: true,

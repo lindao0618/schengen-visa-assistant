@@ -1,6 +1,20 @@
 import prisma from "@/lib/db"
+import { FRANCE_CASE_TYPE } from "@/lib/france-case-machine"
 import { formatFranceExceptionLabel, formatFranceStatusLabel, formatReminderChannelLabel } from "@/lib/france-case-labels"
 import { sendEmail, buildReminderEmailContent } from "@/lib/mailer"
+
+const REMINDER_CHANNEL_WECHAT_EMAIL = "WECHAT,EMAIL"
+
+async function findFranceReminderRule(ruleCode: string) {
+  return (
+    (await prisma.reminderRule.findFirst({
+      where: { ruleCode, caseType: FRANCE_CASE_TYPE },
+    })) ??
+    (await prisma.reminderRule.findFirst({
+      where: { ruleCode },
+    }))
+  )
+}
 
 type DueReminderLogRecord = Awaited<ReturnType<typeof loadDueReminderLogs>>[number]
 
@@ -40,10 +54,16 @@ function renderReminderBody(log: DueReminderLogRecord) {
       return `${buildReminderGreeting(applicantName)}已经为您抢到号位，请尽快完成对应付款，以免预约失效。`
     case "tls_payment_2h_escalation":
       return `${buildReminderGreeting(applicantName)}抢号成功后 2 小时内尚未完成 TLS 付款，系统已标记为紧急，请立即处理。`
-    case "package_send_t_minus_3":
-      return `${buildReminderGreeting(applicantName)}距离递签还有 3 天，递签材料包和注意事项应在今天完成发送与确认。`
-    case "t_minus_1_final_reminder":
-      return `${buildReminderGreeting(applicantName)}距离递签仅剩 1 天，请再次核对材料、预约时间和出行安排。`
+    case "package_send_t_minus_3": {
+      const slotDate = log.visaCase.slotTime
+      const daysLeft = slotDate ? Math.ceil((slotDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : 3
+      return `${buildReminderGreeting(applicantName)}距离递签还有约 ${daysLeft} 天，递签材料包和注意事项应在今天完成发送与确认。`
+    }
+    case "t_minus_1_final_reminder": {
+      const slotDate = log.visaCase.slotTime
+      const daysLeft = slotDate ? Math.ceil((slotDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : 1
+      return `${buildReminderGreeting(applicantName)}距离递签仅剩约 ${Math.max(1, daysLeft)} 天，请再次核对材料、预约时间和出行安排。`
+    }
     case "submitted_congrats":
       return `${buildReminderGreeting(applicantName)}恭喜您已完成递签，后续进入等待签证结果阶段。`
     case "submitted_day5_comfort":
@@ -60,7 +80,7 @@ function renderReminderContent(log: DueReminderLogRecord) {
   const body = renderReminderBody(log)
 
   return [
-    "【模拟发送】",
+    "【法签提醒】",
     `规则：${log.ruleCode}`,
     `渠道：${channelLabel}`,
     body,
@@ -94,6 +114,7 @@ async function loadDueReminderLogs(limit: number) {
           mainStatus: true,
           subStatus: true,
           exceptionCode: true,
+          slotTime: true,
           applicantProfile: {
             select: { id: true, name: true },
           },
@@ -149,24 +170,22 @@ export async function processDueFranceReminderLogs(options?: { limit?: number })
     try {
       const renderedContent = renderReminderContent(log)
 
-      // 检查是否需要发送邮件
-      if (log.channel.includes("EMAIL")) {
-        // 获取收件人邮箱
-        const toEmail = log.user.email
-        if (toEmail) {
-          const subject = "【法签提醒】" + log.ruleCode
-          const body = renderReminderBody(log)
-          const statusLabel = formatFranceStatusLabel(log.visaCase.mainStatus, log.visaCase.subStatus)
+      const isSlotWindowReminder =
+        log.ruleCode === "PACKAGE_SEND_T_MINUS_3" || log.ruleCode === "T_MINUS_1_FINAL_REMINDER"
+      const toEmail = log.user.email
+      if (toEmail && (log.channel.includes("EMAIL") || isSlotWindowReminder)) {
+        const subject = "【法签提醒】" + log.ruleCode
+        const body = renderReminderBody(log)
+        const statusLabel = formatFranceStatusLabel(log.visaCase.mainStatus, log.visaCase.subStatus)
 
-          const emailContent = buildReminderEmailContent(log.visaCase.applicantProfile.name, body, statusLabel)
+        const emailContent = buildReminderEmailContent(log.visaCase.applicantProfile.name, body, statusLabel)
 
-          await sendEmail({
-            to: toEmail,
-            subject,
-            text: emailContent.text,
-            html: emailContent.html,
-          })
-        }
+        await sendEmail({
+          to: toEmail,
+          subject,
+          text: emailContent.text,
+          html: emailContent.html,
+        })
       }
 
       await prisma.reminderLog.update({
@@ -216,4 +235,98 @@ export async function processDueFranceReminderLogs(options?: { limit?: number })
     skipped,
     results,
   }
+}
+
+/** 与美签 scan 逻辑一致：按 VisaCase.slotTime（TLS 预约/递签时间）在 T-3、T-1 窗口创建提醒 */
+export async function scanFranceCasesForSlotReminders() {
+  const now = new Date()
+
+  const frCases = await prisma.visaCase.findMany({
+    where: {
+      caseType: FRANCE_CASE_TYPE,
+      isActive: true,
+      slotTime: { not: null },
+      mainStatus: {
+        in: ["SLOT_BOOKED", "DOCS_READY"],
+      },
+    },
+    include: {
+      reminderLogs: {
+        where: {
+          ruleCode: { in: ["PACKAGE_SEND_T_MINUS_3", "T_MINUS_1_FINAL_REMINDER"] },
+          triggeredAt: { gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) },
+        },
+      },
+    },
+  })
+
+  let created3Day = 0
+  let created1Day = 0
+
+  await Promise.all(
+    frCases.map(async (visaCase) => {
+      if (!visaCase.slotTime) return
+
+      const slotTime = visaCase.slotTime
+      const has3DayReminder = visaCase.reminderLogs.some((r) => r.ruleCode === "PACKAGE_SEND_T_MINUS_3")
+      const has1DayReminder = visaCase.reminderLogs.some((r) => r.ruleCode === "T_MINUS_1_FINAL_REMINDER")
+
+      const threeDaysBeforeSlot = new Date(slotTime.getTime() - 3 * 24 * 60 * 60 * 1000)
+      if (!has3DayReminder && threeDaysBeforeSlot <= now && now <= slotTime) {
+        const rule = await findFranceReminderRule("PACKAGE_SEND_T_MINUS_3")
+        if (rule) {
+          await prisma.reminderLog.create({
+            data: {
+              caseId: visaCase.id,
+              ruleId: rule.id,
+              userId: visaCase.userId,
+              ruleCode: "PACKAGE_SEND_T_MINUS_3",
+              channel: REMINDER_CHANNEL_WECHAT_EMAIL,
+              automationMode: "AUTO",
+              severity: "NORMAL",
+              templateCode: "package_send_t_minus_3",
+              sendStatus: "pending",
+              triggeredAt: now,
+            },
+          })
+          created3Day++
+        }
+      }
+
+      const oneDayBeforeSlot = new Date(slotTime.getTime() - 1 * 24 * 60 * 60 * 1000)
+      if (!has1DayReminder && oneDayBeforeSlot <= now && now <= slotTime) {
+        const rule = await findFranceReminderRule("T_MINUS_1_FINAL_REMINDER")
+        if (rule) {
+          await prisma.reminderLog.create({
+            data: {
+              caseId: visaCase.id,
+              ruleId: rule.id,
+              userId: visaCase.userId,
+              ruleCode: "T_MINUS_1_FINAL_REMINDER",
+              channel: REMINDER_CHANNEL_WECHAT_EMAIL,
+              automationMode: "AUTO",
+              severity: "NORMAL",
+              templateCode: "t_minus_1_final_reminder",
+              sendStatus: "pending",
+              triggeredAt: now,
+            },
+          })
+          created1Day++
+        }
+      }
+    }),
+  )
+
+  return {
+    scanned: frCases.length,
+    created3Day,
+    created1Day,
+    totalCreated: created3Day + created1Day,
+  }
+}
+
+export async function runFranceReminderTasks(options?: { limit?: number }) {
+  const scanResult = await scanFranceCasesForSlotReminders()
+  const processResult = await processDueFranceReminderLogs(options)
+  return { scan: scanResult, process: processResult }
 }

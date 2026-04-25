@@ -9,6 +9,7 @@ import {
   getApplicantProfile,
   getApplicantProfileFileByCandidates,
   saveApplicantProfileFileFromAbsolutePath,
+  updateApplicantProfileSchengenDetails,
 } from "@/lib/applicant-profiles"
 import { advanceFranceCase, setFranceCaseException } from "@/lib/france-cases"
 import { createTask, updateTask } from "@/lib/french-visa-tasks"
@@ -16,6 +17,67 @@ import { getPythonRuntimeCommand } from "@/lib/python-runtime"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
+
+type DebugDownload = {
+  label: string
+  filename: string
+  url: string
+}
+
+function artifactLabel(filename: string) {
+  const ext = path.extname(filename).toLowerCase()
+  if (ext === ".png" || ext === ".jpg" || ext === ".jpeg" || ext === ".webp") return `调试截图 · ${filename}`
+  if (ext === ".html") return `页面 HTML · ${filename}`
+  if (ext === ".log") return `运行日志 · ${filename}`
+  if (ext === ".json") return `调试 JSON · ${filename}`
+  return `调试文件 · ${filename}`
+}
+
+async function collectDebugDownloads(outputDir: string, outputId: string): Promise<DebugDownload[]> {
+  const results: DebugDownload[] = []
+  const seen = new Set<string>()
+  const pushFile = async (absolutePath: string, filename: string) => {
+    try {
+      await fs.access(absolutePath)
+    } catch {
+      return
+    }
+    if (seen.has(filename)) return
+    seen.add(filename)
+    results.push({
+      label: artifactLabel(filename),
+      filename,
+      url: `/api/schengen/france/create-application/download/${outputId}/${encodeURIComponent(filename)}`,
+    })
+  }
+
+  await pushFile(path.join(outputDir, "runner_stdout.log"), "runner_stdout.log")
+  await pushFile(path.join(outputDir, "runner_stderr.log"), "runner_stderr.log")
+  await pushFile(path.join(outputDir, "create_result.json"), "create_result.json")
+  try {
+    const rootEntries = await fs.readdir(outputDir, { withFileTypes: true })
+    for (const entry of rootEntries.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))) {
+      if (!entry.isFile()) continue
+      if (!entry.name.startsWith("error_")) continue
+      await pushFile(path.join(outputDir, entry.name), entry.name)
+    }
+  } catch {
+    // ignore listing errors
+  }
+
+  const artifactsDir = path.join(outputDir, "artifacts")
+  try {
+    const entries = await fs.readdir(artifactsDir, { withFileTypes: true })
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))) {
+      if (!entry.isFile()) continue
+      await pushFile(path.join(artifactsDir, entry.name), entry.name)
+    }
+  } catch {
+    // ignore missing artifacts dir
+  }
+
+  return results
+}
 
 function flushProgress(taskId: string, chunk: string, progressBuffer: { current: string }, prefix: string) {
   progressBuffer.current += chunk
@@ -135,6 +197,8 @@ export async function POST(request: NextRequest) {
         cwd: process.cwd(),
         env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
       })
+      const stdoutChunks: Buffer[] = []
+      const stderrChunks: Buffer[] = []
 
       const timeoutId = setTimeout(() => {
         try {
@@ -151,11 +215,26 @@ export async function POST(request: NextRequest) {
       }, 300000)
 
       proc.stderr?.on("data", (chunk: Buffer) => {
+        stderrChunks.push(Buffer.from(chunk))
         flushProgress(task.task_id, chunk.toString(), progressBuffer, prefix)
+      })
+      proc.stdout?.on("data", (chunk: Buffer) => {
+        stdoutChunks.push(Buffer.from(chunk))
       })
 
       proc.on("close", async (code) => {
         clearTimeout(timeoutId)
+        const stdoutLog = Buffer.concat(stdoutChunks).toString("utf-8")
+        const stderrLog = Buffer.concat(stderrChunks).toString("utf-8")
+        if (stdoutLog.trim()) {
+          await fs.writeFile(path.join(outputDir, "runner_stdout.log"), stdoutLog, "utf-8").catch(() => {})
+        }
+        if (stderrLog.trim()) {
+          await fs.writeFile(path.join(outputDir, "runner_stderr.log"), stderrLog, "utf-8").catch(() => {})
+        }
+        const debugDownloads = await collectDebugDownloads(outputDir, outputId)
+        const stderrDownload = debugDownloads.find((item) => item.filename === "runner_stderr.log")?.url
+        const stdoutDownload = debugDownloads.find((item) => item.filename === "runner_stdout.log")?.url
 
         try {
           const raw = await fs.readFile(resultFilePath, "utf-8")
@@ -167,6 +246,19 @@ export async function POST(request: NextRequest) {
             let archivedProfileJsonUrl: string | undefined
 
             if (applicantProfileId) {
+              if (data.application_ref) {
+                try {
+                  await updateApplicantProfileSchengenDetails(
+                    userId,
+                    applicantProfileId,
+                    { fraNumber: data.application_ref },
+                    session.user.role
+                  )
+                } catch (profileUpdateError) {
+                  console.error("Failed to persist France application reference to applicant profile", profileUpdateError)
+                }
+              }
+
               try {
                 await saveApplicantProfileFileFromAbsolutePath({
                   userId,
@@ -190,6 +282,8 @@ export async function POST(request: NextRequest) {
                 success: true,
                 message: data.message,
                 download_json: downloadJson,
+                download_log: stderrDownload || stdoutDownload,
+                download_artifacts: debugDownloads,
                 archived_profile_json_url: archivedProfileJsonUrl,
                 application_ref: data.application_ref,
               },
@@ -214,8 +308,14 @@ export async function POST(request: NextRequest) {
             status: "failed",
             progress: 0,
             message: prefix + "生成失败",
-            error: data.error || `退出码 ${code}`,
-            result: { success: false, error: data.error },
+            error: data.error || stderrLog.trim().slice(-1200) || stdoutLog.trim().slice(-1200) || `退出码 ${code}`,
+            result: {
+              success: false,
+              error: data.error || stderrLog.trim().slice(-1200) || stdoutLog.trim().slice(-1200),
+              message: "生成新申请失败，已保存调试文件。",
+              download_log: stderrDownload || stdoutDownload,
+              download_artifacts: debugDownloads,
+            },
           })
 
           if (applicantProfileId) {
@@ -235,7 +335,13 @@ export async function POST(request: NextRequest) {
             status: "failed",
             progress: 0,
             message: prefix + "读取结果失败",
-            error: `退出码 ${code}`,
+            error: stderrLog.trim().slice(-1200) || stdoutLog.trim().slice(-1200) || `退出码 ${code}`,
+            result: {
+              success: false,
+              message: "读取结果失败，已保存调试文件。",
+              download_log: stderrDownload || stdoutDownload,
+              download_artifacts: debugDownloads,
+            },
           })
 
           if (applicantProfileId) {

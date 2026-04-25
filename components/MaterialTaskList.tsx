@@ -66,6 +66,24 @@ const TYPE_LABELS: Record<string, string> = {
   "material-review": "材料审核",
 }
 
+function MaterialTaskDetailBody({ task }: { task: MaterialTask }) {
+  return (
+    <div className="space-y-2 text-xs text-gray-700 dark:text-gray-300">
+      {task.caseLabel && <p>所属案件: {task.caseLabel}</p>}
+      <p>任务ID: {task.task_id}</p>
+      <p>任务类型: {TYPE_LABELS[task.type] || task.type}</p>
+      <p>状态: {task.status}</p>
+      {task.applicantName && <p>申请人: {task.applicantName}</p>}
+      <p>创建时间: {formatTimestamp(task.created_at)}</p>
+      <p>最近更新时间: {formatTimestamp(task.updated_at || task.created_at)}</p>
+      {task.error && <p className="text-red-600 dark:text-red-400">错误: {task.error}</p>}
+      <div className="rounded border bg-gray-50 dark:bg-gray-900/50 p-2">
+        <pre className="whitespace-pre-wrap break-all">{JSON.stringify(task.result ?? {}, null, 2)}</pre>
+      </div>
+    </div>
+  )
+}
+
 interface MaterialTaskListProps {
   taskIds: string[]
   filterTaskTypes?: ("itinerary" | "explanation-letter" | "material-review")[]
@@ -87,6 +105,7 @@ export function MaterialTaskList({
   const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "failed" | "running">("all")
   const [searchKeyword, setSearchKeyword] = useState("")
   const [onlyCurrentApplicant, setOnlyCurrentApplicant] = useState(false)
+  const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
   const activeApplicant = useActiveApplicantProfile()
   const isPageVisible = usePageVisibility()
   const inFlightRef = useRef(false)
@@ -168,6 +187,11 @@ export function MaterialTaskList({
     })
     return sorted
   }, [tasks, statusFilter, searchKeyword, onlyCurrentApplicant, activeApplicant])
+
+  const detailTask = useMemo(
+    () => (detailTaskId ? tasks.find((t) => t.task_id === detailTaskId) ?? null : null),
+    [detailTaskId, tasks],
+  )
 
   const failedTaskIds = useMemo(
     () => tasks.filter((task) => task.status === "failed").map((task) => task.task_id),
@@ -337,38 +361,33 @@ export function MaterialTaskList({
                   <MaterialResultSummary result={task.result} taskType={task.type} />
                 )}
                 <div className="flex flex-wrap gap-2">
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        查看详情
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl">
-                      <DialogHeader>
-                        <DialogTitle>任务详情</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-2 text-xs text-gray-700 dark:text-gray-300">
-                        {task.caseLabel && <p>所属案件: {task.caseLabel}</p>}
-                        <p>任务ID: {task.task_id}</p>
-                        <p>任务类型: {TYPE_LABELS[task.type] || task.type}</p>
-                        <p>状态: {task.status}</p>
-                        <p>创建时间: {formatTimestamp(task.created_at)}</p>
-                        <p>最近更新时间: {formatTimestamp(task.updated_at || task.created_at)}</p>
-                        {task.error && <p className="text-red-600 dark:text-red-400">错误: {task.error}</p>}
-                        <div className="rounded border bg-gray-50 dark:bg-gray-900/50 p-2">
-                          <pre className="whitespace-pre-wrap break-all">
-                            {JSON.stringify(task.result ?? {}, null, 2)}
-                          </pre>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs"
+                    onClick={() => setDetailTaskId(task.task_id)}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    查看详情
+                  </Button>
                 </div>
               </div>
             ))}
           </div>
         </ScrollArea>
+        <Dialog open={detailTaskId !== null} onOpenChange={(open) => !open && setDetailTaskId(null)}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>任务详情</DialogTitle>
+            </DialogHeader>
+            {detailTask ? (
+              <MaterialTaskDetailBody task={detailTask} />
+            ) : (
+              <p className="text-sm text-muted-foreground">任务已不在当前列表中，请关闭后刷新重试。</p>
+            )}
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   )

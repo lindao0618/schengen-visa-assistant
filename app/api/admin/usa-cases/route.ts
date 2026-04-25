@@ -7,7 +7,7 @@ import {
   listUsaReminderLogsForAdmin,
   updateUsaReminderLogStatus,
 } from "@/lib/usa-cases"
-import { processDueUsaReminderLogs } from "@/lib/usa-reminder-runner"
+import { runUsaReminderTasks } from "@/lib/usa-reminder-runner"
 
 export const dynamic = "force-dynamic"
 
@@ -143,7 +143,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const result = await processDueUsaReminderLogs({ limit })
+    const taskResult = await runUsaReminderTasks({ limit })
+    const result = {
+      scanned: taskResult.process.scanned,
+      processed: taskResult.process.processed,
+      sent: taskResult.process.sent,
+      failed: taskResult.process.failed,
+      skipped: taskResult.process.skipped,
+      scanCreated3Day: taskResult.scan.created3Day,
+      scanCreated1Day: taskResult.scan.created1Day,
+      scanTotalCreated: taskResult.scan.totalCreated,
+      scanScannedCases: taskResult.scan.scanned,
+    }
 
     return NextResponse.json({
       success: true,

@@ -7,7 +7,7 @@ function isApplicantProfileSchemaMismatch(error: unknown) {
   }
 
   const message = error instanceof Error ? error.message : String(error ?? "")
-  return /schengenVisaCity/i.test(message) || (/ApplicantProfile/i.test(message) && /column/i.test(message))
+  return /schengenVisaCity|schengenFraNumber/i.test(message) || (/ApplicantProfile/i.test(message) && /column/i.test(message))
 }
 
 export function handleApplicantProfileApiError(error: unknown) {

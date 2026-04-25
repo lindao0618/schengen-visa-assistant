@@ -11,6 +11,8 @@ export type SchengenExcelAuditResult = {
   errors: AuditIssue[]
 }
 
+export type SchengenExcelReviewFieldMap = Record<string, string>
+
 type FieldRule = {
   key: string
   label: string
@@ -213,6 +215,32 @@ function parseFromKeyValueSheets(sheets: SheetRows[], values: Map<string, string
   }
 }
 
+export function getSchengenExcelFieldLabel(key: string): string {
+  return REQUIRED_FIELDS.find((field) => field.key === key)?.label || key
+}
+
+export function extractSchengenExcelReviewFields(buffer: Buffer): SchengenExcelReviewFieldMap {
+  const sheets = extractWorkbookRows(buffer)
+  const values = new Map<string, string>()
+  const validUntilCandidates: string[] = []
+
+  parseFromKeyValueSheets(sheets, values, validUntilCandidates)
+
+  if (validUntilCandidates.length > 0) {
+    values.set("passportValidUntil", values.get("passportValidUntil") || validUntilCandidates[0] || "")
+  }
+  if (validUntilCandidates.length > 1) {
+    values.set("sharecodeValidUntil", values.get("sharecodeValidUntil") || validUntilCandidates[1] || "")
+  }
+
+  const result: SchengenExcelReviewFieldMap = {}
+  for (const rule of REQUIRED_FIELDS) {
+    result[rule.key] = values.get(rule.key) || ""
+  }
+
+  return result
+}
+
 export function auditSchengenExcelBuffer(buffer: Buffer): SchengenExcelAuditResult {
   const sheets = extractWorkbookRows(buffer)
   const values = new Map<string, string>()
@@ -265,4 +293,3 @@ export function auditSchengenExcelBuffer(buffer: Buffer): SchengenExcelAuditResu
     errors,
   }
 }
-

@@ -4,11 +4,11 @@ import { getServerSession } from "next-auth"
 
 import { handleApplicantProfileApiError } from "@/lib/applicant-profile-api-error"
 import { authOptions } from "@/lib/auth"
+import { saveApplicantProfileFilesWithAnalysis } from "@/lib/applicant-profile-file-workflow"
 import {
   getApplicantProfileFile,
   isApplicantProfileFileSlot,
   isApplicantProfileExcelEditableSlot,
-  saveApplicantProfileFileFromBuffer,
 } from "@/lib/applicant-profiles"
 
 export const dynamic = "force-dynamic"
@@ -90,21 +90,33 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     const baseName = decodedName || existing?.meta.originalName || `${params.slot}.xlsx`
     const originalName = /\.xlsx$/i.test(baseName) ? baseName : baseName.replace(/\.xls$/i, ".xlsx")
 
-    const profile = await saveApplicantProfileFileFromBuffer({
-      userId: session.user.id,
-      id: params.id,
-      slot: params.slot,
-      buffer,
-      originalName,
-      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      role: session.user.role,
-    })
+    const result = await saveApplicantProfileFilesWithAnalysis(
+      session.user.id,
+      params.id,
+      [
+        {
+          slot: params.slot,
+          file: new File([buffer], originalName, {
+            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          }),
+        },
+      ],
+      session.user.role,
+    )
 
-    if (!profile) {
+    if (!result?.profile) {
       return NextResponse.json({ error: "申请人档案不存在" }, { status: 404 })
     }
 
-    return NextResponse.json({ profile })
+    return NextResponse.json({
+      profile: result.profile,
+      parsedUsVisaDetails: result.parsedUsVisaDetails,
+      parsedUsVisaFullIntake: result.parsedUsVisaFullIntake,
+      parsedSchengenDetails: result.parsedSchengenDetails,
+      parsedSchengenFullIntake: result.parsedSchengenFullIntake,
+      schengenAudit: result.schengenAudit,
+      usVisaAudit: result.usVisaAudit,
+    })
   } catch (error) {
     return handleApplicantProfileApiError(error)
   }

@@ -138,7 +138,9 @@ async function queueReminderLogsForState(
     where: { enabled: true, caseType: visaCase.caseType },
   })
 
-  const matchedRules = rules.filter((rule) => shouldQueueRuleForState(rule, visaCase))
+  const matchedRules = rules.filter(
+    (rule) => shouldQueueRuleForState(rule, visaCase) && rule.triggerType !== "date_offset",
+  )
   if (matchedRules.length === 0) return
 
   await Promise.all(

@@ -189,18 +189,31 @@ class FrenchVisaAutomation:
                 "--disable-popup-blocking",
                 "--window-size=1920,1080",
             ]
-            is_headless = config.SELENIUM_HEADLESS
+            requested_headless = os.environ.get("SELENIUM_HEADLESS", "true").strip().lower()
+            is_headless = requested_headless not in {"false", "0", "no"}
+            browser_args.extend(["--disable-gpu", "--no-sandbox"])
             if is_headless:
-                browser_args.extend(["--headless=new", "--disable-gpu", "--no-sandbox"])
+                browser_args.append("--headless=new")
                 self._log("使用无头模式启动浏览器")
             else:
-                self._log("使用有头模式启动浏览器")
+                self._log("使用有头模式启动浏览器，便于本地观察")
 
-            self._pw_browser = self._playwright.chromium.launch(
-                headless=is_headless,
-                args=browser_args,
-                slow_mo=0,
-            )
+            launch_options = {
+                "headless": is_headless,
+                "args": browser_args,
+                "slow_mo": 0,
+            }
+            browser_proxy = (
+                os.environ.get("TLS_PROXY")
+                or os.environ.get("HTTPS_PROXY")
+                or os.environ.get("HTTP_PROXY")
+                or ""
+            ).strip()
+            if browser_proxy:
+                self._log(f"检测到浏览器代理配置: {browser_proxy}")
+                launch_options["proxy"] = {"server": browser_proxy}
+
+            self._pw_browser = self._playwright.chromium.launch(**launch_options)
 
             context_opts = {
                 "viewport": {"width": 1920, "height": 1080},
@@ -319,6 +332,15 @@ class FrenchVisaAutomation:
                 return None
 
             # 优先使用 Capsolver，失败后自动回退到 2Captcha
+            if self.api_key:
+                result = self._solve_captcha_2captcha(image_path)
+                if result is not None:
+                    return result
+                if self.capsolver_key:
+                    self._log("⚠️ 2Captcha 失败，自动切换到 Capsolver 备用...")
+                    return self._solve_captcha_capsolver(image_path)
+                return None
+
             if self.capsolver_key:
                 result = self._solve_captcha_capsolver(image_path)
                 if result is not None:
@@ -447,7 +469,7 @@ class FrenchVisaAutomation:
                 self._log("❌ 请设置 CAPSOLVER_API_KEY 或 CAPTCHA_API_KEY")
                 return False
             self._log("正在查找验证码图片...")
-            time.sleep(2)
+            time.sleep(0.5)
             captcha_element = None
             for selector in [
                 (By.ID, "captchaImage"),
@@ -474,7 +496,7 @@ class FrenchVisaAutomation:
 
             captcha_filename = os.path.join(str(self._output_dir), f"captcha_{int(time.time())}.png")
             self.driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", captcha_element)
-            time.sleep(0.5)
+            time.sleep(0.1)
             WebDriverWait(self.driver, 5).until(EC.visibility_of(captcha_element))
             captcha_element.screenshot(captcha_filename)
             if not os.path.exists(captcha_filename) or os.path.getsize(captcha_filename) == 0:
@@ -504,18 +526,59 @@ class FrenchVisaAutomation:
                     return False
             if captcha_input:
                 captcha_input.click()
-                time.sleep(0.3)
+                time.sleep(0.1)
                 captcha_input.clear()
-                time.sleep(0.2)
+                time.sleep(0.05)
                 for char in captcha_code:
                     captcha_input.send_keys(char)
-                    time.sleep(random.uniform(0.05, 0.15))
-                time.sleep(0.3)
+                    time.sleep(random.uniform(0.01, 0.03))
+                time.sleep(0.1)
                 return True
             return False
         except Exception as e:
             self._log(f"❌ 处理验证码时出错: {str(e)}")
             return False
+
+    def _collect_registration_feedback(self) -> list[str]:
+        messages = []
+        seen = set()
+        selectors = [
+            (By.ID, "input-error-email"),
+            (By.ID, "input-error-password"),
+            (By.CSS_SELECTOR, "[id^='input-error-']"),
+            (By.CSS_SELECTOR, ".fr-error-text"),
+            (By.CSS_SELECTOR, ".fr-alert--error"),
+            (By.CSS_SELECTOR, ".alert.alert-danger"),
+            (By.CSS_SELECTOR, "[role='alert']"),
+        ]
+        for by, selector in selectors:
+            try:
+                elements = self.driver.find_elements(by, selector)
+            except Exception:
+                continue
+            for element in elements:
+                try:
+                    text = (element.text or "").strip()
+                except Exception:
+                    text = ""
+                if text and text not in seen:
+                    seen.add(text)
+                    messages.append(text)
+        return messages
+
+    def _is_account_exists_feedback(self, message: str) -> bool:
+        text = (message or "").strip().lower()
+        markers = [
+            "already exists",
+            "already used",
+            "already associated",
+            "existe déjà",
+            "existe deja",
+            "已存在",
+            "已经存在",
+            "已被使用",
+        ]
+        return any(marker in text for marker in markers)
 
     def register_account(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """注册账号。data 需含: lastName, firstName, email, emailVerif, password, passwordVerif"""
@@ -529,7 +592,7 @@ class FrenchVisaAutomation:
             auth_url = self.build_auth_url()
             self._log(f"正在访问: {auth_url}", 15)
             self.driver.get(auth_url)
-            time.sleep(3)
+            time.sleep(1)
 
             register_button = None
             for xpath_or_selector in [
@@ -548,7 +611,7 @@ class FrenchVisaAutomation:
                 return self._return_error("无法找到注册按钮", "find_register_button")
             register_button.click()
             self._log("✅ 已点击注册按钮", 25)
-            time.sleep(2)
+            time.sleep(0.5)
 
             self._log("正在填写注册表单...", 30)
             self._log(f"填写信息: {data.get('lastName', '')} {data.get('firstName', '')} / {data.get('email', '')}")
@@ -557,7 +620,6 @@ class FrenchVisaAutomation:
                     inp = WebDriverWait(self.driver, 10).until(
                         EC.presence_of_element_located((By.NAME, name)))
                     inp.clear()
-                    time.sleep(0.2)
                     inp.send_keys(data[key])
                 except Exception as e:
                     return self._return_error(f"填写{name}失败: {str(e)}", f"fill_{name}")
@@ -574,7 +636,6 @@ class FrenchVisaAutomation:
                 try:
                     inp = self.driver.find_element(By.NAME, name)
                     inp.clear()
-                    time.sleep(0.2)
                     inp.send_keys(data[key])
                 except Exception as e:
                     return self._return_error(f"填写{name}失败: {str(e)}", f"fill_{name}")
@@ -589,9 +650,9 @@ class FrenchVisaAutomation:
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit'], input[type='submit']")))
             submit_button.click()
             self._log("✅ 已提交", 85)
-            time.sleep(2)
+            time.sleep(0.8)
             self.driver.refresh()
-            time.sleep(2)
+            time.sleep(0.8)
 
             try:
                 alert = WebDriverWait(self.driver, 3).until(

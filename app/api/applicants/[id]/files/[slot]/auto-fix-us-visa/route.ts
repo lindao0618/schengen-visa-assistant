@@ -4,11 +4,11 @@ import { getServerSession } from "next-auth"
 
 import { handleApplicantProfileApiError } from "@/lib/applicant-profile-api-error"
 import { authOptions } from "@/lib/auth"
+import { saveApplicantProfileFilesWithAnalysis } from "@/lib/applicant-profile-file-workflow"
 import {
   getApplicantProfile,
   getApplicantProfileFile,
   isApplicantProfileFileSlot,
-  saveApplicantProfileFileFromBuffer,
 } from "@/lib/applicant-profiles"
 import { auditUsVisaExcelBuffer } from "@/lib/us-visa-excel-audit"
 import { autoFixUsVisaExcelBuffer } from "@/lib/us-visa-excel-autofix"
@@ -39,17 +39,22 @@ export async function POST(_request: Request, { params }: { params: { id: string
       ? file.meta.originalName
       : file.meta.originalName.replace(/\.xls$/i, ".xlsx")
 
-    const profile = fixed.changed
-      ? await saveApplicantProfileFileFromBuffer({
-          userId: session.user.id,
-          id: params.id,
+    const result = await saveApplicantProfileFilesWithAnalysis(
+      session.user.id,
+      params.id,
+      [
+        {
           slot: params.slot,
-          buffer: nextBuffer,
-          originalName,
-          mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          role: session.user.role,
-        })
-      : await getApplicantProfile(session.user.id, params.id, session.user.role)
+          file: new File([nextBuffer], originalName, {
+            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          }),
+        },
+      ],
+      session.user.role,
+    )
+    const profile = result?.profile || await getApplicantProfile(session.user.id, params.id, session.user.role, {
+      includeUsVisaFullIntake: true,
+    })
 
     if (!profile) {
       return NextResponse.json({ error: "申请人档案不存在" }, { status: 404 })
@@ -62,6 +67,8 @@ export async function POST(_request: Request, { params }: { params: { id: string
       changed: fixed.changed,
       fixedCount: fixed.fixedCount,
       changes: fixed.changes,
+      parsedUsVisaDetails: result?.parsedUsVisaDetails,
+      parsedUsVisaFullIntake: result?.parsedUsVisaFullIntake,
       usVisaAudit,
     })
   } catch (error) {

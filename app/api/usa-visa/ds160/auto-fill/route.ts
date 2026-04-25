@@ -14,8 +14,10 @@ import {
   updateApplicantProfileUsVisaDetails,
 } from '@/lib/applicant-profiles'
 import { canAccessOutputDirectoryByMetadata, writeOutputAccessMetadata } from '@/lib/task-route-access'
+import { getPythonRuntimeCommand } from '@/lib/python-runtime'
 
 const DS160_CC_EMAIL = 'ukvisa20242024@163.com'
+const PYTHON_RUNTIME = getPythonRuntimeCommand()
 
 /** 从 Python 输出目录读取 Excel 个人邮箱，若无或无效则返回 null */
 async function readExcelRecipientEmail(pythonOutputDir: string): Promise<string | null> {
@@ -320,7 +322,7 @@ async function buildGuideScreenshotBundle(outputPath: string, tempDir: string, f
   ].join('; ')
 
   await new Promise<void>((resolve, reject) => {
-    const proc = spawn('python', ['-c', zipScript, bundlePath, outputPath, ...filenames], {
+    const proc = spawn(PYTHON_RUNTIME, ['-c', zipScript, bundlePath, outputPath, ...filenames], {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stderr = ''
@@ -370,7 +372,7 @@ async function runDs160FillInBackground(taskId: string, params: Ds160BackgroundP
     SMTP_PASSWORD: process.env.SMTP_PASSWORD || process.env.SMTP_PASS || ''
   }
   await new Promise<void>((resolve, reject) => {
-    const proc = spawn('python', scriptArgs, { cwd: pythonServicePath, stdio: ['pipe', 'pipe', 'pipe'], env })
+    const proc = spawn(PYTHON_RUNTIME, scriptArgs, { cwd: pythonServicePath, stdio: ['pipe', 'pipe', 'pipe'], env })
     let stdout = ''
     let stderr = ''
     let progressBuffer = ''
@@ -683,7 +685,7 @@ export async function POST(request: NextRequest) {
       summary: any
       logs: any
     }>((resolve, reject) => {
-        const pythonProcess = spawn('python', scriptArgs, {
+        const pythonProcess = spawn(PYTHON_RUNTIME, scriptArgs, {
           cwd: pythonServicePath,
           stdio: ['pipe', 'pipe', 'pipe'],
           env: {

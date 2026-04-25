@@ -9,7 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Loader2, CheckCircle2, XCircle, Clock, ListTodo, RefreshCw, Search, Download, ExternalLink } from "lucide-react"
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
 import { usePageVisibility } from "@/hooks/use-page-visibility"
@@ -64,7 +64,7 @@ function statusRank(status: FranceVisaTask["status"]) {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  "extract-register": "提取+注册",
+  "extract-register": "FV账号注册",
   extract: "提取注册信息",
   register: "账号注册",
   "create-application": "生成新申请",
@@ -72,6 +72,24 @@ const TYPE_LABELS: Record<string, string> = {
   "submit-final": "提交最终表",
   "tls-register": "TLS 账户注册",
   "tls-apply": "TLS 提交申请",
+}
+
+function FranceTaskDetailBody({ task }: { task: FranceVisaTask }) {
+  return (
+    <div className="space-y-2 text-xs text-gray-700 dark:text-gray-300">
+      {task.caseLabel && <p>所属案件: {task.caseLabel}</p>}
+      <p>任务ID: {task.task_id}</p>
+      <p>任务类型: {TYPE_LABELS[task.type] || task.type}</p>
+      <p>状态: {task.status}</p>
+      {task.applicantName && <p>申请人: {task.applicantName}</p>}
+      <p>创建时间: {formatTimestamp(task.created_at)}</p>
+      <p>最近更新时间: {formatTimestamp(task.updated_at || task.created_at)}</p>
+      {task.error && <p className="text-red-600 dark:text-red-400">错误: {task.error}</p>}
+      <div className="rounded border bg-gray-50 dark:bg-gray-900/50 p-2">
+        <pre className="whitespace-pre-wrap break-all">{JSON.stringify(task.result ?? {}, null, 2)}</pre>
+      </div>
+    </div>
+  )
 }
 
 interface FranceTaskListProps {
@@ -93,6 +111,7 @@ export function FranceTaskList({
   const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "failed" | "running">("all")
   const [searchKeyword, setSearchKeyword] = useState("")
   const [onlyCurrentApplicant, setOnlyCurrentApplicant] = useState(false)
+  const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
   const activeApplicant = useActiveApplicantProfile()
   const isPageVisible = usePageVisibility()
   const inFlightRef = useRef(false)
@@ -168,6 +187,11 @@ export function FranceTaskList({
     })
     return sorted
   }, [tasks, statusFilter, searchKeyword])
+
+  const detailTask = useMemo(
+    () => (detailTaskId ? tasks.find((t) => t.task_id === detailTaskId) ?? null : null),
+    [detailTaskId, tasks],
+  )
 
   useTaskStatusReminder(tasks, {
     getSuccessTitle: (task) => `${TYPE_LABELS[task.type] || task.type}已完成`,
@@ -304,39 +328,33 @@ export function FranceTaskList({
                   <FranceResultSummary taskType={task.type} result={task.result} />
                 )}
                 <div className="flex flex-wrap gap-2">
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        查看详情
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl">
-                      <DialogHeader>
-                        <DialogTitle>任务详情</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-2 text-xs text-gray-700 dark:text-gray-300">
-                        {task.caseLabel && <p>所属案件: {task.caseLabel}</p>}
-                        <p>任务ID: {task.task_id}</p>
-                        <p>任务类型: {TYPE_LABELS[task.type] || task.type}</p>
-                        <p>状态: {task.status}</p>
-                        {task.applicantName && <p>申请人: {task.applicantName}</p>}
-                        <p>创建时间: {formatTimestamp(task.created_at)}</p>
-                        <p>最近更新时间: {formatTimestamp(task.updated_at || task.created_at)}</p>
-                        {task.error && <p className="text-red-600 dark:text-red-400">错误: {task.error}</p>}
-                        <div className="rounded border bg-gray-50 dark:bg-gray-900/50 p-2">
-                          <pre className="whitespace-pre-wrap break-all">
-                            {JSON.stringify(task.result ?? {}, null, 2)}
-                          </pre>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs"
+                    onClick={() => setDetailTaskId(task.task_id)}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    查看详情
+                  </Button>
                 </div>
               </div>
             ))}
           </div>
         </ScrollArea>
+        <Dialog open={detailTaskId !== null} onOpenChange={(open) => !open && setDetailTaskId(null)}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>任务详情</DialogTitle>
+            </DialogHeader>
+            {detailTask ? (
+              <FranceTaskDetailBody task={detailTask} />
+            ) : (
+              <p className="text-sm text-muted-foreground">任务已不在当前列表中，请关闭后刷新重试。</p>
+            )}
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   )
@@ -364,7 +382,7 @@ function StatusBadge({ status }: { status: string }) {
 function FranceResultSummary({ taskType, result }: { taskType: string; result: Record<string, unknown> }) {
   const download_excel = result.download_excel as string | undefined
   const rawDownloadJson = result.download_json as string | undefined
-  const download_json = ["extract", "extract-register", "create-application"].includes(taskType)
+  const download_json = ["extract", "create-application"].includes(taskType)
     ? rawDownloadJson
     : undefined
   const download_pdf = result.download_pdf as string | undefined
@@ -377,6 +395,29 @@ function FranceResultSummary({ taskType, result }: { taskType: string; result: R
     : []
   const msg = result.message as string | undefined
   const success = result.success as boolean | undefined
+  const resultItems = Array.isArray(result.results) ? (result.results as Array<Record<string, unknown>>) : []
+  const itemSummaries = resultItems
+    .map((item) => {
+      const email = typeof item.email === "string" ? item.email.trim() : ""
+      const status = typeof item.status === "string" ? item.status.trim() : ""
+      const itemMessage =
+        (typeof item.error === "string" && item.error.trim()) ||
+        (typeof item.message === "string" && item.message.trim()) ||
+        ""
+      if (!email && !itemMessage) return null
+      if (status === "success") {
+        return {
+          tone: "success" as const,
+          text: email ? `${email} 注册成功` : itemMessage || "注册成功",
+        }
+      }
+      return {
+        tone: "error" as const,
+        text: email ? `${email} 注册失败：${itemMessage || "未知原因"}` : itemMessage || "注册失败",
+      }
+    })
+    .filter((item): item is { tone: "success" | "error"; text: string } => Boolean(item))
+  const shouldShowMsg = Boolean(msg) && itemSummaries.length === 0
 
   if (!success && !download_excel && !download_json && !download_pdf && !download_log && download_artifacts.length === 0) {
     return null
@@ -384,10 +425,22 @@ function FranceResultSummary({ taskType, result }: { taskType: string; result: R
 
   return (
     <div className="text-xs space-y-2">
-      {msg && (
+      {shouldShowMsg && (
         <p className={success ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
           {msg}
         </p>
+      )}
+      {itemSummaries.length > 0 && (
+        <div className="space-y-1">
+          {itemSummaries.map((item, index) => (
+            <p
+              key={`${item.text}-${index}`}
+              className={item.tone === "success" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
+            >
+              {item.text}
+            </p>
+          ))}
+        </div>
       )}
       <div className="flex flex-wrap gap-2">
         {download_excel && (

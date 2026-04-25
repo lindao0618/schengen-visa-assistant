@@ -12,6 +12,7 @@ import { FranceCaseProgressCard } from "@/components/france-case-progress-card"
 import { WecomDriveBindingsCard } from "@/components/wecom-drive-bindings-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
@@ -52,6 +53,20 @@ import { formatFranceStatusLabel } from "@/lib/france-case-labels"
 import { FRANCE_TLS_CITY_OPTIONS, getFranceTlsCityLabel } from "@/lib/france-tls-city"
 import { cn } from "@/lib/utils"
 
+type ApplicantIntakeSnapshot = {
+  version: number
+  sourceSlot: string
+  sourceOriginalName?: string
+  extractedAt: string
+  fieldCount: number
+  fields: Record<string, string>
+  items: Array<{ key: string; label: string; value: string }>
+  audit: {
+    ok: boolean
+    errors: Array<{ field: string; message: string; value?: string }>
+  }
+}
+
 type ApplicantProfileDetail = {
   id: string
   userId: string
@@ -68,10 +83,13 @@ type ApplicantProfileDetail = {
     surname?: string
     birthYear?: string
     passportNumber?: string
+    fullIntake?: ApplicantIntakeSnapshot
   }
   schengen?: {
     country?: string
     city?: string
+    fraNumber?: string
+    fullIntake?: ApplicantIntakeSnapshot
   }
   files?: Record<string, { originalName: string; uploadedAt: string }>
 }
@@ -602,6 +620,77 @@ function buildBasicForm(profile?: ApplicantProfileDetail | null): BasicFormState
   }
 }
 
+type IntakeItemLike = { label?: string; value?: string }
+type UsVisaIntakeLike = { items?: IntakeItemLike[] }
+
+const US_VISA_LABEL_ORDER: Array<{ keyword: string; rank: number }> = [
+  // 身份
+  { keyword: "姓名", rank: 10 },
+  { keyword: "姓", rank: 11 },
+  { keyword: "名", rank: 12 },
+  { keyword: "中文名", rank: 13 },
+  { keyword: "电报码", rank: 14 },
+  { keyword: "出生", rank: 15 },
+  { keyword: "护照", rank: 16 },
+  { keyword: "AA码", rank: 17 },
+  // 联系方式
+  { keyword: "电话", rank: 30 },
+  { keyword: "邮箱", rank: 31 },
+  { keyword: "地址", rank: 32 },
+  { keyword: "城市", rank: 33 },
+  { keyword: "州", rank: 34 },
+  { keyword: "邮编", rank: 35 },
+  // 行程
+  { keyword: "到达", rank: 50 },
+  { keyword: "停留", rank: 51 },
+  { keyword: "赴美", rank: 52 },
+  { keyword: "旅行", rank: 53 },
+  { keyword: "酒店", rank: 54 },
+]
+
+function sortUsVisaLabels(labels: string[]) {
+  const rankOf = (label: string) => {
+    const hit = US_VISA_LABEL_ORDER.find((item) => label.includes(item.keyword))
+    return hit ? hit.rank : 999
+  }
+  return [...labels].sort((a, b) => {
+    const rankDiff = rankOf(a) - rankOf(b)
+    if (rankDiff !== 0) return rankDiff
+    return a.localeCompare(b, "zh-CN")
+  })
+}
+
+function collectDetectedUsVisaFieldLabels(
+  parsedUsVisaFullIntake?: UsVisaIntakeLike,
+  parsedUsVisaDetails?: {
+    surname?: string
+    birthYear?: string
+    passportNumber?: string
+    chineseName?: string
+    telecodeSurname?: string
+    telecodeGivenName?: string
+  },
+) {
+  const labels = (parsedUsVisaFullIntake?.items || [])
+    .filter((item) => String(item?.value || "").trim())
+    .map((item) => String(item?.label || "").trim())
+    .filter(Boolean)
+
+  if (labels.length > 0) {
+    return sortUsVisaLabels(Array.from(new Set(labels)))
+  }
+
+  const fallback = [
+    parsedUsVisaDetails?.surname ? "姓" : "",
+    parsedUsVisaDetails?.birthYear ? "出生年份" : "",
+    parsedUsVisaDetails?.passportNumber ? "护照号" : "",
+    parsedUsVisaDetails?.chineseName ? "中文名" : "",
+    parsedUsVisaDetails?.telecodeSurname ? "姓氏电报码" : "",
+    parsedUsVisaDetails?.telecodeGivenName ? "名字电报码" : "",
+  ].filter(Boolean) as string[]
+  return sortUsVisaLabels(fallback)
+}
+
 function buildCaseForm(visaCase?: VisaCaseRecord | null): CaseFormState {
   if (!visaCase) return emptyCaseForm
   return {
@@ -618,6 +707,78 @@ function buildCaseForm(visaCase?: VisaCaseRecord | null): CaseFormState {
     assignedToUserId: visaCase.assignedToUserId || "",
     isActive: visaCase.isActive,
   }
+}
+
+const TLS_PAYMENT_LINK = "https://visas-fr.tlscontact.com/en-us/"
+
+type TlsAccountInfo = {
+  name: string
+  bookingWindow: string
+  acceptVip: string
+  city: string
+  groupSize: string
+  phone: string
+  paymentAccount: string
+  paymentPassword: string
+  paymentLink: string
+}
+
+function isFranceSchengenCase(caseLike?: { caseType?: string | null; visaType?: string | null } | null) {
+  if (!caseLike) return false
+  return caseLike.caseType === "france-schengen" || caseLike.visaType === "france-schengen"
+}
+
+function toDisplayValue(value?: string | null) {
+  const normalized = String(value || "").trim()
+  return normalized || "-"
+}
+
+function formatTlsCityDisplay(value?: string | null) {
+  const normalized = String(value || "").trim()
+  if (!normalized) return "-"
+  const label = getFranceTlsCityLabel(normalized)
+  return label ? `${normalized} - ${label}` : normalized
+}
+
+function buildTlsAccountInfo(
+  profile?: ApplicantProfileDetail | null,
+  caseSource?: Pick<CaseFormState, "bookingWindow" | "acceptVip" | "tlsCity"> | null,
+  fallbackTlsCity?: string,
+): TlsAccountInfo {
+  const schengenFields = profile?.schengen?.fullIntake?.fields || {}
+  const familyName = String(schengenFields.familyName || "").trim()
+  const firstName = String(schengenFields.firstName || "").trim()
+  const excelEnglishName = [familyName, firstName].filter(Boolean).join(" ")
+  const tlsCity = caseSource?.tlsCity?.trim() || fallbackTlsCity?.trim() || profile?.schengen?.city || ""
+
+  return {
+    name: toDisplayValue(excelEnglishName || profile?.name || profile?.label),
+    bookingWindow: toDisplayValue(caseSource?.bookingWindow),
+    acceptVip: toDisplayValue(caseSource?.acceptVip),
+    city: formatTlsCityDisplay(tlsCity),
+    groupSize: "1",
+    phone: toDisplayValue(String(schengenFields.phoneUk || "").trim()),
+    paymentAccount: toDisplayValue(String(schengenFields.emailAccount || "").trim()),
+    paymentPassword: toDisplayValue(String(schengenFields.emailPassword || "").trim()),
+    paymentLink: TLS_PAYMENT_LINK,
+  }
+}
+
+function buildTlsAccountTemplateText(info: TlsAccountInfo) {
+  return [
+    `1.姓名：${info.name}`,
+    `2.抢号区间再次确认：${info.bookingWindow}`,
+    "⚠注意这个区间内任意一天都有可能",
+    "抢到后不可更改 有特殊要求现在和我说哦",
+    "以此次汇报为准",
+    `3.是否接受vip：${info.acceptVip}`,
+    `4.递签城市：${info.city}`,
+    `5.人数：${info.groupSize}`,
+    `6.电话：${info.phone}`,
+    `7.付款账号：${info.paymentAccount}`,
+    `8.付款密码：${info.paymentPassword}`,
+    `9.付款链接：${info.paymentLink}`,
+  ].join("\n")
 }
 
 function Section({
@@ -663,6 +824,323 @@ function Section({
       </CardHeader>
       <CardContent className="space-y-5">{children}</CardContent>
     </Card>
+  )
+}
+
+function buildApplicantFileUrl(applicantId: string, slot: string) {
+  return `/api/applicants/${encodeURIComponent(applicantId)}/files/${encodeURIComponent(slot)}`
+}
+
+function IntakeAccordionCard({
+  applicantId,
+  title,
+  subtitle,
+  tone,
+  intake,
+  photoSlot,
+  photoLabel,
+  emptyMessage,
+}: {
+  applicantId: string
+  title: string
+  subtitle: string
+  tone: "sky" | "emerald"
+  intake?: ApplicantIntakeSnapshot
+  photoSlot?: string
+  photoLabel?: string
+  emptyMessage: string
+}) {
+  const toneMap = {
+    sky: {
+      wrapper: "border-sky-200/80 bg-white/80",
+      trigger: "text-sky-950",
+      meta: "text-sky-700/80",
+      code: "border-sky-200 bg-slate-950",
+      empty: "border-dashed border-sky-200 bg-white/70 text-sky-800/80",
+      photo: "border-sky-200 bg-sky-50/60",
+    },
+    emerald: {
+      wrapper: "border-emerald-200/80 bg-white/80",
+      trigger: "text-emerald-950",
+      meta: "text-emerald-700/80",
+      code: "border-emerald-200 bg-slate-950",
+      empty: "border-dashed border-emerald-200 bg-white/70 text-emerald-800/80",
+      photo: "border-emerald-200 bg-emerald-50/60",
+    },
+  } as const
+
+  const styles = toneMap[tone]
+
+  if (!intake) {
+    return (
+      <div className={cn("rounded-2xl border px-4 py-4 text-sm", styles.empty)}>
+        {emptyMessage}
+      </div>
+    )
+  }
+
+  const jsonText = JSON.stringify(intake, null, 2)
+  const auditErrorCount = intake.audit?.errors?.length || 0
+  const photoUrl = photoSlot ? buildApplicantFileUrl(applicantId, photoSlot) : ""
+  const visibleItems = intake.items.filter((item) => item.value?.trim())
+
+  return (
+    <div className={cn("rounded-2xl border shadow-sm", styles.wrapper)}>
+      <Accordion type="single" collapsible className="px-4">
+        <AccordionItem value={`${tone}-intake`} className="border-none">
+          <AccordionTrigger className={cn("py-4 text-left hover:no-underline", styles.trigger)}>
+            <div className="flex min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-1">
+                <div className="text-base font-semibold">{title}</div>
+                <div className={cn("text-sm", styles.meta)}>{subtitle}</div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{intake.sourceSlot}</Badge>
+                <Badge variant="outline">{intake.fieldCount} 字段</Badge>
+                <Badge variant={auditErrorCount > 0 ? "warning" : "success"}>
+                  {auditErrorCount > 0 ? `${auditErrorCount} 个审计问题` : "审计通过"}
+                </Badge>
+              </div>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4">
+            <div className="grid gap-4 xl:grid-cols-[300px_1fr]">
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                  <div className="rounded-2xl border border-white/60 bg-white/90 p-4">
+                    <div className="text-xs font-medium uppercase tracking-wide text-gray-500">来源文件</div>
+                    <div className="mt-2 text-sm font-semibold text-gray-900">
+                      {intake.sourceOriginalName || intake.sourceSlot}
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500">槽位：{intake.sourceSlot}</div>
+                  </div>
+                  <div className="rounded-2xl border border-white/60 bg-white/90 p-4">
+                    <div className="text-xs font-medium uppercase tracking-wide text-gray-500">最近提取时间</div>
+                    <div className="mt-2 text-sm font-semibold text-gray-900">{formatDateTime(intake.extractedAt)}</div>
+                    <div className="mt-1 text-xs text-gray-500">
+                      OpenClaw 后续建议直接读取这里的结构化 JSON。
+                    </div>
+                  </div>
+                </div>
+                {photoSlot ? (
+                  <div className={cn("overflow-hidden rounded-2xl border", styles.photo)}>
+                    <div className="border-b border-black/5 px-4 py-3">
+                      <div className="text-sm font-semibold text-gray-900">{photoLabel || "关联照片"}</div>
+                      <div className="mt-1 text-xs text-gray-500">{photoSlot}</div>
+                    </div>
+                    <div className="p-3">
+                      <img
+                        src={photoUrl}
+                        alt={photoLabel || "申请人照片"}
+                        className="h-56 w-full rounded-xl bg-white object-contain"
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-white/60 bg-white/90 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm font-semibold text-gray-900">完整 JSON</div>
+                    <div className="text-xs text-gray-500">可直接用于 OpenClaw 读取和后续编排</div>
+                  </div>
+                  <div className={cn("mt-3 max-h-[460px] overflow-auto rounded-xl border p-4", styles.code)}>
+                    <pre className="whitespace-pre-wrap break-all text-xs leading-6 text-slate-100">{jsonText}</pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    </div>
+  )
+}
+
+function ParsedIntakeAccordion({
+  applicantId,
+  title,
+  subtitle,
+  tone,
+  intake,
+  photoSlot,
+  photoLabel,
+  emptyMessage,
+}: {
+  applicantId: string
+  title: string
+  subtitle: string
+  tone: "sky" | "emerald"
+  intake?: ApplicantIntakeSnapshot
+  photoSlot?: string
+  photoLabel?: string
+  emptyMessage: string
+}) {
+  const toneMap = {
+    sky: {
+      wrapper: "border-sky-200/80 bg-white/85",
+      trigger: "text-sky-950",
+      meta: "text-sky-700/80",
+      code: "border-sky-200 bg-slate-950",
+      empty: "border-dashed border-sky-200 bg-white/70 text-sky-800/80",
+      accent: "bg-sky-50 text-sky-700 border-sky-200",
+      photo: "border-sky-200 bg-sky-50/60",
+    },
+    emerald: {
+      wrapper: "border-emerald-200/80 bg-white/85",
+      trigger: "text-emerald-950",
+      meta: "text-emerald-700/80",
+      code: "border-emerald-200 bg-slate-950",
+      empty: "border-dashed border-emerald-200 bg-white/70 text-emerald-800/80",
+      accent: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      photo: "border-emerald-200 bg-emerald-50/60",
+    },
+  } as const
+
+  const styles = toneMap[tone]
+
+  if (!intake) {
+    return (
+      <div className={cn("rounded-2xl border px-4 py-4 text-sm", styles.empty)}>
+        {emptyMessage}
+      </div>
+    )
+  }
+
+  const jsonText = JSON.stringify(intake, null, 2)
+  const auditErrorCount = intake.audit?.errors?.length || 0
+  const visibleItems = intake.items.filter((item) => item.value?.trim())
+  const photoUrl = photoSlot ? buildApplicantFileUrl(applicantId, photoSlot) : ""
+
+  return (
+    <div className={cn("rounded-2xl border shadow-sm", styles.wrapper)}>
+      <Accordion type="single" collapsible className="px-4">
+        <AccordionItem value={`${tone}-parsed-intake`} className="border-none">
+          <AccordionTrigger className={cn("py-4 text-left hover:no-underline", styles.trigger)}>
+            <div className="flex min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-1">
+                <div className="text-base font-semibold">{title}</div>
+                <div className={cn("text-sm", styles.meta)}>{subtitle}</div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{intake.sourceSlot}</Badge>
+                <Badge variant="outline">{intake.fieldCount} 个字段</Badge>
+                <Badge variant={auditErrorCount > 0 ? "warning" : "success"}>
+                  {auditErrorCount > 0 ? `${auditErrorCount} 个问题` : "已通过"}
+                </Badge>
+              </div>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4">
+            <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                  <div className="rounded-2xl border border-white/60 bg-white/90 p-4">
+                    <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Source File</div>
+                    <div className="mt-2 text-sm font-semibold text-gray-900">
+                      {intake.sourceOriginalName || intake.sourceSlot}
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500">Slot: {intake.sourceSlot}</div>
+                  </div>
+                  <div className="rounded-2xl border border-white/60 bg-white/90 p-4">
+                    <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Parsed At</div>
+                    <div className="mt-2 text-sm font-semibold text-gray-900">{formatDateTime(intake.extractedAt)}</div>
+                    <div className="mt-1 text-xs text-gray-500">
+                      OpenClaw 建议直接读取这一层，不要先下载原始 Excel。
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/60 bg-white/90 p-4 sm:col-span-2 xl:col-span-1">
+                    <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Quick Stats</div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                      <div>
+                        <div className="text-[11px] text-gray-500">字段总数</div>
+                        <div className="mt-1 text-sm font-semibold text-gray-900">{intake.fieldCount}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] text-gray-500">已提取值</div>
+                        <div className="mt-1 text-sm font-semibold text-gray-900">{visibleItems.length}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] text-gray-500">Audit</div>
+                        <div className={cn("mt-1 text-sm font-semibold", auditErrorCount > 0 ? "text-amber-700" : "text-emerald-700")}>
+                          {auditErrorCount > 0 ? `${auditErrorCount} 个问题` : "已通过"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                {photoSlot ? (
+                  <div className={cn("overflow-hidden rounded-2xl border", styles.photo)}>
+                    <div className="border-b border-black/5 px-4 py-3">
+                      <div className="text-sm font-semibold text-gray-900">{photoLabel || "照片"}</div>
+                      <div className="mt-1 text-xs text-gray-500">{photoSlot}</div>
+                    </div>
+                    <div className="p-3">
+                      <img
+                        src={photoUrl}
+                        alt={photoLabel || "照片"}
+                        className="h-56 w-full rounded-xl bg-white object-contain"
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-white/60 bg-white/90 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm font-semibold text-gray-900">完整个人信息</div>
+                    <div className="text-xs text-gray-500">按字段平铺，更适合人工快速浏览。</div>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                    {visibleItems.length > 0 ? (
+                      visibleItems.map((item) => (
+                        <div
+                          key={`${intake.sourceSlot}-${item.key}`}
+                          className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3"
+                        >
+                          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{item.label}</div>
+                          <div className="mt-2 break-words text-sm font-semibold text-slate-900">{item.value}</div>
+                          <div className="mt-1 text-[11px] text-slate-500">{item.key}</div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-6 text-sm text-slate-500 md:col-span-2 2xl:col-span-3">
+                        当前没有可直接展示的字段，但完整 JSON 仍然可用。
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {auditErrorCount > 0 ? (
+                  <div className={cn("rounded-2xl border px-4 py-4", styles.accent)}>
+                    <div className="text-sm font-semibold">Audit 提醒</div>
+                    <div className="mt-3 space-y-2 text-sm">
+                      {intake.audit.errors.map((issue, index) => (
+                        <div key={`${issue.field}-${index}`} className="rounded-xl border border-current/20 bg-white/70 px-3 py-2">
+                          <div className="font-medium">{issue.field}</div>
+                          <div className="mt-1">{issue.message}</div>
+                          {issue.value ? <div className="mt-1 text-xs opacity-80">当前值：{issue.value}</div> : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <details className="rounded-2xl border border-white/60 bg-white/90 p-4">
+                  <summary className="cursor-pointer text-sm font-semibold text-gray-900">
+                    查看原始 JSON
+                  </summary>
+                  <div className={cn("mt-3 max-h-[420px] overflow-auto rounded-xl border p-4", styles.code)}>
+                    <pre className="whitespace-pre-wrap break-all text-xs leading-6 text-slate-100">{jsonText}</pre>
+                  </div>
+                </details>
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    </div>
   )
 }
 
@@ -794,6 +1272,34 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
     () => detail?.cases.find((item) => item.id === selectedCaseId) ?? null,
     [detail?.cases, selectedCaseId],
   )
+  const selectedFranceCase = useMemo(() => {
+    if (selectedCase && isFranceSchengenCase(selectedCase)) return selectedCase
+    return detail?.cases.find((item) => item.isActive && isFranceSchengenCase(item))
+      ?? detail?.cases.find((item) => isFranceSchengenCase(item))
+      ?? null
+  }, [detail?.cases, selectedCase])
+  const tlsAccountCaseSource = useMemo(() => {
+    if (selectedCase && isFranceSchengenCase(selectedCase)) {
+      return {
+        bookingWindow: caseForm.bookingWindow,
+        acceptVip: caseForm.acceptVip,
+        tlsCity: caseForm.tlsCity,
+      }
+    }
+    if (selectedFranceCase) {
+      return {
+        bookingWindow: selectedFranceCase.bookingWindow || "",
+        acceptVip: selectedFranceCase.acceptVip || "",
+        tlsCity: selectedFranceCase.tlsCity || "",
+      }
+    }
+    return null
+  }, [caseForm.acceptVip, caseForm.bookingWindow, caseForm.tlsCity, selectedCase, selectedFranceCase])
+  const tlsAccountInfo = useMemo(
+    () => buildTlsAccountInfo(detail?.profile, tlsAccountCaseSource, basicForm.schengenVisaCity),
+    [basicForm.schengenVisaCity, detail?.profile, tlsAccountCaseSource],
+  )
+  const tlsAccountTemplateText = useMemo(() => buildTlsAccountTemplateText(tlsAccountInfo), [tlsAccountInfo])
   const auditPhaseIndex =
     auditDialog.status === "running"
       ? Math.min(auditDialog.phaseIndex ?? 0, AUDIT_PROGRESS_STEPS.length - 2)
@@ -939,6 +1445,18 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
     }
   }
 
+  const copyTlsAccountTemplate = async () => {
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+        throw new Error("当前浏览器不支持自动复制")
+      }
+      await navigator.clipboard.writeText(tlsAccountTemplateText)
+      setMessage("TLS 账号信息已复制到剪贴板")
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "复制 TLS 账号信息失败")
+    }
+  }
+
   const deleteApplicant = async () => {
     if (!window.confirm("删除申请人后，对应材料和案件会一起删除，确定继续吗？")) return
 
@@ -990,7 +1508,16 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
       })
       const data = await readJsonSafely<{
         profile?: ApplicantProfileDetail
-        parsedUsVisaDetails?: { surname?: string; birthYear?: string; passportNumber?: string }
+        parsedUsVisaDetails?: {
+          surname?: string
+          givenName?: string
+          birthYear?: string
+          passportNumber?: string
+          chineseName?: string
+          telecodeSurname?: string
+          telecodeGivenName?: string
+        }
+        parsedUsVisaFullIntake?: UsVisaIntakeLike
         parsedSchengenDetails?: { city?: string }
         schengenAudit?: {
           ok: boolean
@@ -1011,9 +1538,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
       await loadDetail()
 
       const parsedFields = [
-        data.parsedUsVisaDetails?.surname ? "姓" : "",
-        data.parsedUsVisaDetails?.birthYear ? "出生年份" : "",
-        data.parsedUsVisaDetails?.passportNumber ? "护照号" : "",
+        ...collectDetectedUsVisaFieldLabels(data?.parsedUsVisaFullIntake, data?.parsedUsVisaDetails),
         data.parsedSchengenDetails?.city
           ? `TLS 递签城市：${getFranceTlsCityLabel(data.parsedSchengenDetails.city) || data.parsedSchengenDetails.city}`
           : "",
@@ -1496,6 +2021,7 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
   }
 
   const files = detail.profile.files || {}
+  const usVisaIntakePhotoSlot = files.usVisaPhoto ? "usVisaPhoto" : files.photo ? "photo" : undefined
   const hasUsVisaInterviewSource = Boolean(
     files.usVisaDs160Excel || files.ds160Excel || files.usVisaAisExcel || files.aisExcel,
   )
@@ -1611,10 +2137,20 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                   onChange={(value) => setBasicForm((prev) => ({ ...prev, usVisaPassportNumber: value }))}
                 />
               </div>
+              <ParsedIntakeAccordion
+                applicantId={detail.profile.id}
+                title="完整美签 intake"
+                subtitle="展开后直接查看 Excel 已提取的完整个人信息、审计结果和照片。"
+                tone="sky"
+                intake={detail.profile.usVisa?.fullIntake}
+                photoSlot={usVisaIntakePhotoSlot}
+                photoLabel="美签照片"
+                emptyMessage="还没有可用的美签 intake。先上传 DS-160 / AIS Excel，系统会自动解析并在这里沉淀完整结构化信息。"
+              />
             </Section>
 
             <Section title="申根基础信息" description="申根国家和 TLS 递签城市会同时影响法签自动化和解释信默认值。" tone="emerald">
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
                   <Label>申根国家</Label>
                   <Select
@@ -1653,7 +2189,41 @@ export default function ApplicantDetailClientPage({ applicantId }: { applicantId
                     </SelectContent>
                   </Select>
                 </div>
+                <ReadOnlyField
+                  label="FRA Number"
+                  value={detail.profile.schengen?.fraNumber || "-"}
+                />
               </div>
+              <div className="space-y-4 rounded-2xl border border-emerald-200/80 bg-white/80 p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="text-base font-semibold text-emerald-950">TLS 账号信息</div>
+                    <div className="text-sm text-emerald-700/80">按申根法签内容生成，直接复制给客户即可。</div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-xl border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+                    onClick={() => void copyTlsAccountTemplate()}
+                  >
+                    一键复制
+                  </Button>
+                </div>
+                <Textarea
+                  value={tlsAccountTemplateText}
+                  readOnly
+                  rows={12}
+                  className="min-h-[320px] whitespace-pre-wrap border-emerald-200 bg-emerald-50/40 font-mono text-sm leading-7 text-emerald-950"
+                />
+              </div>
+              <ParsedIntakeAccordion
+                applicantId={detail.profile.id}
+                title="完整申根 intake"
+                subtitle="展开后直接查看申根 Excel 的完整结构化结果和审计提示，不再需要手动翻原表。"
+                tone="emerald"
+                intake={detail.profile.schengen?.fullIntake}
+                emptyMessage="还没有可用的申根 intake。上传申根 Excel 后，这里会自动出现完整结构化信息。"
+              />
             </Section>
 
             <div className="flex justify-end">

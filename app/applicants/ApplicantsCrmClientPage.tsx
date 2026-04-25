@@ -18,12 +18,17 @@ import {
   BriefcaseBusiness,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   Clock3,
+  FolderPlus,
+  ListFilter,
   RefreshCw,
   Search,
   Shield,
   Sparkles,
+  Trash2,
   UserPlus,
+  Users,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -66,6 +71,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -80,6 +93,7 @@ type ApplicantCrmStatusOption = {
 type ApplicantCrmRow = {
   id: string
   name: string
+  groupName?: string
   phone?: string
   email?: string
   wechat?: string
@@ -156,6 +170,7 @@ type CreateApplicantForm = {
 
 type FilterTone = "visa" | "status" | "region" | "priority"
 type QuickView = "all" | "mine" | "review" | "exception" | "today"
+type BatchActionMode = "set-group" | "clear-group" | "delete" | null
 
 const emptyCreateForm: CreateApplicantForm = {
   name: "",
@@ -248,6 +263,16 @@ function formatDateTime(value?: string | null) {
   return date.toLocaleString("zh-CN", { hour12: false })
 }
 
+function buildSuggestedGroupName() {
+  const now = new Date()
+  const yyyy = now.getFullYear()
+  const mm = String(now.getMonth() + 1).padStart(2, "0")
+  const dd = String(now.getDate()).padStart(2, "0")
+  const hh = String(now.getHours()).padStart(2, "0")
+  const mi = String(now.getMinutes()).padStart(2, "0")
+  return `自定义分组 ${yyyy}-${mm}-${dd} ${hh}:${mi}`
+}
+
 function getStatusVariant(statusKey: string) {
   if (statusKey === "exception") return "destructive" as const
   if (statusKey === "completed") return "success" as const
@@ -260,6 +285,42 @@ function getPriorityBadgeClass(priority?: string) {
   if (priority === "urgent") return "border-red-200 bg-red-50 text-red-700"
   if (priority === "high") return "border-amber-200 bg-amber-50 text-amber-700"
   return "border-gray-200 bg-gray-50 text-gray-700"
+}
+
+function getVisaTypeBadgeClass(value?: string) {
+  if (!value) return "border-gray-200 bg-gray-50 text-gray-700"
+  const normalized = value.toLowerCase()
+  if (normalized.includes("france") || normalized.includes("schengen") || normalized.includes("法国") || normalized.includes("申根")) {
+    return "border-blue-200 bg-blue-50 text-blue-700"
+  }
+  if (normalized.includes("usa") || normalized.includes("us") || normalized.includes("美国")) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700"
+  }
+  if (normalized.includes("uk") || normalized.includes("英国")) {
+    return "border-violet-200 bg-violet-50 text-violet-700"
+  }
+  return "border-slate-200 bg-slate-50 text-slate-700"
+}
+
+const groupBadgePalette = [
+  "border-blue-200 bg-blue-50 text-blue-700",
+  "border-emerald-200 bg-emerald-50 text-emerald-700",
+  "border-violet-200 bg-violet-50 text-violet-700",
+  "border-amber-200 bg-amber-50 text-amber-700",
+  "border-rose-200 bg-rose-50 text-rose-700",
+  "border-cyan-200 bg-cyan-50 text-cyan-700",
+  "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
+  "border-lime-200 bg-lime-50 text-lime-700",
+]
+
+function getGroupBadgeClass(groupName?: string) {
+  const normalized = (groupName || "").trim()
+  if (!normalized) return "border-slate-200 bg-slate-50 text-slate-700"
+  let hash = 0
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash = (hash * 31 + normalized.charCodeAt(index)) >>> 0
+  }
+  return groupBadgePalette[hash % groupBadgePalette.length]
 }
 
 function getApplicantCrmStatusLabel(statusKey: string, fallbackLabel?: string) {
@@ -306,33 +367,57 @@ function FilterGroup({
   onToggle: (value: string) => void
 }) {
   const toneClasses = toneClassMap[tone]
+  const selectedLabels = options.filter((option) => selected.includes(option.value)).map((option) => option.label)
+  const summary =
+    selectedLabels.length === 0
+      ? "全部"
+      : selectedLabels.length <= 2
+        ? selectedLabels.join("、")
+        : `已选 ${selectedLabels.length} 项`
 
   return (
     <div className="space-y-3">
       <div className="text-sm font-medium text-gray-700">{title}</div>
-      <div className="flex flex-wrap gap-2">
-        {options.length === 0 ? (
-          <span className="text-sm text-gray-400">{"\u6682\u65e0\u53ef\u9009\u9879"}</span>
-        ) : (
-          options.map((option) => {
-            const active = selected.includes(option.value)
-            return (
-              <button
+      {options.length === 0 ? (
+        <span className="text-sm text-gray-400">{"\u6682\u65e0\u53ef\u9009\u9879"}</span>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              className={cn(
+                "h-11 w-full justify-between rounded-2xl border px-4 text-left text-sm font-medium shadow-sm",
+                selected.length > 0 ? toneClasses.active : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
+              )}
+            >
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <ListFilter className="h-4 w-4 shrink-0" />
+                <span className="truncate">{summary}</span>
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 opacity-70" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-[280px] rounded-2xl border-gray-200 p-2">
+            <DropdownMenuLabel className="px-2 py-1 text-xs uppercase tracking-[0.18em] text-gray-500">
+              {title}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {options.map((option) => (
+              <DropdownMenuCheckboxItem
                 key={option.value}
-                type="button"
-                onClick={() => onToggle(option.value)}
-                className={cn(
-                  "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-all",
-                  active ? toneClasses.active : toneClasses.inactive,
-                )}
+                checked={selected.includes(option.value)}
+                onCheckedChange={() => onToggle(option.value)}
+                onSelect={(event) => event.preventDefault()}
+                className="rounded-xl"
               >
-                <span className={cn("h-2 w-2 rounded-full", active ? "bg-white/90" : toneClasses.dot)} />
+                <span className={cn("mr-2 inline-block h-2 w-2 rounded-full", toneClasses.dot)} />
                 {option.label}
-              </button>
-            )
-          })
-        )}
-      </div>
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   )
 }
@@ -433,6 +518,34 @@ function SelectedFilterPill({
   )
 }
 
+function SelectionToggleButton({
+  checked,
+  onClick,
+  label,
+}: {
+  checked: boolean
+  onClick: () => void
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex h-9 min-w-[78px] items-center justify-center gap-2 rounded-xl border px-3 text-xs font-semibold transition-all",
+        checked
+          ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-200"
+          : "border-gray-200 bg-white text-gray-600 hover:border-blue-300 hover:text-blue-700",
+      )}
+      aria-pressed={checked}
+      aria-label={label}
+    >
+      <CheckCircle2 className={cn("h-4 w-4", checked ? "text-white" : "text-gray-300")} />
+      <span>{checked ? "已选" : "选择"}</span>
+    </button>
+  )
+}
+
 export default function ApplicantsCrmClientPage() {
   const router = useRouter()
   const { data: session } = useSession()
@@ -454,10 +567,15 @@ export default function ApplicantsCrmClientPage() {
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
   const [selectedRegions, setSelectedRegions] = useState<string[]>([])
   const [selectedPriorities, setSelectedPriorities] = useState<string[]>([])
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([])
   const [quickView, setQuickView] = useState<QuickView>("all")
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [createForm, setCreateForm] = useState<CreateApplicantForm>(emptyCreateForm)
+  const [selectedApplicantIds, setSelectedApplicantIds] = useState<string[]>([])
+  const [batchActionMode, setBatchActionMode] = useState<BatchActionMode>(null)
+  const [batchActionLoading, setBatchActionLoading] = useState(false)
+  const [groupNameInput, setGroupNameInput] = useState("")
   const initialLoadRef = useRef(true)
   const deferredKeyword = useDeferredValue(keyword.trim())
   const requestQuery = useMemo(() => {
@@ -623,10 +741,28 @@ export default function ApplicantsCrmClientPage() {
     }
   }, [createDialogOpen, fetchApplicants, fetchAvailableAssignees, fetchSummary, session?.user?.role])
 
-  const displayRows = useMemo(
-    () => rows.filter((row) => matchesQuickView(row, quickView, session?.user?.id)),
-    [quickView, rows, session?.user?.id],
+  const availableGroupOptions = useMemo(
+    () =>
+      Array.from(new Set(rows.map((row) => row.groupName?.trim()).filter(Boolean) as string[]))
+        .sort((a, b) => a.localeCompare(b, "zh-CN"))
+        .map((value) => ({ value, label: value })),
+    [rows],
   )
+  const displayRows = useMemo(
+    () =>
+      rows.filter((row) => {
+        if (!matchesQuickView(row, quickView, session?.user?.id)) return false
+        if (selectedGroups.length > 0 && !selectedGroups.includes(row.groupName || "")) return false
+        return true
+      }),
+    [quickView, rows, selectedGroups, session?.user?.id],
+  )
+  const displayRowIds = useMemo(() => displayRows.map((row) => row.id), [displayRows])
+  const selectedVisibleCount = useMemo(
+    () => displayRowIds.filter((id) => selectedApplicantIds.includes(id)).length,
+    [displayRowIds, selectedApplicantIds],
+  )
+  const allVisibleSelected = displayRows.length > 0 && selectedVisibleCount === displayRows.length
 
   const quickCards = useMemo(() => {
     const mineCount = rows.filter((row) => matchesQuickView(row, "mine", session?.user?.id)).length
@@ -701,9 +837,17 @@ export default function ApplicantsCrmClientPage() {
         onRemove: () => setSelectedPriorities((prev) => prev.filter((item) => item !== value)),
       })
     }
+    for (const value of selectedGroups) {
+      items.push({
+        key: `group-${value}`,
+        label: `分组：${value}`,
+        tone: "visa",
+        onRemove: () => setSelectedGroups((prev) => prev.filter((item) => item !== value)),
+      })
+    }
 
     return items
-  }, [selectedPriorities, selectedRegions, selectedStatuses, selectedVisaTypes])
+  }, [selectedGroups, selectedPriorities, selectedRegions, selectedStatuses, selectedVisaTypes])
 
   const hasFilters = useMemo(
     () =>
@@ -712,8 +856,9 @@ export default function ApplicantsCrmClientPage() {
       selectedStatuses.length > 0 ||
       selectedRegions.length > 0 ||
       selectedPriorities.length > 0 ||
+      selectedGroups.length > 0 ||
       quickView !== "all",
-    [keyword, quickView, selectedPriorities.length, selectedRegions.length, selectedStatuses.length, selectedVisaTypes.length],
+    [keyword, quickView, selectedGroups.length, selectedPriorities.length, selectedRegions.length, selectedStatuses.length, selectedVisaTypes.length],
   )
 
   const prefetchApplicantDetail = useCallback(
@@ -735,12 +880,17 @@ export default function ApplicantsCrmClientPage() {
     })
   }, [displayRows, prefetchApplicantDetail])
 
+  useEffect(() => {
+    setSelectedApplicantIds((prev) => prev.filter((id) => rows.some((row) => row.id === id)))
+  }, [rows])
+
   const clearFilters = () => {
     setKeyword("")
     setSelectedVisaTypes([])
     setSelectedStatuses([])
     setSelectedRegions([])
     setSelectedPriorities([])
+    setSelectedGroups([])
     setQuickView("all")
     setMessage("")
   }
@@ -791,6 +941,150 @@ export default function ApplicantsCrmClientPage() {
       setMessage(error instanceof Error ? error.message : "\u521b\u5efa\u7533\u8bf7\u4eba\u5931\u8d25")
     } finally {
       setCreating(false)
+    }
+  }
+
+  const toggleApplicantSelection = (applicantId: string, checked: boolean) => {
+    setSelectedApplicantIds((prev) =>
+      checked ? Array.from(new Set([...prev, applicantId])) : prev.filter((id) => id !== applicantId),
+    )
+  }
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    setSelectedApplicantIds((prev) => {
+      if (checked) {
+        return Array.from(new Set([...prev, ...displayRowIds]))
+      }
+      return prev.filter((id) => !displayRowIds.includes(id))
+    })
+  }
+
+  const resetBatchActionState = () => {
+    setBatchActionMode(null)
+    setBatchActionLoading(false)
+    setGroupNameInput("")
+  }
+
+  const openSetGroupDialog = () => {
+    setGroupNameInput(buildSuggestedGroupName())
+    setBatchActionMode("set-group")
+  }
+
+  const applyGroupToSelected = async () => {
+    const ids = selectedApplicantIds
+    const groupName = groupNameInput.trim()
+    if (ids.length === 0) {
+      setMessage("请先选择申请人")
+      return
+    }
+    if (!groupName) {
+      setMessage("请先填写组名")
+      return
+    }
+
+    setBatchActionLoading(true)
+    setMessage("")
+    const previousRows = rows
+    const previousSelectedIds = selectedApplicantIds
+    setRows((prev) => prev.map((row) => (ids.includes(row.id) ? { ...row, groupName } : row)))
+    setSelectedApplicantIds([])
+    resetBatchActionState()
+    setMessage(`正在保存分组：${groupName}`)
+    try {
+      const response = await fetch("/api/applicants/batch", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, groupName }),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(data?.error || "设置分组失败")
+      }
+
+      clearClientCacheByPrefix(APPLICANT_CRM_LIST_CACHE_PREFIX)
+      clearClientCacheByPrefix(APPLICANT_CRM_SUMMARY_CACHE_PREFIX)
+      clearClientCache(APPLICANT_SELECTOR_CACHE_KEY)
+      setMessage(`已将 ${data?.updatedIds?.length || ids.length} 位申请人加入分组：${groupName}`)
+      void fetchApplicants("manual")
+    } catch (error) {
+      setRows(previousRows)
+      setSelectedApplicantIds(previousSelectedIds)
+      setBatchActionLoading(false)
+      setMessage(error instanceof Error ? error.message : "设置分组失败")
+    }
+  }
+
+  const clearGroupForSelected = async () => {
+    const ids = selectedApplicantIds
+    if (ids.length === 0) {
+      setMessage("请先选择申请人")
+      return
+    }
+
+    setBatchActionLoading(true)
+    setMessage("")
+    const previousRows = rows
+    const previousSelectedIds = selectedApplicantIds
+    setRows((prev) => prev.map((row) => (ids.includes(row.id) ? { ...row, groupName: undefined } : row)))
+    setSelectedApplicantIds([])
+    resetBatchActionState()
+    setMessage(`正在清空 ${ids.length} 位申请人的分组`)
+    try {
+      const response = await fetch("/api/applicants/batch", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, groupName: null }),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(data?.error || "清空分组失败")
+      }
+
+      clearClientCacheByPrefix(APPLICANT_CRM_LIST_CACHE_PREFIX)
+      clearClientCacheByPrefix(APPLICANT_CRM_SUMMARY_CACHE_PREFIX)
+      clearClientCache(APPLICANT_SELECTOR_CACHE_KEY)
+      setMessage(`已清空 ${data?.updatedIds?.length || ids.length} 位申请人的分组`)
+      void fetchApplicants("manual")
+    } catch (error) {
+      setRows(previousRows)
+      setSelectedApplicantIds(previousSelectedIds)
+      setBatchActionLoading(false)
+      setMessage(error instanceof Error ? error.message : "清空分组失败")
+    }
+  }
+
+  const deleteSelectedApplicants = async () => {
+    const ids = selectedApplicantIds
+    if (ids.length === 0) {
+      setMessage("请先选择申请人")
+      return
+    }
+
+    setBatchActionLoading(true)
+    setMessage("")
+    try {
+      const response = await fetch("/api/applicants/batch", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(data?.error || "批量删除失败")
+      }
+
+      clearClientCacheByPrefix(APPLICANT_CRM_LIST_CACHE_PREFIX)
+      clearClientCacheByPrefix(APPLICANT_CRM_SUMMARY_CACHE_PREFIX)
+      clearClientCache(APPLICANT_SELECTOR_CACHE_KEY)
+      clearClientCacheByPrefix(FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX)
+      await fetchApplicants("manual")
+      await fetchSummary("manual")
+      setMessage(`已删除 ${data?.deletedIds?.length || ids.length} 位申请人`)
+      setSelectedApplicantIds([])
+      resetBatchActionState()
+    } catch (error) {
+      setBatchActionLoading(false)
+      setMessage(error instanceof Error ? error.message : "批量删除失败")
     }
   }
 
@@ -975,6 +1269,13 @@ export default function ApplicantsCrmClientPage() {
                 selected={selectedPriorities}
                 onToggle={(value) => setSelectedPriorities((prev) => toggleValue(prev, value))}
               />
+              <FilterGroup
+                title={"分组"}
+                tone="visa"
+                options={availableGroupOptions}
+                selected={selectedGroups}
+                onToggle={(value) => setSelectedGroups((prev) => toggleValue(prev, value))}
+              />
             </div>
           </CardContent>
         </Card>
@@ -985,6 +1286,32 @@ export default function ApplicantsCrmClientPage() {
             <CardDescription>{"\u70b9\u51fb\u884c\u6216\u201c\u67e5\u770b\u8be6\u60c5\u201d\u8fdb\u5165\u7533\u8bf7\u4eba\u5de5\u4f5c\u53f0\u3002"}</CardDescription>
           </CardHeader>
           <CardContent>
+            {selectedApplicantIds.length > 0 && (
+              <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-blue-100 bg-blue-50/80 p-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="space-y-1">
+                  <div className="text-sm font-semibold text-blue-900">已选中 {selectedApplicantIds.length} 位申请人</div>
+                  <div className="text-xs text-blue-700">可以直接设置分组、清空分组，或批量删除。</div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" onClick={openSetGroupDialog} disabled={batchActionLoading}>
+                    <FolderPlus className="mr-2 h-4 w-4" />
+                    设置分组
+                  </Button>
+                  <Button type="button" variant="outline" onClick={clearGroupForSelected} disabled={batchActionLoading}>
+                    清空分组
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => setBatchActionMode("delete")}
+                    disabled={batchActionLoading}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    批量删除
+                  </Button>
+                </div>
+              </div>
+            )}
             {loading ? (
               <div className="flex h-48 items-center justify-center">
                 <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-gray-900" />
@@ -993,6 +1320,13 @@ export default function ApplicantsCrmClientPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-[96px]">
+                      <SelectionToggleButton
+                        checked={allVisibleSelected}
+                        onClick={() => toggleSelectAllVisible(!allVisibleSelected)}
+                        label={allVisibleSelected ? "取消全选当前列表" : "全选当前列表"}
+                      />
+                    </TableHead>
                     <TableHead>{"\u7533\u8bf7\u4eba"}</TableHead>
                     <TableHead>{"\u7b7e\u8bc1\u7c7b\u578b"}</TableHead>
                     <TableHead>{"\u5730\u533a"}</TableHead>
@@ -1007,20 +1341,41 @@ export default function ApplicantsCrmClientPage() {
                   {displayRows.map((row) => (
                     <TableRow
                       key={row.id}
-                      className="cursor-pointer"
+                      className={cn("cursor-pointer transition-colors", selectedApplicantIds.includes(row.id) && "bg-blue-50/60")}
                       onMouseEnter={() => prefetchApplicantDetail(row.id)}
                       onFocus={() => prefetchApplicantDetail(row.id)}
                       onClick={() => router.push(`/applicants/${row.id}`)}
                     >
+                      <TableCell onClick={(event) => event.stopPropagation()}>
+                        <SelectionToggleButton
+                          checked={selectedApplicantIds.includes(row.id)}
+                          onClick={() => toggleApplicantSelection(row.id, !selectedApplicantIds.includes(row.id))}
+                          label={`选择 ${row.name}`}
+                        />
+                      </TableCell>
                       <TableCell>
                         <div className="space-y-1">
-                          <div className="font-medium text-gray-900">{row.name}</div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="font-medium text-gray-900">{row.name}</div>
+                            {row.groupName ? (
+                              <Badge variant="outline" className={getGroupBadgeClass(row.groupName)}>
+                                {row.groupName}
+                              </Badge>
+                            ) : null}
+                          </div>
                           <div className="text-xs text-gray-500">
                             {row.phone || row.email || row.wechat || row.passportNumber || "\u6682\u65e0\u8054\u7cfb\u65b9\u5f0f"}
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell>{getApplicantCrmVisaTypeLabel(row.visaType || row.caseType)}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={getVisaTypeBadgeClass(row.visaType || row.caseType)}
+                        >
+                          {getApplicantCrmVisaTypeLabel(row.visaType || row.caseType)}
+                        </Badge>
+                      </TableCell>
                       <TableCell>{getApplicantCrmRegionLabel(row.region)}</TableCell>
                       <TableCell>
                         <Badge variant={getStatusVariant(row.currentStatusKey)}>
@@ -1053,7 +1408,7 @@ export default function ApplicantsCrmClientPage() {
                   ))}
                   {displayRows.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={8} className="py-10 text-center text-sm text-gray-500">
+                      <TableCell colSpan={9} className="py-10 text-center text-sm text-gray-500">
                         暂无符合当前筛选条件的申请人，建议调整筛选条件后重试。
                       </TableCell>
                     </TableRow>
@@ -1064,6 +1419,63 @@ export default function ApplicantsCrmClientPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog
+        open={batchActionMode === "set-group"}
+        onOpenChange={(open) => {
+          if (!open) resetBatchActionState()
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>设置申请人分组</DialogTitle>
+            <DialogDescription>
+              支持自定义组名，建议带上时间，方便你后面直接按组识别。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="applicant-group-name">组名</Label>
+            <Input
+              id="applicant-group-name"
+              value={groupNameInput}
+              onChange={(event) => setGroupNameInput(event.target.value)}
+              placeholder="例如：英国法签 2026-04-14 12:30"
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={resetBatchActionState} disabled={batchActionLoading}>
+              取消
+            </Button>
+            <Button type="button" onClick={applyGroupToSelected} disabled={batchActionLoading}>
+              {batchActionLoading ? "保存中..." : "保存分组"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={batchActionMode === "delete"}
+        onOpenChange={(open) => {
+          if (!open) resetBatchActionState()
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>确认批量删除</DialogTitle>
+            <DialogDescription>
+              将删除当前选中的 {selectedApplicantIds.length} 位申请人及其关联资料。这个操作不能撤回。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={resetBatchActionState} disabled={batchActionLoading}>
+              取消
+            </Button>
+            <Button type="button" variant="destructive" onClick={deleteSelectedApplicants} disabled={batchActionLoading}>
+              {batchActionLoading ? "删除中..." : "确认删除"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent className="max-w-xl">

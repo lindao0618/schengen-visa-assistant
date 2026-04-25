@@ -1,27 +1,87 @@
 import { read, utils } from "xlsx"
 
+import {
+  deriveTelecodesFromChineseName,
+  hasHanCharacters,
+  normalizeChineseName,
+  normalizeTelecodeValue,
+} from "./us-visa-chinese-telecode"
+
 export interface ParsedUsVisaExcelDetails {
   surname?: string
+  givenName?: string
   birthYear?: string
   passportNumber?: string
+  chineseName?: string
+  telecodeSurname?: string
+  telecodeGivenName?: string
 }
 
-const SURNAME_ALIASES = new Set(["姓", "姓氏", "surname", "lastname", "familyname"].map(normalizeKey))
+type FieldConfig = {
+  key: keyof ParsedUsVisaExcelDetails
+  aliases: string[]
+}
 
-const BIRTH_DATE_ALIASES = new Set(
-  ["出生年月日", "出生日期", "birthdate", "birth_date", "dateofbirth", "dob"].map(normalizeKey)
-)
-
-const PASSPORT_NUMBER_ALIASES = new Set(
-  ["护照号", "护照号码", "passportnumber", "passport_number", "passportno", "passportno."].map(normalizeKey)
-)
+const FIELD_CONFIGS: FieldConfig[] = [
+  {
+    key: "surname",
+    aliases: ["姓", "姓氏", "surname", "lastname", "last name", "familyname", "family name"],
+  },
+  {
+    key: "givenName",
+    aliases: ["名", "名字", "givenname", "given name", "firstname", "first name"],
+  },
+  {
+    key: "birthYear",
+    aliases: ["出生日期", "出生年月日", "出生年份", "birthdate", "birth date", "dateofbirth", "dob", "birth year"],
+  },
+  {
+    key: "passportNumber",
+    aliases: ["护照号", "护照号码", "passportnumber", "passport number", "passportno", "passport no", "passportno."],
+  },
+  {
+    key: "chineseName",
+    aliases: [
+      "中文名",
+      "中文姓名",
+      "姓名中文",
+      "chinesename",
+      "chinese name",
+      "fullnameinnativealphabet",
+      "full name in native alphabet",
+      "native name",
+    ],
+  },
+  {
+    key: "telecodeSurname",
+    aliases: [
+      "姓氏电报码",
+      "姓电报码",
+      "surname telecode",
+      "telecode surname",
+      "telecode of surname",
+      "telecodesurname",
+    ],
+  },
+  {
+    key: "telecodeGivenName",
+    aliases: [
+      "名字电报码",
+      "名电报码",
+      "given name telecode",
+      "telecode given name",
+      "telecode of given name",
+      "telecodegivenname",
+    ],
+  },
+]
 
 function normalizeText(value: unknown) {
   return typeof value === "string" ? value.trim() : String(value ?? "").trim()
 }
 
 function normalizeKey(value: unknown) {
-  return normalizeText(value).toLowerCase().replace(/[\s_\-()（）:：.]/g, "")
+  return normalizeText(value).toLowerCase().replace(/[\s_\-()（）:：.。,，/\\]+/g, "")
 }
 
 function extractBirthYear(value: string) {
@@ -61,28 +121,39 @@ export function extractUsVisaApplicantDetailsFromExcelBuffer(buffer: Buffer): Pa
     }) as unknown[][]
 
     for (const row of rows) {
-      if (!details.surname) {
-        const surname = pickRowValue(row, SURNAME_ALIASES)
-        if (surname) details.surname = surname
-      }
+      for (const config of FIELD_CONFIGS) {
+        if (details[config.key]) continue
+        const value = pickRowValue(row, new Set(config.aliases.map(normalizeKey)))
+        if (!value) continue
 
-      if (!details.birthYear) {
-        const birthDate = pickRowValue(row, BIRTH_DATE_ALIASES)
-        if (birthDate) {
-          const birthYear = extractBirthYear(birthDate)
+        if (config.key === "birthYear") {
+          const birthYear = extractBirthYear(value)
           if (birthYear) details.birthYear = birthYear
+          continue
         }
-      }
 
-      if (!details.passportNumber) {
-        const passportNumber = pickRowValue(row, PASSPORT_NUMBER_ALIASES)
-        if (passportNumber) details.passportNumber = passportNumber
-      }
-
-      if (details.surname && details.birthYear && details.passportNumber) {
-        return details
+        details[config.key] = value
       }
     }
+  }
+
+  if (details.chineseName) {
+    details.chineseName = normalizeChineseName(details.chineseName) || undefined
+  }
+
+  if (details.telecodeSurname) {
+    details.telecodeSurname = normalizeTelecodeValue(details.telecodeSurname) || undefined
+  }
+
+  if (details.telecodeGivenName) {
+    details.telecodeGivenName = normalizeTelecodeValue(details.telecodeGivenName) || undefined
+  }
+
+  if (details.chineseName && hasHanCharacters(details.chineseName)) {
+    const derived = deriveTelecodesFromChineseName(details.chineseName)
+    details.chineseName = derived.fullName || details.chineseName
+    details.telecodeSurname = derived.telecodeSurname || undefined
+    details.telecodeGivenName = derived.telecodeGivenName || undefined
   }
 
   return details

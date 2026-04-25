@@ -645,7 +645,7 @@ export function FranceQuickStartCard() {
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <div>
                 <StepBadge label="FV 注册" step={workflow?.steps.extractRegister ?? { status: "idle" }} />
-                <StepMeta step={workflow?.steps.extractRegister ?? { status: "idle" }} taskListId="france-extract-register-tasks" taskLabel="提取+注册" />
+                <StepMeta step={workflow?.steps.extractRegister ?? { status: "idle" }} taskListId="france-extract-register-tasks" taskLabel="FV 注册" />
               </div>
               <div>
                 <StepBadge label="TLS 注册" step={workflow?.steps.tlsRegister ?? { status: "idle" }} />

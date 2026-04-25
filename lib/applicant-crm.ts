@@ -4,6 +4,7 @@ import * as path from "path"
 
 import prisma from "@/lib/db"
 import { ApplicantProfile, getApplicantProfile, listApplicantProfiles } from "@/lib/applicant-profiles"
+import { buildApplicantSchengenIntakeView, buildApplicantUsVisaIntakeView } from "@/lib/agent-file-parsing"
 import {
   CRM_PRIORITY_FILTER_VALUES,
   CRM_REGION_FILTER_VALUES,
@@ -124,6 +125,7 @@ export interface ApplicantCrmFilters {
 export interface ApplicantCrmRow {
   id: string
   name: string
+  groupName?: string
   phone?: string
   email?: string
   wechat?: string
@@ -286,13 +288,65 @@ function normalizePriority(value: unknown) {
 }
 
 function parseDateValue(value: string | null | undefined) {
-  if (!value) return null
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date
+  if (value == null) return null
+  const raw = String(value).trim()
+  if (!raw) return null
+
+  const direct = new Date(raw)
+  if (!Number.isNaN(direct.getTime())) return direct
+
+  const normalized = raw
+    .replace(/[.]/g, "/")
+    .replace(/年/g, "/")
+    .replace(/月/g, "/")
+    .replace(/日/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  const ymd = normalized.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/)
+  if (ymd) {
+    const [, y, m, d, hh = "0", mm = "0", ss = "0"] = ymd
+    const dt = new Date(
+      Number(y),
+      Number(m) - 1,
+      Number(d),
+      Number(hh),
+      Number(mm),
+      Number(ss),
+    )
+    return Number.isNaN(dt.getTime()) ? null : dt
+  }
+
+  const dmy = normalized.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/)
+  if (dmy) {
+    const [, d, m, y, hh = "0", mm = "0", ss = "0"] = dmy
+    const dt = new Date(
+      Number(y),
+      Number(m) - 1,
+      Number(d),
+      Number(hh),
+      Number(mm),
+      Number(ss),
+    )
+    return Number.isNaN(dt.getTime()) ? null : dt
+  }
+
+  return null
 }
 
 function toIsoString(value: Date | null | undefined) {
   return value ? value.toISOString() : null
+}
+
+function parseDateValueForUsaPatch(
+  value: string | null | undefined,
+  fallback: Date | null,
+) {
+  if (value == null) return fallback
+  const raw = String(value).trim()
+  if (!raw) return null
+  const parsed = parseDateValue(raw)
+  return parsed ?? fallback
 }
 
 async function resolveIsAdmin(userId: string, role?: string) {
@@ -425,6 +479,7 @@ function mapApplicantRow(item: ApplicantWithCasesRecord): ApplicantCrmRow {
   return {
     id: item.id,
     name: item.name,
+    groupName: normalizeText((item as ApplicantWithCasesRecord & { groupName?: string | null }).groupName) || undefined,
     phone: item.phone ?? undefined,
     email: item.email ?? undefined,
     wechat: item.wechat ?? undefined,
@@ -460,11 +515,13 @@ function mapApplicantProfileSummary(item: ApplicantWithCasesRecord) {
   const birthYear = normalizeText(item.usVisaBirthYear) || undefined
   const schengenCountry = normalizeText(item.schengenCountry) || undefined
   const schengenCity = normalizeText(item.schengenVisaCity) || undefined
+  const schengenFraNumber = normalizeText(item.schengenFraNumber) || undefined
 
   return {
     id: item.id,
     label: item.name,
     name: item.name,
+    groupName: normalizeText((item as ApplicantWithCasesRecord & { groupName?: string | null }).groupName) || undefined,
     phone: item.phone ?? undefined,
     email: item.email ?? undefined,
     wechat: item.wechat ?? undefined,
@@ -480,6 +537,7 @@ function mapApplicantProfileSummary(item: ApplicantWithCasesRecord) {
     schengen: {
       country: schengenCountry,
       city: schengenCity,
+      fraNumber: schengenFraNumber,
     },
     files: {},
   }
@@ -761,11 +819,39 @@ async function loadCaseRecord(
 
 export async function getApplicantCrmDetail(userId: string, role: string | undefined, applicantProfileId: string) {
   const [profile, isAdmin] = await Promise.all([
-    getApplicantProfile(userId, applicantProfileId, role),
+    getApplicantProfile(userId, applicantProfileId, role, {
+      includeUsVisaFullIntake: true,
+      includeSchengenFullIntake: true,
+    }),
     resolveIsAdmin(userId, role),
   ])
 
   if (!profile) return null
+
+  let hydratedProfile = profile
+  const needsUsVisaFallback = Boolean(profile.files.usVisaDs160Excel || profile.files.ds160Excel || profile.files.usVisaAisExcel || profile.files.aisExcel) && !profile.usVisa?.fullIntake
+  const needsSchengenFallback = Boolean(profile.files.schengenExcel || profile.files.franceExcel) && !profile.schengen?.fullIntake
+
+  if (needsUsVisaFallback || needsSchengenFallback) {
+    const [usVisaIntakeView, schengenIntakeView] = await Promise.all([
+      needsUsVisaFallback ? buildApplicantUsVisaIntakeView(userId, applicantProfileId, role) : Promise.resolve(null),
+      needsSchengenFallback ? buildApplicantSchengenIntakeView(userId, applicantProfileId, role) : Promise.resolve(null),
+    ])
+
+    hydratedProfile = {
+      ...profile,
+      usVisa: {
+        ...(profile.usVisa || {}),
+        ...(usVisaIntakeView?.usVisa || {}),
+        fullIntake: profile.usVisa?.fullIntake || usVisaIntakeView?.intake || undefined,
+      },
+      schengen: {
+        ...(profile.schengen || {}),
+        ...(schengenIntakeView?.schengen || {}),
+        fullIntake: profile.schengen?.fullIntake || schengenIntakeView?.intake || undefined,
+      },
+    }
+  }
 
   const cases = await prisma.visaCase.findMany({
     where: {
@@ -803,7 +889,7 @@ export async function getApplicantCrmDetail(userId: string, role: string | undef
     : []
 
   return {
-    profile,
+    profile: hydratedProfile,
     cases: await Promise.all(cases.map(mapCaseSummaryWithArtifacts)),
     activeCaseId: cases.find((item) => item.isActive)?.id ?? cases[0]?.id ?? null,
     availableAssignees,
@@ -1123,13 +1209,25 @@ export async function updateVisaCaseBasics(
         acceptVip:
           patch.acceptVip === undefined ? currentCase.acceptVip : normalizeOptionalText(patch.acceptVip),
         slotTime:
-          patch.slotTime === undefined ? currentCase.slotTime : parseDateValue(patch.slotTime),
+          patch.slotTime === undefined
+            ? currentCase.slotTime
+            : currentCase.caseType === USA_CASE_TYPE
+              ? parseDateValueForUsaPatch(patch.slotTime, currentCase.slotTime)
+              : parseDateValue(patch.slotTime),
         priority:
           patch.priority === undefined ? currentCase.priority : normalizePriority(patch.priority),
         travelDate:
-          patch.travelDate === undefined ? currentCase.travelDate : parseDateValue(patch.travelDate),
+          patch.travelDate === undefined
+            ? currentCase.travelDate
+            : currentCase.caseType === USA_CASE_TYPE
+              ? parseDateValueForUsaPatch(patch.travelDate, currentCase.travelDate)
+              : parseDateValue(patch.travelDate),
         submissionDate:
-          patch.submissionDate === undefined ? currentCase.submissionDate : parseDateValue(patch.submissionDate),
+          patch.submissionDate === undefined
+            ? currentCase.submissionDate
+            : currentCase.caseType === USA_CASE_TYPE
+              ? parseDateValueForUsaPatch(patch.submissionDate, currentCase.submissionDate)
+              : parseDateValue(patch.submissionDate),
         assignedToUserId,
         assignedRole,
         isActive: patch.isActive === undefined ? currentCase.isActive : patch.isActive,

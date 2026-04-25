@@ -18,6 +18,7 @@ from email.mime.text import MIMEText
 import unicodedata
 import re
 import base64
+import subprocess
 
 # 设置输出编码为UTF-8
 import io
@@ -49,6 +50,7 @@ DS-160自动填表程序 - 无头模式服务器版本
 # 日志：写入 ds160.log 便于排查（路径：ds160-server-package/ds160.log）
 _ds160_logger = None
 _ds160_log_path = None
+_telecode_cache = {}
 def _get_logger():
     global _ds160_logger, _ds160_log_path
     if _ds160_logger is not None:
@@ -66,8 +68,87 @@ def _get_logger():
         print(f"[DS160] 日志输出到: {_ds160_log_path}", file=sys.stderr)
     return _ds160_logger
 
+def _normalize_chinese_name(value):
+    if value is None:
+        return ""
+    return re.sub(r"[\s\u3000/\-]+", "", str(value).strip())
+
+def _normalize_telecode_value(value):
+    digits = re.sub(r"\D+", "", str(value or ""))
+    if not digits:
+        return ""
+    return " ".join(digits[i:i + 4] for i in range(0, len(digits), 4))
+
+def _derive_telecodes_from_chinese_name(chinese_name):
+    normalized = _normalize_chinese_name(chinese_name)
+    if not normalized:
+        return "", ""
+    cached = _telecode_cache.get(normalized)
+    if cached is not None:
+        return cached
+
+    node_script = r"""
+const { codeToNumber } = require('chinese-commercial-code-convertor');
+const compoundSurnames = new Set([
+  "万俟","上官","东方","东宫","东郭","东里","仲孙","仲长","令狐","公乘","公伯","公仪","公仲",
+  "公冶","公孙","公山","公帑","公户","公玉","公祖","公良","公西","公门","公坚","公羊","公羽",
+  "公皙","公析","公罔","公肩","公言","公锺","单于","南宫","南荣","南门","司马","司空","司寇",
+  "司徒","司城","呼延","壤驷","夏侯","夹谷","太叔","太史","子书","子桑","宇文","宗政","宰父",
+  "尉迟","左丘","巫马","微生","慕容","拓跋","澹台","濮阳","漆雕","申屠","皇甫","百里","第五",
+  "羊舌","闻人","诸葛","赵连","轩辕","钟离","长孙","闾丘","鲜于","谷梁","费莫","达奚","褚师",
+  "西门","贺兰","那拉","完颜","纳兰","欧阳"
+]);
+const name = (process.argv[1] || "").trim().replace(/[\s\u3000/\-]+/g, "");
+function splitName(fullName) {
+  if (!fullName) return ["", ""];
+  if (fullName.length === 1) return [fullName, ""];
+  const firstTwo = fullName.slice(0, 2);
+  if (fullName.length >= 3 && compoundSurnames.has(firstTwo)) return [firstTwo, fullName.slice(2)];
+  return [fullName.slice(0, 1), fullName.slice(1)];
+}
+function convert(segment) {
+  return [...segment]
+    .map((char) => String(codeToNumber(char, { lang: "cn", notFoundReturn: "-1" }) || "").trim())
+    .filter((code) => /^\d{4}$/.test(code))
+    .join(" ");
+}
+const [surname, given] = splitName(name);
+process.stdout.write(JSON.stringify({
+  telecodeSurname: convert(surname),
+  telecodeGivenName: convert(given)
+}));
+"""
+    try:
+        completed = subprocess.run(
+            ["node", "-e", node_script, normalized],
+            cwd=str(Path(__file__).resolve().parents[3]),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=15,
+            check=True,
+        )
+        payload = json.loads((completed.stdout or "").strip() or "{}")
+        result = (
+            _normalize_telecode_value(payload.get("telecodeSurname", "")),
+            _normalize_telecode_value(payload.get("telecodeGivenName", "")),
+        )
+        _telecode_cache[normalized] = result
+        return result
+    except Exception as exc:
+        try:
+            _get_logger().warning(f"[telecode] 中文名推导电码失败: {normalized} ({exc})")
+        except Exception:
+            pass
+        _telecode_cache[normalized] = ("", "")
+        return "", ""
+
 # 默认配置
-DEFAULT_API_KEY = ""
+DEFAULT_API_KEY = (
+    os.environ.get("TWOCAPTCHA_API_KEY", "").strip()
+    or os.environ.get("2CAPTCHA_API_KEY", "").strip()
+    or os.environ.get("CAPTCHA_API_KEY", "").strip()
+)
 
 # 进度计时：记录每个阶段耗时，供进度条优化。默认启用，DS160_TIMING=0 可关闭
 _timing_enabled = os.environ.get("DS160_TIMING", "1").lower() not in ("0", "false", "no")
@@ -426,11 +507,8 @@ def _sanitize_ds160_safe_text(value):
 def _sanitize_ds160_phone(value):
     if value is None:
         return ''
-    text = _normalize_ds160_ascii_text(value).upper()
-    text = re.sub(r"[^0-9 -]", ' ', text)
-    text = re.sub(r"\s+", " ", text).strip()
-    text = re.sub(r"\s*-\s*", "-", text)
-    return re.sub(r"\s+", " ", text).strip()
+    text = _normalize_ds160_ascii_text(value)
+    return re.sub(r"\D+", "", text)
 
 
 def _sanitize_ds160_country_text(value):
@@ -536,6 +614,10 @@ def _sanitize_ds160_excel_fields(result):
         'hotel_country',
     )
     phone_fields = (
+        'Primary Phone Number',
+        'last five years phone number',
+        'hotel_phone',
+        'trip_payer_phone',
         'Present Employer or School Phone',
         'Previous Employer or School Phone',
         'Educational Institution Phone',
@@ -627,6 +709,8 @@ def get_country_code(country_name):
         'AUSTRALIA': 'ASTL',
         'JAPAN': 'JPN',
         'SOUTH KOREA': 'KOR',
+        'KOREA, REPUBLIC OF (SOUTH)': 'KOR',
+        'KOREA, REPUBLIC OF': 'KOR',
         'GERMANY': 'GER',
         'FRANCE': 'FRAN',
         'ITALY': 'ITLY',
@@ -639,9 +723,11 @@ def get_country_code(country_name):
         'FINLAND': 'FIN',
         'SINGAPORE': 'SING',
         'HONG KONG': 'HNK',
+        'HONG KONG SAR': 'HNK',
         'TAIWAN': 'TWAN',
         'THAILAND': 'THAI',
         'VIETNAM': 'VTNM',
+        'VIET NAM': 'VTNM',
         'PHILIPPINES': 'PHIL',
         'INDONESIA': 'IDSA',
         'MALAYSIA': 'MLAS',
@@ -651,6 +737,11 @@ def get_country_code(country_name):
         'ARGENTINA': 'ARG',
         'CHILE': 'CHIL',
         'RUSSIA': 'RUS',
+        'RUSSIAN FEDERATION': 'RUS',
+        'MACAU': 'MAC',
+        'MACAO': 'MAC',
+        'MACAO SAR': 'MAC',
+        'MACAU SAR': 'MAC',
         'UKRAINE': 'UKR',
         'POLAND': 'POL',
         'CZECH REPUBLIC': 'CZEC',
@@ -818,25 +909,35 @@ def _resolve_us_state_for_ds160(state_raw):
 
 # DS-160 国家下拉框常用别名（用户 country_map 可能缺失或格式不一致）
 DS160_COUNTRY_ALIASES = {
-    "KOREA SOUTH": "KOREA, REPUBLIC OF",
-    "SOUTH KOREA": "KOREA, REPUBLIC OF",
-    "KOREA": "KOREA, REPUBLIC OF",
-    "KOREA REPUBLIC OF": "KOREA, REPUBLIC OF",
-    "KOREA NORTH": "KOREA, DEMOCRATIC PEOPLE'S REPUBLIC OF",
-    "NORTH KOREA": "KOREA, DEMOCRATIC PEOPLE'S REPUBLIC OF",
+    "KOREA SOUTH": "KOREA, REPUBLIC OF (SOUTH)",
+    "SOUTH KOREA": "KOREA, REPUBLIC OF (SOUTH)",
+    "KOREA": "KOREA, REPUBLIC OF (SOUTH)",
+    "KOREA REPUBLIC OF": "KOREA, REPUBLIC OF (SOUTH)",
+    "KOREA, REPUBLIC OF": "KOREA, REPUBLIC OF (SOUTH)",
+    "KOREA NORTH": "KOREA, DEMOCRATIC REPUBLIC OF (NORTH)",
+    "NORTH KOREA": "KOREA, DEMOCRATIC REPUBLIC OF (NORTH)",
+    "KOREA, DEMOCRATIC PEOPLE'S REPUBLIC OF": "KOREA, DEMOCRATIC REPUBLIC OF (NORTH)",
     "TAIWAN": "TAIWAN",
-    "HONG KONG": "HONG KONG SAR",
-    "MACAU": "MACAO SAR",
-    "MACAO": "MACAO SAR",
-    "VIETNAM": "VIET NAM",
-    "VIET NAM": "VIET NAM",
-    "RUSSIA": "RUSSIAN FEDERATION",
-    "BOLIVIA": "BOLIVIA, PLURINATIONAL STATE OF",
-    "IRAN": "IRAN, ISLAMIC REPUBLIC OF",
-    "LAOS": "LAO PEOPLE'S DEMOCRATIC REPUBLIC",
-    "SYRIA": "SYRIAN ARAB REPUBLIC",
-    "VENEZUELA": "VENEZUELA, BOLIVARIAN REPUBLIC OF",
+    "HONG KONG SAR": "HONG KONG",
+    "MACAU": "MACAU",
+    "MACAO": "MACAU",
+    "MACAO SAR": "MACAU",
+    "MACAU SAR": "MACAU",
+    "VIETNAM": "VIETNAM",
+    "VIET NAM": "VIETNAM",
+    "RUSSIAN FEDERATION": "RUSSIA",
+    "RUSSIA": "RUSSIA",
+    "BOLIVIA, PLURINATIONAL STATE OF": "BOLIVIA",
+    "IRAN, ISLAMIC REPUBLIC OF": "IRAN",
+    "LAO PEOPLE'S DEMOCRATIC REPUBLIC": "LAOS",
+    "SYRIAN ARAB REPUBLIC": "SYRIA",
+    "VENEZUELA, BOLIVARIAN REPUBLIC OF": "VENEZUELA",
 }
+
+def _normalize_country_match_text(value):
+    text = str(value or "").strip().upper()
+    return re.sub(r"[^A-Z0-9]+", " ", text).strip()
+
 def _resolve_country_for_ds160(country_raw, country_dict=None):
     """将国家名转为 DS-160 下拉框可识别的格式。优先使用用户 country_map.xlsx，再用别名修正格式"""
     s = str(country_raw).strip()
@@ -848,9 +949,22 @@ def _resolve_country_for_ds160(country_raw, country_dict=None):
 
 def _do_select_country(page, selector, country, log, idx, total):
     """选择国家下拉框，支持 label 失败时尝试 value 或模糊匹配，并验证是否选中"""
-    labels_to_try = [country]
-    if "," in country:
-        labels_to_try.append(country.replace(", ", ", "))  # 保持原样
+    labels_to_try = []
+    alias = DS160_COUNTRY_ALIASES.get(str(country or "").strip().upper())
+    for candidate in [country, alias]:
+        candidate = str(candidate or "").strip()
+        if candidate and candidate not in labels_to_try:
+            labels_to_try.append(candidate)
+
+    value_codes_to_try = []
+    for label in labels_to_try:
+        code = get_country_code(label)
+        normalized_label = _normalize_country_match_text(label)
+        if code == "CHIN" and normalized_label != "CHINA":
+            continue
+        if code and code not in value_codes_to_try:
+            value_codes_to_try.append(code)
+
     for attempt in range(2):
         for lbl in labels_to_try:
             try:
@@ -868,14 +982,35 @@ def _do_select_country(page, selector, country, log, idx, total):
                     page.wait_for_timeout(400)
             except Exception as e:
                 log.debug(f"[国家] label={lbl} 失败: {e}")
+
+        for code in value_codes_to_try:
+            try:
+                page.select_option(selector, value=code)
+                page.wait_for_timeout(300)
+                sel = page.query_selector(selector)
+                if sel:
+                    val = sel.evaluate("el => el.value")
+                    if val == code:
+                        log.info(f"[国家] 第 {idx} 个选择成功: {country} (value={code})")
+                        print(f"已选择去过的国家 {idx}/{total}: {country}")
+                        return
+            except Exception as e:
+                log.debug(f"[国家] value={code} 失败: {e}")
+
         try:
             opts = page.evaluate(f"""() => {{
                 const el = document.querySelector('{selector}');
                 if (!el) return [];
                 return Array.from(el.options).slice(1).map(o => ({{label: o.text.trim(), value: o.value}}));
             }}""") or []
+            normalized_targets = [_normalize_country_match_text(lbl) for lbl in labels_to_try if lbl]
             for opt in opts:
-                if country.upper() in str(opt.get("label", "")).upper():
+                option_label = str(opt.get("label", ""))
+                normalized_option = _normalize_country_match_text(option_label)
+                if any(
+                    target and (target in normalized_option or normalized_option in target)
+                    for target in normalized_targets
+                ):
                     page.select_option(selector, value=opt.get("value"))
                     page.wait_for_timeout(300)
                     print(f"已选择去过的国家 {idx}/{total}: {country} (value匹配)")
@@ -1157,6 +1292,16 @@ def process_excel_data(excel_path, country_dict=None):
             if day_key in result and result[day_key]:
                 result[day_key] = format_day(result[day_key])
         
+        result = _sanitize_ds160_excel_fields(result)
+        chinese_name = result.get('chinese_name', '')
+        result['chinese_name'] = _normalize_chinese_name(chinese_name)
+        result['telecode_surname'] = _normalize_telecode_value(result.get('telecode_surname', ''))
+        result['telecode_given_name'] = _normalize_telecode_value(result.get('telecode_given_name', ''))
+        if result['chinese_name'] and (not result['telecode_surname'] or not result['telecode_given_name']):
+            derived_surname, derived_given = _derive_telecodes_from_chinese_name(result['chinese_name'])
+            if derived_surname and derived_given:
+                result['telecode_surname'] = derived_surname
+                result['telecode_given_name'] = derived_given
         return [result]  # Return a list containing a single dictionary to maintain compatibility with previous code
         print(f"📝 当前 result 字典内容如下：{result}")
     except Exception as e:
@@ -1165,8 +1310,44 @@ def process_excel_data(excel_path, country_dict=None):
 
 class DS160Filler:
     def __init__(self, api_key, capsolver_key=None):
-        self.api_key = api_key
+        self.api_key = (
+            str(api_key or "").strip()
+            or os.environ.get("TWOCAPTCHA_API_KEY", "").strip()
+            or os.environ.get("2CAPTCHA_API_KEY", "").strip()
+            or os.environ.get("CAPTCHA_API_KEY", "").strip()
+        )
         self.capsolver_key = capsolver_key or os.environ.get("CAPSOLVER_API_KEY", "").strip() or os.environ.get("CAPSOLVER_KEY", "").strip()
+
+    def _captcha_proxy_candidates(self):
+        proxy_url = (
+            os.environ.get("CAPTCHA_PROXY", "").strip()
+            or os.environ.get("TLS_PROXY", "").strip()
+            or os.environ.get("HTTPS_PROXY", "").strip()
+        )
+        candidates = []
+        if proxy_url:
+            candidates.append({"http": proxy_url, "https": proxy_url})
+        candidates.append({"http": None, "https": None})
+        return candidates
+
+    def _request_with_proxy_fallback(self, method, url, *, timeout=30, **kwargs):
+        last_error = None
+        for idx, proxies in enumerate(self._captcha_proxy_candidates(), start=1):
+            try:
+                return requests.request(method, url, timeout=timeout, proxies=proxies, **kwargs)
+            except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError, OSError) as err:
+                last_error = err
+                using_proxy = bool(proxies.get("http") or proxies.get("https"))
+                if using_proxy:
+                    print(f"Warning: CAPTCHA request proxy failed, retrying direct... ({err})")
+                    _get_logger().warning(f"[captcha] 代理请求失败，切换直连: {err}")
+                    continue
+                if idx < len(self._captcha_proxy_candidates()):
+                    continue
+                raise
+        if last_error:
+            raise last_error
+        raise RuntimeError("CAPTCHA request failed without response")
 
     def solve_captcha(self, image_path):
         """识别验证码：优先 2Captcha（美签历史行为），失败再试 Capsolver。"""
@@ -1199,34 +1380,24 @@ class DS160Filler:
         """使用 2Captcha 识别图片验证码（DS-160 登录页）。"""
         if not self.api_key:
             return None
-        # 代理设置：优先 CAPTCHA_PROXY，其次 TLS_PROXY/HTTPS_PROXY
-        proxy_url = (
-            os.environ.get("CAPTCHA_PROXY", "").strip()
-            or os.environ.get("TLS_PROXY", "").strip()
-            or os.environ.get("HTTPS_PROXY", "").strip()
-        )
-        if proxy_url:
-            proxies = {"http": proxy_url, "https": proxy_url}
-        else:
-            proxies = {"http": None, "https": None}
         # 可选的备用域名（部分网络环境下 2captcha.com 连不通时可尝试）
         api_base = os.environ.get("CAPTCHA_API_BASE", "https://2captcha.com").rstrip("/")
 
         def _post_captcha():
             with open(image_path, 'rb') as f:
-                return requests.post(
+                return self._request_with_proxy_fallback(
+                    "POST",
                     f'{api_base}/in.php',
                     files={'file': f},
                     data={'key': self.api_key, 'json': 1, 'regsense': 1},
                     timeout=30,
-                    proxies=proxies
                 )
 
         def _get_result(captcha_id):
-            return requests.get(
+            return self._request_with_proxy_fallback(
+                "GET",
                 f'{api_base}/res.php?key={self.api_key}&action=get&id={captcha_id}&json=1',
                 timeout=30,
-                proxies=proxies
             )
 
         # 提交验证码：SSL/连接错误时重试最多 3 次
@@ -1278,18 +1449,13 @@ class DS160Filler:
 
     def _solve_captcha_capsolver(self, image_path):
         """使用 Capsolver ImageToTextTask 识别图片验证码"""
-        proxy_url = (
-            os.environ.get("CAPTCHA_PROXY", "").strip()
-            or os.environ.get("TLS_PROXY", "").strip()
-            or os.environ.get("HTTPS_PROXY", "").strip()
-        )
-        proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else {"http": None, "https": None}
         try:
             with open(image_path, 'rb') as f:
                 img_b64 = base64.b64encode(f.read()).decode()
             print(f"Using Capsolver API ({self.capsolver_key[:10]}...)")
             for task_attempt in range(3):
-                create_resp = requests.post(
+                create_resp = self._request_with_proxy_fallback(
+                    "POST",
                     'https://api.capsolver.com/createTask',
                     json={
                         "clientKey": self.capsolver_key,
@@ -1299,7 +1465,6 @@ class DS160Filler:
                         },
                     },
                     timeout=30,
-                    proxies=proxies,
                 )
                 create_data = create_resp.json()
                 if create_data.get("errorId") != 0:
@@ -1320,11 +1485,11 @@ class DS160Filler:
                 should_retry_task = False
                 for attempt in range(12):
                     time.sleep(1)
-                    result_resp = requests.post(
+                    result_resp = self._request_with_proxy_fallback(
+                        "POST",
                         'https://api.capsolver.com/getTaskResult',
                         json={"clientKey": self.capsolver_key, "taskId": task_id},
                         timeout=30,
-                        proxies=proxies,
                     )
                     result_data = result_resp.json()
                     if result_data.get("errorId") != 0:
@@ -1379,12 +1544,21 @@ class DS160Filler:
             ]
             
             import os
-            is_headless = True
-            browser_args.extend([
-                "--headless=new",
-                "--disable-gpu",
-                "--no-sandbox",
-            ])
+            headless_env = str(os.environ.get("HEADLESS", "true") or "true").strip().lower()
+            is_headless = headless_env not in ("0", "false", "no", "off")
+            if is_headless:
+                browser_args.extend([
+                    "--headless=new",
+                    "--disable-gpu",
+                    "--no-sandbox",
+                ])
+            slow_mo_ms = 0
+            slow_mo_env = str(os.environ.get("PLAYWRIGHT_SLOW_MO_MS", "") or "").strip()
+            if slow_mo_env:
+                try:
+                    slow_mo_ms = max(0, int(slow_mo_env))
+                except ValueError:
+                    slow_mo_ms = 0
             
             # 尝试使用 Playwright 自带的 Chromium，若未安装则回退到系统 Chrome
             chrome_path = None
@@ -1404,7 +1578,7 @@ class DS160Filler:
                 browser = p.chromium.launch(
                     headless=is_headless,
                     args=browser_args,
-                    slow_mo=0,
+                    slow_mo=slow_mo_ms,
                     executable_path=chrome_path if chrome_path else None,
                 )
             except Exception as e:
@@ -1421,7 +1595,7 @@ class DS160Filler:
                                 headless=is_headless,
                                 args=browser_args,
                                 executable_path=path,
-                                slow_mo=0,
+                                slow_mo=slow_mo_ms,
                             )
                             break
                     else:
@@ -1443,6 +1617,34 @@ class DS160Filler:
             
             # Enable additional capabilities for headed mode
             page = browser_context.new_page()
+
+            def wait_for_manual_captcha(selector, wait_seconds=180):
+                if is_headless:
+                    return None
+                try:
+                    page.locator(selector).click()
+                except Exception:
+                    pass
+                print(f"Manual CAPTCHA fallback: please type the code in the browser within {wait_seconds} seconds...")
+                _step_log(f"step=Captcha_Manual 有头模式等待人工输入验证码（最长 {wait_seconds} 秒）")
+                try:
+                    page.wait_for_function(
+                        """(sel) => {
+                            const el = document.querySelector(sel);
+                            return !!el && typeof el.value === 'string' && el.value.trim().length > 0;
+                        }""",
+                        arg=selector,
+                        timeout=wait_seconds * 1000,
+                    )
+                    manual_code = (page.locator(selector).input_value() or "").strip()
+                    if manual_code:
+                        print(f"Manual CAPTCHA accepted: {manual_code}")
+                        _get_logger().info(f"[CAPTCHA] 人工输入验证码: {manual_code}")
+                        return manual_code
+                except Exception as manual_err:
+                    print(f"Manual CAPTCHA wait timed out: {manual_err}")
+                return None
+
             current_dir = os.path.dirname(os.path.abspath(__file__))
             email_folder_name = user_email.replace('@', '_').replace('.', '_').replace('+', '_')
             new_folder_path = os.path.join(current_dir, email_folder_name)
@@ -1598,6 +1800,20 @@ class DS160Filler:
                 return " | ".join(texts[:5]).strip()
 
             def recover_from_application_error(aa_code, personal_info):
+                def find_visible_selector(selectors, timeout_ms=0):
+                    deadline = time.time() + (timeout_ms / 1000.0) if timeout_ms else None
+                    while True:
+                        for selector in selectors:
+                            try:
+                                locator = page.locator(selector)
+                                if locator.count() > 0 and locator.first.is_visible():
+                                    return selector
+                            except Exception:
+                                continue
+                        if deadline is None or time.time() >= deadline:
+                            return None
+                        page.wait_for_timeout(250)
+
                 try:
                     page.wait_for_selector(
                         "#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_tbxApplicationID",
@@ -1616,30 +1832,70 @@ class DS160Filler:
                     raise RuntimeError("恢复申请缺少姓氏前5位或出生年份，无法自动 Retrieve Application")
 
                 page.fill("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_tbxApplicationID", aa_code)
-                page.click("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_btnBarcodeSubmit")
+                initial_retrieve_selector = find_visible_selector(
+                    [
+                        "#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_btnBarcodeSubmit",
+                        "#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_btnRetrieve",
+                    ],
+                    timeout_ms=5000,
+                )
+                if not initial_retrieve_selector:
+                    raise RuntimeError("CEAC 恢复申请页未找到 Retrieve 按钮")
+                page.click(initial_retrieve_selector)
                 page.wait_for_timeout(1200)
 
-                if page.locator("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_btnRequestSubmit").count() > 0:
+                request_submit_selector = find_visible_selector(
+                    ["#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_btnRequestSubmit"],
+                    timeout_ms=2000,
+                )
+                if request_submit_selector:
                     try:
-                        page.click("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_btnRequestSubmit")
+                        page.click(request_submit_selector)
                         page.wait_for_timeout(1200)
                     except Exception:
                         pass
 
-                page.wait_for_selector(
-                    "#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_txbAnswer1",
-                    state="visible",
-                    timeout=15000,
+                answer_selector = find_visible_selector(
+                    [
+                        "#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_txbAnswer1",
+                        "#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_txbAnswer",
+                    ],
+                    timeout_ms=15000,
                 )
+                surname_selector = find_visible_selector(
+                    [
+                        "#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_txbSname",
+                        "#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_txbSurname",
+                    ],
+                    timeout_ms=1000,
+                )
+                year_selector = find_visible_selector(
+                    [
+                        "#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_txbYear",
+                        "#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_txbDOBYear",
+                    ],
+                    timeout_ms=1000,
+                )
+                if not answer_selector or not surname_selector or not year_selector:
+                    raise RuntimeError("CEAC 恢复申请页未找到安全问题输入框")
                 try:
                     page.select_option("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_ddlLocation", value="LND")
                 except Exception:
                     pass
-                page.fill("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_txbSname", surname_val)
-                page.fill("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_txbYear", birth_year)
-                page.fill("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_txbAnswer1", "MOTHER")
+                page.fill(surname_selector, surname_val)
+                page.fill(year_selector, birth_year)
+                page.fill(answer_selector, "MOTHER")
+                final_retrieve_selector = find_visible_selector(
+                    [
+                        "#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_Button1",
+                        "#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_btnRetrieve",
+                    ],
+                    timeout_ms=5000,
+                )
+                if not final_retrieve_selector:
+                    raise RuntimeError("CEAC 恢复申请页未找到最终 Retrieve 按钮")
                 with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
-                    page.click("#ctl00_SiteContentPlaceHolder_ApplicationRecovery1_Button1")
+                    page.click(final_retrieve_selector)
                 page.wait_for_timeout(1500)
 
             def is_save_confirmation_page():
@@ -1738,6 +1994,11 @@ class DS160Filler:
                 print("Solving CAPTCHA...")
                 captcha_code = self.solve_captcha(captcha_path)
                 os.remove(captcha_path)
+                
+                if not captcha_code:
+                    captcha_code = wait_for_manual_captcha(
+                        "#ctl00_SiteContentPlaceHolder_ucLocation_IdentifyCaptcha1_txtCodeTextBox"
+                    )
                 
                 if not captcha_code:
                     print("CAPTCHA recognition failed")
@@ -1867,19 +2128,22 @@ class DS160Filler:
                 # 点击"Next: Personal 2"按钮（与原 ds160-processor 一致：click + 等待 + goto）
                 _progress(15, "填写基本信息...")
                 _step_log("step=Personal1_Next 点击 Next: Personal 2")
-                page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
-                page.wait_for_timeout(2000)
-                _step_log("step=Personal1_Next 等待2秒完成")
-
-                # 直接访问 Personal2 页面（原项目做法）。用 domcontentloaded 避免因第三方资源 404/超时导致 load 永不触发
-                _step_log("step=Personal2_Goto 开始 goto Personal2")
-                page.goto(
-                    "https://ceac.state.gov/GenNIV/General/complete/complete_personalcont.aspx?node=Personal2",
-                    wait_until="domcontentloaded",
-                    timeout=60000
-                )
-                page.wait_for_timeout(800)
-                _step_log("step=Personal2_Goto goto 完成，等待500ms")
+                try:
+                    with page.expect_navigation(timeout=30000, wait_until="domcontentloaded"):
+                        page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
+                except Exception as nav_err:
+                    _step_log(f"step=Personal1_Next 导航异常: {nav_err}")
+                    raise
+                page.wait_for_timeout(1200)
+                try:
+                    page.wait_for_selector("#ctl00_SiteContentPlaceHolder_FormView1_ddlAPP_NATL", state="visible", timeout=15000)
+                except Exception as sel_err:
+                    if "Application Error" in (page.content() or ""):
+                        _error_log("Personal1_Next", "CEAC Application Error，Personal 1 提交后未进入 Personal 2",
+                                   f"原因: {sel_err}")
+                        raise RuntimeError("CEAC Application Error（Personal 1→Personal 2）") from sel_err
+                    raise
+                _step_log("step=Personal2_Enter 进入 Personal 2 页面")
                 _progress(18, "进入个人信息第二部分...")
 
                 # 选择国籍
@@ -2050,24 +2314,120 @@ class DS160Filler:
                 except Exception as e:
                     print(f"选择同行人选项失败: {e}")
                 
-                # 关键：点击 No 会触发 postback，必须等 CEAC 响应完成后再点 Next，否则易出现 Application Error
-                _step_log("step=TravelCompanions 等待 postback 完成（5 秒）...")
-                page.wait_for_timeout(5000)
-                capture_guide_page("travel_companions")
-                _step_log("step=TravelCompanions_Next 点击 Next: Previous U.S. Travel")
+                travel_companions_no_selector = "#ctl00_SiteContentPlaceHolder_FormView1_rblOtherPersonsTravelingWithYou_1"
+                previous_us_travel_selector = (
+                    "#ctl00_SiteContentPlaceHolder_FormView1_rblPREV_US_TRAVEL_IND_0, "
+                    "#ctl00_SiteContentPlaceHolder_FormView1_rblPrevUSVisit_0"
+                )
+                next_button_selector = "#ctl00_SiteContentPlaceHolder_UpdateButton3"
+
+                def wait_for_travel_companions_postback():
+                    _step_log("step=TravelCompanions 等待 postback 完成...")
+                    try:
+                        page.wait_for_function(
+                            """(selectors) => {
+                                const noRadio = document.querySelector(selectors.no);
+                                const nextBtn = document.querySelector(selectors.next);
+                                const updateProgress =
+                                    document.querySelector('#ctl00_UpdateProgress1') ||
+                                    document.querySelector('#ctl00_SiteContentPlaceHolder_UpdateProgress1') ||
+                                    document.querySelector('.updateProgress');
+                                const progressHidden = !updateProgress || updateProgress.offsetParent === null;
+                                return !!noRadio && !!nextBtn && noRadio.checked && !nextBtn.disabled && progressHidden;
+                            }""",
+                            arg={"no": travel_companions_no_selector, "next": next_button_selector},
+                            timeout=12000,
+                        )
+                    except Exception as postback_wait_err:
+                        _step_log(
+                            f"step=TravelCompanions postback 显式等待未命中，回退到固定等待: {postback_wait_err}"
+                        )
+                        page.wait_for_timeout(3500)
+                    page.wait_for_timeout(800)
+
+                def attempt_go_previous_us_travel():
+                    wait_for_travel_companions_postback()
+                    capture_guide_page("travel_companions")
+                    _step_log("step=TravelCompanions_Next 点击 Next: Previous U.S. Travel")
+                    try:
+                        with page.expect_navigation(timeout=25000, wait_until="domcontentloaded"):
+                            page.click(next_button_selector)
+                    except Exception as nav_err:
+                        _step_log(f"step=TravelCompanions_Next 导航异常，继续检查当前页面: {nav_err}")
+                        try:
+                            page.click(next_button_selector)
+                        except Exception:
+                            pass
+                    page.wait_for_timeout(1500)
+                    if is_application_error_page():
+                        return False
+                    try:
+                        page.wait_for_selector(previous_us_travel_selector, state="visible", timeout=15000)
+                        return True
+                    except Exception:
+                        return False
+
                 try:
-                    with page.expect_navigation(timeout=25000, wait_until="domcontentloaded"):
-                        page.click("#ctl00_SiteContentPlaceHolder_UpdateButton3")
-                except Exception as nav_err:
-                    _step_log(f"step=TravelCompanions_Next 导航异常: {nav_err}")
-                    raise
-                page.wait_for_timeout(1500)
-                # 检测是否误入 Application Error 页（常因 曾有明=Yes 但曾用名空、或点击过快）
-                if "Application Error" in (page.content() or ""):
-                    _step_log("step=TravelCompanions_Next 检测到 CEAC Application Error 页")
-                    _error_log("TravelCompanions_Next", "CEAC Application Error，从 Travel Companions 进入 Previous U.S. Travel 失败",
-                               "可能原因：1) 曾有明=Yes 但曾用名未填（程序已自动修正） 2) 点击过快 3) CEAC 服务器异常。请检查 Excel 中 曾有明 与 曾用名姓氏/名字 是否一致，或稍后重试。")
-                    raise RuntimeError("CEAC Application Error（Travel Companions→Previous U.S. Travel），请检查 Excel 曾有明/曾用名填写，或稍后重试")
+                    if not attempt_go_previous_us_travel():
+                        first_error_screenshot, first_error_html = save_debug_snapshot(
+                            "travel_companions_application_error"
+                        )
+                        first_error_text = extract_ceac_error_text()
+                        _step_log("step=TravelCompanions_Next 检测到 CEAC Application Error 页，尝试自动恢复")
+                        recover_from_application_error(aa_code, personal_info)
+                        recovered_screenshot, recovered_html = save_debug_snapshot(
+                            "travel_companions_after_recover"
+                        )
+                        try:
+                            page.wait_for_selector(
+                                travel_companions_no_selector, state="visible", timeout=15000
+                            )
+                        except Exception:
+                            pass
+                        if not attempt_go_previous_us_travel():
+                            debug_screenshot, debug_html = save_debug_snapshot(
+                                "travel_companions_application_error_after_recover"
+                            )
+                            debug_error_text = extract_ceac_error_text()
+                            _step_log("step=TravelCompanions_Next 自动恢复后再次检测到 CEAC Application Error 页")
+                            _error_log(
+                                "TravelCompanions_Next",
+                                "CEAC Application Error，从 Travel Companions 进入 Previous U.S. Travel 失败",
+                                f"AA码 {aa_code} 已保存，可在官网 Retrieve Application 恢复申请。"
+                                f" 首次错误页文件: {first_error_screenshot}, {first_error_html}。"
+                                f"{f' 首次错误提示: {first_error_text}。' if first_error_text else ''}"
+                                f" 恢复后页面文件: {recovered_screenshot}, {recovered_html}。"
+                                f" 再次错误页文件: {debug_screenshot}, {debug_html}。"
+                                f"{f' 再次错误提示: {debug_error_text}。' if debug_error_text else ''}",
+                            )
+                            raise RuntimeError(
+                                f"CEAC Application Error（Travel Companions→Previous U.S. Travel，自动恢复后仍失败）。"
+                                f"AA码 {aa_code} 已保存，请至官网恢复申请后重试。"
+                            )
+                except Exception as travel_wait_err:
+                    debug_screenshot, debug_html = save_debug_snapshot(
+                        "travel_companions_transition_failure"
+                    )
+                    if is_application_error_page():
+                        err_text = extract_ceac_error_text()
+                        _step_log("step=TravelCompanions_Next 等待 Previous U.S. Travel 时检测到 CEAC Application Error 页")
+                        _error_log(
+                            "TravelCompanions_Next",
+                            "CEAC Application Error，从 Travel Companions 进入 Previous U.S. Travel 失败",
+                            f"AA码 {aa_code} 已保存，可在官网 Retrieve Application 恢复申请。"
+                            f" 错误页文件: {debug_screenshot}, {debug_html}。"
+                            f"{f' 错误提示: {err_text}。' if err_text else ''}",
+                        )
+                        raise RuntimeError(
+                            f"CEAC Application Error（Travel Companions→Previous U.S. Travel）。"
+                            f"AA码 {aa_code} 已保存，请至官网恢复申请后重试。"
+                        ) from travel_wait_err
+                    err_text = extract_ceac_error_text()
+                    raise RuntimeError(
+                        f"Travel Companions → Previous U.S. Travel 页面跳转失败，"
+                        f"CEAC 可能有校验错误: {err_text or '未知'}。"
+                        f" 错误页文件: {debug_screenshot}, {debug_html}"
+                    ) from travel_wait_err
                 _step_log("step=PrevUSTravel_Enter 进入 Previous U.S. Travel 页面")
                 _progress(28, "进入Previous U.S. Travel页面...")
                 # 等待表单加载（兼容两种可能的控件 ID）

@@ -5,24 +5,39 @@ import fs from "fs/promises"
 import path from "path"
 
 import { authOptions } from "@/lib/auth"
-import {
-  getApplicantProfile,
-  getApplicantProfileFileByCandidates,
-  saveApplicantProfileFileFromAbsolutePath,
-} from "@/lib/applicant-profiles"
+import { getApplicantProfile, getApplicantProfileFileByCandidates } from "@/lib/applicant-profiles"
 import { advanceFranceCase, setFranceCaseException } from "@/lib/france-cases"
 import { createTask, updateTask } from "@/lib/french-visa-tasks"
+import { getPythonRuntimeCommand } from "@/lib/python-runtime"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
 
 type JsonObject = Record<string, unknown>
 
+type RegisterRunData = JsonObject & {
+  success?: boolean
+  error?: string
+  total?: number
+  success_count?: number
+  fail_count?: number
+  results?: Array<Record<string, unknown>>
+  message?: string
+  log_file?: string
+}
+
+function buildDownloadUrl(outputId: string, filename?: string) {
+  if (!filename) return undefined
+  return `/api/schengen/france/extract-register/download/${outputId}/${encodeURIComponent(filename)}`
+}
+
 function flushRegisterProgress(
   taskId: string,
   chunk: string,
   progressBuffer: { current: string },
   prefix: string,
+  fileIndex: number,
+  totalFiles: number,
 ) {
   progressBuffer.current += chunk
   const lines = progressBuffer.current.split(/\r?\n/)
@@ -32,11 +47,11 @@ function flushRegisterProgress(
     if (!match) continue
     const progress = Number.parseInt(match[1], 10)
     const message = match[2].trim()
-    const mappedProgress = Math.min(99, 55 + Math.round((progress / 100) * 44))
+    const overall = Math.min(99, 10 + Math.round((((fileIndex - 1) + progress / 100) / totalFiles) * 85))
     void updateTask(taskId, {
       status: "running",
-      progress: mappedProgress,
-      message: prefix + `注册：${message}`,
+      progress: overall,
+      message: `${prefix}注册：${message}`,
     })
   }
 }
@@ -47,7 +62,7 @@ function spawnJsonProcess(
   cwd: string,
   onStderr?: (chunk: string) => void,
 ) {
-  return new Promise<{ code: number | null; data: JsonObject | null; stdout: string }>((resolve, reject) => {
+  return new Promise<{ code: number | null; data: RegisterRunData | null; stdout: string }>((resolve, reject) => {
     const proc = spawn(command, args, {
       cwd,
       env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
@@ -64,7 +79,7 @@ function spawnJsonProcess(
     })
     proc.on("close", (code) => {
       try {
-        const data = JSON.parse(stdout.trim() || "{}") as JsonObject
+        const data = JSON.parse(stdout.trim() || "{}") as RegisterRunData
         resolve({ code, data, stdout })
       } catch {
         if (stdout.trim()) {
@@ -76,6 +91,41 @@ function spawnJsonProcess(
     })
     proc.on("error", (error) => reject(error))
   })
+}
+
+function hasLogicalFailure(data: RegisterRunData | null) {
+  if (!data?.success) return true
+  const successCount = typeof data.success_count === "number" ? data.success_count : 0
+  const failCount = typeof data.fail_count === "number" ? data.fail_count : 0
+  return failCount > 0 && successCount === 0
+}
+
+function firstFailureMessage(data: RegisterRunData | null) {
+  if (!Array.isArray(data?.results)) return ""
+  return (
+    data.results
+      .map((item) => String(item?.error || item?.message || "").trim())
+      .find((message) => Boolean(message)) || ""
+  )
+}
+
+function buildRegisterResultMessage(results: Array<Record<string, unknown>>) {
+  const lines = results
+    .map((item) => {
+      const email = typeof item.email === "string" ? item.email.trim() : ""
+      const status = typeof item.status === "string" ? item.status.trim() : ""
+      const detail =
+        (typeof item.error === "string" && item.error.trim()) ||
+        (typeof item.message === "string" && item.message.trim()) ||
+        ""
+      if (status === "success") {
+        return email ? `${email} 注册成功` : detail || "注册成功"
+      }
+      if (!email && !detail) return ""
+      return email ? `${email} 注册失败：${detail || "未知原因"}` : detail || "注册失败"
+    })
+    .filter(Boolean)
+  return lines.join("\n")
 }
 
 export async function POST(request: NextRequest) {
@@ -123,15 +173,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const extractScriptPath = path.join(process.cwd(), "services", "french-visa", "extract_cli.py")
     const registerScriptPath = path.join(process.cwd(), "services", "french-visa", "register_cli.py")
     try {
-      await Promise.all([fs.access(extractScriptPath), fs.access(registerScriptPath)])
+      await fs.access(registerScriptPath)
     } catch {
-      return NextResponse.json({ success: false, error: "法签提取或注册服务未找到，请检查 services/french-visa" }, { status: 500 })
+      return NextResponse.json(
+        { success: false, error: "法签注册服务未找到，请确认 services/french-visa/register_cli.py 已部署" },
+        { status: 500 },
+      )
     }
 
-    const task = await createTask(userId, "extract-register", `提取+注册 · ${files.length} 个文件`, {
+    const task = await createTask(userId, "extract-register", `FV注册 · ${files.length} 个文件`, {
       applicantProfileId: applicantProfileId || undefined,
       caseId: caseId || undefined,
       applicantName: applicantProfile?.name || applicantProfile?.label,
@@ -141,7 +193,7 @@ export async function POST(request: NextRequest) {
     const outputDir = path.join(process.cwd(), "temp", "french-visa-extract-register", outputId)
     await fs.mkdir(outputDir, { recursive: true })
 
-    const inputPaths: string[] = []
+    const inputPaths: Array<{ inputPath: string; fileName: string }> = []
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index]
       const base = (file.name || "data").replace(/[^a-zA-Z0-9._-]/g, "_").replace(/\.(xlsx|xls)$/i, "") || "data"
@@ -149,13 +201,13 @@ export async function POST(request: NextRequest) {
       const safeName = `${base}_${index + 1}.${ext}`
       const inputPath = path.join(outputDir, safeName)
       await fs.writeFile(inputPath, Buffer.from(await file.arrayBuffer()))
-      inputPaths.push(inputPath)
+      inputPaths.push({ inputPath, fileName: file.name || safeName })
     }
 
     await updateTask(task.task_id, {
       status: "running",
       progress: 5,
-      message: "准备开始提取+注册...",
+      message: "准备开始 FV 注册...",
     })
 
     if (applicantProfileId) {
@@ -165,7 +217,7 @@ export async function POST(request: NextRequest) {
         mainStatus: "TLS_PROCESSING",
         subStatus: "TLS_REGISTERING",
         clearException: true,
-        reason: "Started France extract+register flow",
+        reason: "Started France FV register flow",
       }).catch((error) => {
         console.error("Failed to advance France case before extract-register", error)
       })
@@ -173,151 +225,112 @@ export async function POST(request: NextRequest) {
 
     void (async () => {
       try {
-        await updateTask(task.task_id, {
-          status: "running",
-          progress: 12,
-          message: "正在提取注册信息...",
-        })
+        const pythonCommand = getPythonRuntimeCommand()
+        const runResults: Array<Record<string, unknown>> = []
+        const downloadArtifacts: Array<Record<string, string>> = []
+        let totalRows = 0
+        let successCount = 0
+        let failCount = 0
 
-        const extractRun = await spawnJsonProcess(
-          "python",
-          ["-u", extractScriptPath, ...inputPaths, "--output-dir", outputDir],
-          process.cwd(),
-        )
-        const extractData = extractRun.data
+        for (let index = 0; index < inputPaths.length; index += 1) {
+          const current = inputPaths[index]
+          const prefix = `[${current.fileName}] `
 
-        if (!extractData?.success || typeof extractData.output_file !== "string") {
           await updateTask(task.task_id, {
-            status: "failed",
-            progress: 0,
-            message: "提取失败，未开始注册",
-            error: typeof extractData?.error === "string" ? extractData.error : `退出码 ${extractRun.code}`,
-            result: {
-              success: false,
-              stage: "extract",
-              error: typeof extractData?.error === "string" ? extractData.error : undefined,
-            },
+            status: "running",
+            progress: Math.min(95, 10 + Math.round((index / inputPaths.length) * 85)),
+            message: `${prefix}开始读取原始 Excel 并注册...`,
           })
 
-          if (applicantProfileId) {
-            await setFranceCaseException({
-              userId,
-              applicantProfileId,
-              mainStatus: "TLS_PROCESSING",
-              subStatus: "TLS_REGISTERING",
-              exceptionCode: "TLS_REGISTER_FAILED",
-              reason: "France extract step failed",
-            }).catch((error) => {
-              console.error("Failed to set France case exception after extract-register extract failure", error)
+          const progressBuffer = { current: "" }
+          const registerRun = await spawnJsonProcess(
+            pythonCommand,
+            ["-u", registerScriptPath, current.inputPath, "--output-dir", outputDir],
+            process.cwd(),
+            (chunk) => flushRegisterProgress(task.task_id, chunk, progressBuffer, prefix, index + 1, inputPaths.length),
+          )
+
+          const registerData = registerRun.data
+          const logFile = typeof registerData?.log_file === "string" ? registerData.log_file : undefined
+          const downloadLog = buildDownloadUrl(outputId, logFile)
+
+          if (logFile && downloadLog) {
+            downloadArtifacts.push({
+              label: `运行日志 · ${current.fileName}`,
+              filename: logFile,
+              url: downloadLog,
             })
           }
-          return
-        }
 
-        const extractExcelName = extractData.output_file
-        const extractJsonName = typeof extractData.json_file === "string" ? extractData.json_file : undefined
-        const extractedExcelPath = path.join(outputDir, extractExcelName)
-        const downloadExcel = `/api/schengen/france/extract-register/download/${outputId}/${encodeURIComponent(extractExcelName)}`
-        const downloadJson = extractJsonName
-          ? `/api/schengen/france/extract-register/download/${outputId}/${encodeURIComponent(extractJsonName)}`
-          : undefined
+          const fileSuccessCount = typeof registerData?.success_count === "number" ? registerData.success_count : 0
+          const fileFailCount = typeof registerData?.fail_count === "number" ? registerData.fail_count : 0
+          totalRows += typeof registerData?.total === "number" ? registerData.total : 0
+          successCount += fileSuccessCount
+          failCount += fileFailCount
 
-        let archivedProfileAccountsUrl: string | undefined
-        if (extractJsonName && applicantProfileId) {
-          try {
-            await saveApplicantProfileFileFromAbsolutePath({
-              userId,
-              id: applicantProfileId,
-              slot: "franceTlsAccountsJson",
-              sourcePath: path.join(outputDir, extractJsonName),
-              originalName: extractJsonName,
-              mimeType: "application/json",
-            })
-            archivedProfileAccountsUrl = `/api/applicants/${applicantProfileId}/files/franceTlsAccountsJson`
-          } catch (archiveError) {
-            console.error("Failed to archive extracted TLS accounts JSON to applicant profile", archiveError)
+          if (Array.isArray(registerData?.results)) {
+            runResults.push(
+              ...registerData.results.map((item) => ({
+                ...item,
+                source_file: current.fileName,
+              })),
+            )
           }
-        }
 
-        await updateTask(task.task_id, {
-          status: "running",
-          progress: 55,
-          message: "提取完成，开始注册账号...",
-          result: {
-            success: true,
-            stage: "extract",
-            download_excel: downloadExcel,
-            download_json: downloadJson,
-            archived_profile_accounts_url: archivedProfileAccountsUrl,
-            extract_message: extractData.message,
-          },
-        })
+          if (hasLogicalFailure(registerData)) {
+            const errorMessage =
+              typeof registerData?.error === "string"
+                ? registerData.error
+                : firstFailureMessage(registerData) || `退出码 ${registerRun.code}`
 
-        const progressBuffer = { current: "" }
-        const registerRun = await spawnJsonProcess(
-          "python",
-          ["-u", registerScriptPath, extractedExcelPath, "--output-dir", outputDir],
-          process.cwd(),
-          (chunk) => flushRegisterProgress(task.task_id, chunk, progressBuffer, ""),
-        )
-        const registerData = registerRun.data
-        const logFile = typeof registerData?.log_file === "string" ? registerData.log_file : undefined
-        const downloadLog = logFile
-          ? `/api/schengen/france/extract-register/download/${outputId}/${encodeURIComponent(logFile)}`
-          : undefined
-
-        if (!registerData?.success) {
-          await updateTask(task.task_id, {
-            status: "failed",
-            progress: 0,
-            message: "注册失败",
-            error: typeof registerData?.error === "string" ? registerData.error : `退出码 ${registerRun.code}`,
-            result: {
-              success: false,
-              stage: "register",
-              download_excel: downloadExcel,
-              download_json: downloadJson,
-              archived_profile_accounts_url: archivedProfileAccountsUrl,
-              download_log: downloadLog,
-              message: typeof registerData?.message === "string" ? registerData.message : "提取完成，但注册失败",
-              total: registerData?.total,
-              success_count: registerData?.success_count,
-              fail_count: registerData?.fail_count,
-              results: registerData?.results,
-            },
-          })
-
-          if (applicantProfileId) {
-            await setFranceCaseException({
-              userId,
-              applicantProfileId,
-              mainStatus: "TLS_PROCESSING",
-              subStatus: "TLS_REGISTERING",
-              exceptionCode: "TLS_REGISTER_FAILED",
-              reason: typeof registerData?.error === "string" ? registerData.error : "France register step failed",
-            }).catch((error) => {
-              console.error("Failed to set France case exception after extract-register register failure", error)
+            await updateTask(task.task_id, {
+              status: "failed",
+              progress: 0,
+              message: `${prefix}FV 注册失败`,
+              error: errorMessage,
+              result: {
+                success: false,
+                stage: "register",
+                message: buildRegisterResultMessage(runResults) || errorMessage || "FV 注册失败",
+                total: totalRows,
+                success_count: successCount,
+                fail_count: failCount,
+                results: runResults,
+                download_log: downloadLog,
+                download_artifacts: downloadArtifacts,
+              },
             })
+
+            if (applicantProfileId) {
+              await setFranceCaseException({
+                userId,
+                applicantProfileId,
+                mainStatus: "TLS_PROCESSING",
+                subStatus: "TLS_REGISTERING",
+                exceptionCode: "TLS_REGISTER_FAILED",
+                reason: errorMessage,
+              }).catch((error) => {
+                console.error("Failed to set France case exception after extract-register failure", error)
+              })
+            }
+            return
           }
-          return
         }
 
         await updateTask(task.task_id, {
           status: "completed",
           progress: 100,
-          message: "提取+注册完成",
+          message: "FV 注册完成",
           result: {
             success: true,
-            stage: "extract-register",
-            message: typeof registerData.message === "string" ? registerData.message : "提取+注册完成",
-            download_excel: downloadExcel,
-            download_json: downloadJson,
-            archived_profile_accounts_url: archivedProfileAccountsUrl,
-            download_log: downloadLog,
-            total: registerData.total,
-            success_count: registerData.success_count,
-            fail_count: registerData.fail_count,
-            results: registerData.results,
+            stage: "register",
+            message: buildRegisterResultMessage(runResults) || "FV 注册完成",
+            total: totalRows,
+            success_count: successCount,
+            fail_count: failCount,
+            results: runResults,
+            download_log: downloadArtifacts[0]?.url,
+            download_artifacts: downloadArtifacts,
           },
         })
 
@@ -328,7 +341,7 @@ export async function POST(request: NextRequest) {
             mainStatus: "TLS_PROCESSING",
             subStatus: "SLOT_HUNTING",
             clearException: true,
-            reason: "France extract+register completed",
+            reason: "France FV register completed",
           }).catch((error) => {
             console.error("Failed to advance France case after extract-register success", error)
           })
@@ -337,7 +350,7 @@ export async function POST(request: NextRequest) {
         await updateTask(task.task_id, {
           status: "failed",
           progress: 0,
-          message: "提取+注册失败",
+          message: "FV 注册失败",
           error: error instanceof Error ? error.message : "未知错误",
         })
 
@@ -348,7 +361,7 @@ export async function POST(request: NextRequest) {
             mainStatus: "TLS_PROCESSING",
             subStatus: "TLS_REGISTERING",
             exceptionCode: "TLS_REGISTER_FAILED",
-            reason: error instanceof Error ? error.message : "France extract+register failed",
+            reason: error instanceof Error ? error.message : "France FV register failed",
           }).catch((caseError) => {
             console.error("Failed to set France case exception after extract-register exception", caseError)
           })
@@ -359,10 +372,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       task_id: task.task_id,
-      message: "已创建提取+注册任务，请在下方任务列表中查看进度",
+      message: "已创建 FV 注册任务，请在下方任务列表中查看进度",
     })
   } catch (error) {
-    console.error("法签提取+注册错误:", error)
+    console.error("法签 FV 注册错误:", error)
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "未知错误" },
       { status: 500 },

@@ -1,8 +1,9 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { utils, write } from "xlsx"
+import { read, utils, write } from "xlsx"
 
 import { auditSchengenExcelBuffer } from "../lib/schengen-excel-audit"
+import { autoFixUsVisaExcelBuffer } from "../lib/us-visa-excel-autofix"
 import { buildUsVisaInterviewBrief } from "../lib/us-visa-interview-brief"
 
 function workbookBuffer(sheetName: string, rows: string[][]) {
@@ -10,6 +11,28 @@ function workbookBuffer(sheetName: string, rows: string[][]) {
   const sheet = utils.aoa_to_sheet(rows)
   utils.book_append_sheet(workbook, sheet, sheetName)
   return Buffer.from(write(workbook, { bookType: "xlsx", type: "buffer" }))
+}
+
+function usVisaWorkbookWithNumericDateCells() {
+  const workbook = utils.book_new()
+  const sheet = utils.aoa_to_sheet([
+    ["Primary Phone Number", "+1 (415) 555-0123"],
+    ["passport_issue_date", 44062],
+    ["passport_expiration_date", 47713],
+  ])
+  sheet.B2 = { ...(sheet.B2 || {}), t: "n", v: 44062, z: "yyyy/m/d" }
+  sheet.B3 = { ...(sheet.B3 || {}), t: "n", v: 47713, z: "d/m/yyyy" }
+  utils.book_append_sheet(workbook, sheet, "Sheet1")
+  return Buffer.from(write(workbook, { bookType: "xlsx", type: "buffer" }))
+}
+
+function cellDisplay(buffer: Buffer, address: string) {
+  const workbook = read(buffer, { type: "buffer", cellNF: true, cellText: true, cellDates: false })
+  const sheet = workbook.Sheets[workbook.SheetNames[0]]
+  const cell = sheet?.[address]
+  if (!cell) return ""
+  if (typeof cell.w === "string" && cell.w.trim() !== "") return cell.w
+  return String(utils.format_cell(cell))
 }
 
 test("schengen audit treats ambiguous slash dates as day-first", () => {
@@ -70,4 +93,23 @@ test("us visa interview brief computes stay days from day-first slash dates", ()
   assert.ok(tripBlock && tripBlock.type === "qa")
   assert.match(tripBlock.answerEn || "", /Jun 5, 2024/)
   assert.match(tripBlock.answerEn || "", /Jun 6, 2024/)
+})
+
+test("us visa autofix preserves existing numeric date cell formats", () => {
+  const original = usVisaWorkbookWithNumericDateCells()
+  const originalIssueDate = cellDisplay(original, "B2")
+  const originalExpiryDate = cellDisplay(original, "B3")
+
+  assert.notEqual(originalIssueDate, "44062")
+  assert.notEqual(originalExpiryDate, "47713")
+
+  const result = autoFixUsVisaExcelBuffer(original)
+
+  assert.equal(result.changed, true)
+  assert.equal(result.fixedCount, 1)
+  assert.equal(cellDisplay(result.buffer, "B1"), "14155550123")
+  assert.equal(cellDisplay(result.buffer, "B2"), originalIssueDate)
+  assert.equal(cellDisplay(result.buffer, "B3"), originalExpiryDate)
+  assert.notEqual(cellDisplay(result.buffer, "B2"), "44062")
+  assert.notEqual(cellDisplay(result.buffer, "B3"), "47713")
 })

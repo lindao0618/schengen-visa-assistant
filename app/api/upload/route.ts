@@ -1,122 +1,104 @@
-import { NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
-import { existsSync } from "fs";
+import { existsSync } from "fs"
+import { mkdir, writeFile } from "fs/promises"
+import { join } from "path"
+import { NextRequest, NextResponse } from "next/server"
 
-export async function POST(req: Request) {
-  try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File;
-    const category = formData.get("category") as string;
+import { requireAgentActor } from "@/lib/agent-auth"
 
-    if (!file) {
-      return NextResponse.json(
-        { error: "No file uploaded" },
-        { status: 400 }
-      );
-    }
+export const dynamic = "force-dynamic"
 
-    // 创建上传目录
-    const uploadDir = join(process.cwd(), "uploads");
-    if (!existsSync(uploadDir)) {
-      await mkdir(uploadDir, { recursive: true });
-    }
-
-    // 获取文件内容
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-
-    // 保存文件
-    const filename = `${Date.now()}-${file.name}`;
-    const filepath = join(uploadDir, filename);
-    
-    try {
-      await writeFile(filepath, buffer);
-      console.log("File saved successfully:", filepath);
-    } catch (error) {
-      console.error("Error saving file:", error);
-      return NextResponse.json(
-        { error: "Error saving file" },
-        { status: 500 }
-      );
-    }
-
-    // 根据类别分析文件内容
-    try {
-      const analysis = await analyzeFile(buffer, category);
-      return NextResponse.json({
-        message: "File uploaded and analyzed successfully",
-        filename: file.name,
-        category,
-        analysis
-      });
-    } catch (error) {
-      console.error("Analysis error:", error);
-      return NextResponse.json(
-        { error: "Analysis failed" },
-        { status: 500 }
-      );
-    }
-  } catch (error) {
-    console.error("Upload error:", error);
-    return NextResponse.json(
-      { error: "Upload failed" },
-      { status: 500 }
-    );
+function buildPrompt(content: string, category: string) {
+  switch (category) {
+    case "hotel":
+      return `请分析以下酒店预订信息是否符合申根签证要求：\n${content}`
+    case "flight":
+      return `请分析以下航班预订信息是否符合申根签证要求：\n${content}`
+    case "insurance":
+      return `请分析以下保险信息是否符合申根签证要求：\n${content}`
+    default:
+      return `请分析以下文件内容是否符合签证材料要求：\n${content}`
   }
 }
 
-async function analyzeFile(buffer: Buffer, category: string): Promise<string> {
-  // 将 Buffer 转换为文本
-  const content = buffer.toString('utf-8');
-  
-  // 构建提示词
-  let prompt = "";
-  switch (category) {
-    case "hotel":
-      prompt = `请分析以下酒店预订信息是否符合申根签证要求：\n${content}`;
-      break;
-    case "flight":
-      prompt = `请分析以下航班预订信息是否符合申根签证要求：\n${content}`;
-      break;
-    case "insurance":
-      prompt = `请分析以下保险信息是否符合申根签证要求：\n${content}`;
-      break;
-    default:
-      prompt = `请分析以下文件内容是否符合申根签证要求：\n${content}`;
+async function analyzeFile(buffer: Buffer, category: string) {
+  const apiKey = process.env.DEEPSEEK_API_KEY?.trim()
+  if (!apiKey) {
+    throw new Error("DEEPSEEK_API_KEY 未配置")
+  }
+
+  const content = buffer.toString("utf-8")
+  const prompt = buildPrompt(content, category)
+  const response = await fetch("https://api.siliconflow.cn/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "deepseek-ai/DeepSeek-V3",
+      messages: [
+        {
+          role: "system",
+          content: "你是专业的签证材料审核助理，需要明确指出材料是否合格以及具体问题。",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`AI API error: ${response.status}`)
+  }
+
+  const result = await response.json()
+  return result?.choices?.[0]?.message?.content || ""
+}
+
+export async function POST(request: NextRequest) {
+  const { actor, response } = await requireAgentActor(request)
+  if (!actor) {
+    return response
   }
 
   try {
-    // 调用 AI API 进行分析
-    const response = await fetch("https://api.siliconflow.cn/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer sk-wbesypzvuhzaohjvoqgbkvntieelpubwykjjcwjlpclnmunb`
-      },
-      body: JSON.stringify({
-        model: "deepseek-ai/DeepSeek-V3",
-        messages: [
-          {
-            role: "system",
-            content: "你是一个专业的签证材料审核助手，需要仔细检查每份材料是否符合申根签证的要求。请详细说明材料是否合格，如果不合格请指出具体问题。"
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ]
-      })
-    });
+    const formData = await request.formData()
+    const file = formData.get("file")
+    const category = String(formData.get("category") || "general")
 
-    if (!response.ok) {
-      throw new Error(`AI API error: ${response.status}`);
+    if (!(file instanceof File)) {
+      return NextResponse.json({ error: "No file uploaded" }, { status: 400 })
     }
 
-    const result = await response.json();
-    return result.choices[0].message.content;
+    const uploadDir = join(process.cwd(), "uploads")
+    if (!existsSync(uploadDir)) {
+      await mkdir(uploadDir, { recursive: true })
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const filename = `${Date.now()}-${file.name}`
+    const filepath = join(uploadDir, filename)
+    await writeFile(filepath, buffer)
+
+    const analysis = await analyzeFile(buffer, category)
+    return NextResponse.json({
+      message: "File uploaded and analyzed successfully",
+      filename: file.name,
+      savedAs: filename,
+      category,
+      requestedBy: {
+        userId: actor.userId,
+        authMode: actor.authMode,
+      },
+      analysis,
+    })
   } catch (error) {
-    console.error("AI analysis error:", error);
-    throw new Error("Failed to analyze file");
+    console.error("[API_UPLOAD_POST]", error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Upload failed" },
+      { status: 500 },
+    )
   }
 }

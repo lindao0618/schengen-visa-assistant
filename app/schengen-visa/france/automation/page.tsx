@@ -57,6 +57,7 @@ interface ApplicantProfileOption {
   schengen?: {
     country?: string
     city?: string
+    fraNumber?: string
   }
   files?: Record<string, { originalName?: string; uploadedAt?: string }>
 }
@@ -206,7 +207,7 @@ function buildTlsApplyClipboardText(payload: TlsApplyClipboardPayload) {
   const phone = payload.phone?.trim() || "没有填"
   const paymentAccount = payload.paymentAccount?.trim() || ""
   const paymentPassword = payload.paymentPassword?.trim() || ""
-  const paymentLink = payload.paymentLink?.trim() || "https://visas-fr.tlscontact.com/en-us/country/gb"
+  const paymentLink = payload.paymentLink?.trim() || "https://visas-fr.tlscontact.com/en-us/"
 
   return [
     `1. 姓名：${payload.name?.trim() || ""}`,
@@ -418,7 +419,7 @@ function FranceAutomationContent() {
               <TabsList className="grid h-12 w-full grid-cols-2 rounded-2xl border border-gray-200/50 bg-gray-100/80 p-1 shadow-lg backdrop-blur-xl sm:grid-cols-4 dark:border-white/10 dark:bg-black/50">
                 <TabsTrigger value="extract" className="flex items-center justify-center gap-2">
                   <FileText className="h-4 w-4 shrink-0" />
-                  <span className="truncate">提取+注册</span>
+                  <span className="truncate">FV注册</span>
                 </TabsTrigger>
                 <TabsTrigger value="create-app" className="flex items-center justify-center gap-2">
                   <FilePlus className="h-4 w-4 shrink-0" />
@@ -453,11 +454,11 @@ function FranceAutomationContent() {
 
           <TabsContent value="extract">
             <StepCard
-              title="提取+注册"
-              description="按申请组提交，系统会先提取 FV 注册信息，再继续注册 France-visas 账号。"
+              title="FV注册"
+              description="按申请组提交，系统直接使用原始 Excel 里的信息注册 France-visas 账号，不再单独产出中间 JSON。"
               apiPath="/api/schengen/france/extract-register"
               accept=".xlsx,.xls"
-              buttonLabel="开始提取+注册"
+              buttonLabel="开始 FV注册"
               showLoginPrompt={showLoginPrompt}
               activeApplicantId={activeApplicant?.id}
               activeApplicantName={activeApplicantName}
@@ -465,7 +466,7 @@ function FranceAutomationContent() {
               canUseApplicantProfile={hasSchengenProfileExcel}
             />
             <div id="france-extract-register-tasks" className="mt-6">
-              <FranceTaskList filterTaskTypes={["extract-register", "extract", "register"]} title="提取+注册任务" pollInterval={2000} autoRefresh />
+              <FranceTaskList filterTaskTypes={["extract-register", "register"]} title="FV注册任务" pollInterval={2000} autoRefresh />
             </div>
           </TabsContent>
 
@@ -1171,7 +1172,7 @@ function TlsRegisterCard({
       <CardHeader className="border-b border-gray-100 dark:border-gray-800/50">
         <CardTitle>TLS 账户注册</CardTitle>
         <CardDescription>
-          默认只用 Excel：可直接上传 Excel，或自动使用申请人档案里的申根 Excel，并自动生成 TLS 注册所需的 accounts JSON。
+          默认只用原始 Excel：可直接上传 Excel，或自动使用申请人档案里的申根 Excel，系统内部直接读取注册所需信息，不再要求单独准备中间 JSON。
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-6 space-y-5">
@@ -1228,9 +1229,9 @@ function TlsRegisterCard({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="tls-excel">Excel（可选，上传后自动转 JSON）</Label>
+          <Label htmlFor="tls-excel">Excel（可选）</Label>
           <input id="tls-excel" type="file" accept=".xlsx,.xls" onChange={(e) => setExcelFile(e.target.files?.[0] || null)} className="block w-full text-sm" />
-          {excelFile && <p className="text-xs text-muted-foreground">已手动选择：{excelFile.name}（将自动生成 accounts JSON）</p>}
+          {excelFile && <p className="text-xs text-muted-foreground">已手动选择：{excelFile.name}</p>}
           {!excelFile && applicantProfileId && (
             <p className="text-xs text-muted-foreground">
               自动匹配：
@@ -1412,7 +1413,7 @@ function TlsApplyCard({
           phone: parsed.profile?.phone || selectedProfile?.phone || "",
           paymentAccount: "",
           paymentPassword: "",
-          paymentLink: "https://visas-fr.tlscontact.com/en-us/country/gb",
+          paymentLink: "https://visas-fr.tlscontact.com/en-us/",
         }
 
         if (!cancelled) {

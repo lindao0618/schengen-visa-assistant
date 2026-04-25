@@ -60,6 +60,7 @@
     "@types/nodemailer": "^6.4.17",
     "ai": "latest",
     "bcryptjs": "^3.0.2",
+    "chinese-commercial-code-convertor": "^1.1.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",

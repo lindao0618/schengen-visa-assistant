@@ -1,5 +1,7 @@
 # OpenClaw 员工操作手册
 
+若需通过 HTTP/API 或 Agent 调用本站接口（Method、路径、slot 列表等），见 **[Agent HTTP API 参考](./AGENT_HTTP_API_REFERENCE.md)**。
+
 ## 1. 项目概览
 
 这个项目目前主要有两条业务线：

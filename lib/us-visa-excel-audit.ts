@@ -1,5 +1,12 @@
 import { read, utils } from "xlsx"
 
+import {
+  deriveTelecodesFromChineseName,
+  hasHanCharacters,
+  normalizeChineseName,
+  normalizeTelecodeValue,
+} from "./us-visa-chinese-telecode"
+
 type AuditIssue = {
   field: string
   message: string
@@ -39,6 +46,21 @@ const FIELD_RULES: FieldRule[] = [
     key: "givenName",
     label: "名 / Given Name",
     aliases: ["名", "Given Name", "First Name"],
+  },
+  {
+    key: "chineseName",
+    label: "中文名 / Chinese Name",
+    aliases: ["中文名", "中文姓名", "Chinese Name", "Full Name in Native Alphabet", "Native Name"],
+  },
+  {
+    key: "telecodeSurname",
+    label: "姓氏电报码 / Telecode Surname",
+    aliases: ["姓氏电报码", "姓电报码", "Telecode Surname", "Surname Telecode"],
+  },
+  {
+    key: "telecodeGivenName",
+    label: "名字电报码 / Telecode Given Name",
+    aliases: ["名字电报码", "名电报码", "Telecode Given Name", "Given Name Telecode"],
   },
   {
     key: "dateOfBirth",
@@ -358,30 +380,67 @@ function isMetaCellValue(value: string): boolean {
   return !normalized || normalized === "field" || normalized === normalizeKey("填写内容")
 }
 
+type XlsxLooseCell = { v?: unknown; w?: string }
+
+function formatIsoLocalDate(cell: Date): string {
+  if (Number.isNaN(cell.getTime())) return ""
+  const y = cell.getFullYear()
+  const m = String(cell.getMonth() + 1).padStart(2, "0")
+  const d = String(cell.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
+}
+
+/**
+ * 不做自定义「日期换算」：优先 cell.w（表格里看见的），否则用 SheetJS format_cell 按单元格数字格式渲染，
+ * 与 Excel 显示一致；避免把日期处理成序列号数字或我们自造的 ISO。
+ */
+function auditCellDisplay(cell: XlsxLooseCell | undefined): string {
+  if (!cell) return ""
+  if (typeof cell.w === "string" && cell.w.trim() !== "") {
+    return normalizeText(cell.w)
+  }
+  try {
+    const formatted = utils.format_cell(cell as Parameters<typeof utils.format_cell>[0])
+    if (formatted != null && String(formatted).trim() !== "") {
+      return normalizeText(String(formatted))
+    }
+  } catch {
+    /* ignore */
+  }
+  if (cell.v instanceof Date && !Number.isNaN(cell.v.getTime())) {
+    return formatIsoLocalDate(cell.v)
+  }
+  return normalizeText(cell.v ?? "")
+}
+
+function sheetToFilteredAuditMatrix(sheet: ReturnType<typeof read>["Sheets"][string]): string[][] {
+  const ref = sheet["!ref"]
+  if (!ref) return []
+  const range = utils.decode_range(ref)
+  const rows: string[][] = []
+  for (let r = range.s.r; r <= range.e.r; r += 1) {
+    const row: string[] = []
+    for (let c = range.s.c; c <= range.e.c; c += 1) {
+      const addr = utils.encode_cell({ r: r, c: c })
+      row.push(auditCellDisplay(sheet[addr] as XlsxLooseCell | undefined))
+    }
+    if (row.some((cell) => normalizeText(cell))) {
+      rows.push(row)
+    }
+  }
+  return rows
+}
+
 function extractWorkbookRows(buffer: Buffer): SheetRows[] {
-  const workbook = read(buffer, { type: "buffer", raw: false, cellDates: true })
+  const workbook = read(buffer, { type: "buffer", cellDates: true })
   const targetSheetName = workbook.SheetNames.find((name) => normalizeKey(name) === "sheet1") || workbook.SheetNames[0]
   const sheet = targetSheetName ? workbook.Sheets[targetSheetName] : undefined
   if (!sheet || !targetSheetName) return []
 
-  const rows = utils.sheet_to_json(sheet, {
-    header: 1,
-    defval: "",
-    raw: false,
-    blankrows: false,
-    dateNF: "yyyy-mm-dd",
-  }) as unknown[][]
-
   return [
     {
       sheetName: targetSheetName,
-      rows: rows.map((row) => row.map((cell) => {
-        // 保留日期的原始格式，不转换为数值
-        if (cell instanceof Date) {
-          return cell.toLocaleDateString()
-        }
-        return normalizeText(cell)
-      })),
+      rows: sheetToFilteredAuditMatrix(sheet),
     },
   ]
 }
@@ -430,7 +489,7 @@ function matchesAnyAlias(value: unknown, aliases: string[]): boolean {
   if (!normalized) return false
   return aliases.some((alias) => {
     const normalizedAlias = normalizeKey(alias)
-    return Boolean(normalizedAlias) && (normalized === normalizedAlias || normalized.includes(normalizedAlias) || normalizedAlias.includes(normalized))
+    return Boolean(normalizedAlias) && (normalized === normalizedAlias || normalized.includes(normalizedAlias))
   })
 }
 
@@ -681,6 +740,17 @@ export function extractUsVisaExcelReviewFields(buffer: Buffer): UsVisaExcelRevie
     result[rule.key] = getValue(values, rule.key)
   }
 
+  if (result.chineseName && hasHanCharacters(result.chineseName)) {
+    result.chineseName = normalizeChineseName(result.chineseName)
+    const derivedTelecodes = deriveTelecodesFromChineseName(result.chineseName)
+    result.telecodeSurname = derivedTelecodes.telecodeSurname
+    result.telecodeGivenName = derivedTelecodes.telecodeGivenName
+  } else {
+    result.chineseName = normalizeChineseName(result.chineseName)
+    result.telecodeSurname = normalizeTelecodeValue(result.telecodeSurname)
+    result.telecodeGivenName = normalizeTelecodeValue(result.telecodeGivenName)
+  }
+
   const birthDate = getValue(values, "dateOfBirth")
   const birthYear = resolveBirthYear(values)
 
@@ -733,10 +803,13 @@ export function auditUsVisaExcelBuffer(buffer: Buffer): UsVisaExcelAuditResult {
   const birthYear = resolveBirthYear(values)
   const intendedArrivalDate = resolveIntendedArrivalDate(values)
   const isFirstTimeUsVisaApplicant = isTruthyYes(getValue(values, "firstTimeUsVisa"))
+  const ignoreApplicationIdAudit = true
+  const ignorePreviousUsTravelDateAudit = true
+  const ignoreVisaLostOrStolenAudit = true
 
-  if (isEmptyValue(applicationId)) {
+  if (!ignoreApplicationIdAudit && isEmptyValue(applicationId)) {
     pushError(errors, "AA码 / Application ID", "DS-160 提交/恢复会用到该字段，不能为空")
-  } else if (!AA_CODE_PATTERN.test(applicationId)) {
+  } else if (!ignoreApplicationIdAudit && !AA_CODE_PATTERN.test(applicationId)) {
     pushError(errors, "AA码 / Application ID", "格式看起来不对，通常应以 AA 开头", applicationId)
   }
 
@@ -872,7 +945,7 @@ export function auditUsVisaExcelBuffer(buffer: Buffer): UsVisaExcelAuditResult {
     }
   }
 
-  if (isTruthyYes(getValue(values, "previousUsTravel")) && !resolvePreviousUsTravelDate(values)) {
+  if (!ignorePreviousUsTravelDateAudit && isTruthyYes(getValue(values, "previousUsTravel")) && !resolvePreviousUsTravelDate(values)) {
     pushError(errors, "上次赴美日期", "已选择“去过美国”，需要补齐上次赴美日期")
   }
 
@@ -889,7 +962,7 @@ export function auditUsVisaExcelBuffer(buffer: Buffer): UsVisaExcelAuditResult {
     pushError(errors, "美国签证号", "已选择“曾有美国签证”，这里不能为空")
   }
 
-  if (isTruthyYes(getValue(values, "visaLostOrStolen"))) {
+  if (!ignoreVisaLostOrStolenAudit && isTruthyYes(getValue(values, "visaLostOrStolen"))) {
     const lostYear = getValue(values, "visaLostOrStolenYear")
     const lostExplanation = getValue(values, "visaLostOrStolenExplanation")
     if (!parseYear(lostYear)) {

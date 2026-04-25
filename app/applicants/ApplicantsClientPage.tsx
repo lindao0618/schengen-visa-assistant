@@ -23,6 +23,7 @@ type ApplicantProfileDetail = ApplicantProfileSummary & {
   schengen?: {
     country?: string
     city?: string
+    fraNumber?: string
   }
   files?: Record<string, { originalName: string; uploadedAt: string }>
 }
@@ -80,6 +81,77 @@ async function readJsonSafely<T>(response: Response) {
   } catch {
     throw new Error("服务端返回了无法解析的响应，请刷新页面后重试")
   }
+}
+
+type IntakeItemLike = { label?: string; value?: string }
+type UsVisaIntakeLike = { items?: IntakeItemLike[] }
+
+const US_VISA_LABEL_ORDER: Array<{ keyword: string; rank: number }> = [
+  // 身份
+  { keyword: "姓名", rank: 10 },
+  { keyword: "姓", rank: 11 },
+  { keyword: "名", rank: 12 },
+  { keyword: "中文名", rank: 13 },
+  { keyword: "电报码", rank: 14 },
+  { keyword: "出生", rank: 15 },
+  { keyword: "护照", rank: 16 },
+  { keyword: "AA码", rank: 17 },
+  // 联系方式
+  { keyword: "电话", rank: 30 },
+  { keyword: "邮箱", rank: 31 },
+  { keyword: "地址", rank: 32 },
+  { keyword: "城市", rank: 33 },
+  { keyword: "州", rank: 34 },
+  { keyword: "邮编", rank: 35 },
+  // 行程
+  { keyword: "到达", rank: 50 },
+  { keyword: "停留", rank: 51 },
+  { keyword: "赴美", rank: 52 },
+  { keyword: "旅行", rank: 53 },
+  { keyword: "酒店", rank: 54 },
+]
+
+function sortUsVisaLabels(labels: string[]) {
+  const rankOf = (label: string) => {
+    const hit = US_VISA_LABEL_ORDER.find((item) => label.includes(item.keyword))
+    return hit ? hit.rank : 999
+  }
+  return [...labels].sort((a, b) => {
+    const rankDiff = rankOf(a) - rankOf(b)
+    if (rankDiff !== 0) return rankDiff
+    return a.localeCompare(b, "zh-CN")
+  })
+}
+
+function collectDetectedUsVisaFieldLabels(
+  parsedUsVisaFullIntake?: UsVisaIntakeLike,
+  parsedUsVisaDetails?: {
+    surname?: string
+    birthYear?: string
+    passportNumber?: string
+    chineseName?: string
+    telecodeSurname?: string
+    telecodeGivenName?: string
+  },
+) {
+  const labels = (parsedUsVisaFullIntake?.items || [])
+    .filter((item) => String(item?.value || "").trim())
+    .map((item) => String(item?.label || "").trim())
+    .filter(Boolean)
+
+  if (labels.length > 0) {
+    return sortUsVisaLabels(Array.from(new Set(labels)))
+  }
+
+  const fallback = [
+    parsedUsVisaDetails?.surname ? "姓" : "",
+    parsedUsVisaDetails?.birthYear ? "出生年份" : "",
+    parsedUsVisaDetails?.passportNumber ? "护照号" : "",
+    parsedUsVisaDetails?.chineseName ? "中文名" : "",
+    parsedUsVisaDetails?.telecodeSurname ? "姓氏电报码" : "",
+    parsedUsVisaDetails?.telecodeGivenName ? "名字电报码" : "",
+  ].filter(Boolean) as string[]
+  return sortUsVisaLabels(fallback)
 }
 
 const usVisaUploadedSlots = [
@@ -266,9 +338,14 @@ export default function ApplicantsClientPage() {
         profile?: ApplicantProfileDetail
         parsedUsVisaDetails?: {
           surname?: string
+          givenName?: string
           birthYear?: string
           passportNumber?: string
+          chineseName?: string
+          telecodeSurname?: string
+          telecodeGivenName?: string
         }
+        parsedUsVisaFullIntake?: UsVisaIntakeLike
         parsedSchengenDetails?: {
           city?: string
         }
@@ -281,8 +358,12 @@ export default function ApplicantsClientPage() {
       const parsed = data?.parsedUsVisaDetails as
         | {
             surname?: string
+            givenName?: string
             birthYear?: string
             passportNumber?: string
+            chineseName?: string
+            telecodeSurname?: string
+            telecodeGivenName?: string
           }
         | undefined
       const parsedSchengen = data?.parsedSchengenDetails as
@@ -292,9 +373,7 @@ export default function ApplicantsClientPage() {
         | undefined
 
       const parsedFields = [
-        parsed?.surname ? "姓" : "",
-        parsed?.birthYear ? "出生年份" : "",
-        parsed?.passportNumber ? "护照号" : "",
+        ...collectDetectedUsVisaFieldLabels(data?.parsedUsVisaFullIntake, parsed),
         parsedSchengen?.city ? `TLS 递签城市（${getFranceTlsCityLabel(parsedSchengen.city) || parsedSchengen.city}）` : "",
       ].filter(Boolean)
 
@@ -483,7 +562,7 @@ export default function ApplicantsClientPage() {
                   title="信息内容"
                   description="AA 码只会在 DS-160 填表成功后自动回写。姓、出生年份、护照号可以由上传的 Excel 自动识别。"
                 >
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-4 md:grid-cols-3">
                     <ReadOnlyField
                       label="Application ID（AA 码）"
                       value={selectedProfile?.usVisa?.aaCode || ""}
@@ -581,6 +660,11 @@ export default function ApplicantsClientPage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <ReadOnlyField
+                      label="FRA Number"
+                      value={selectedProfile?.schengen?.fraNumber || "-"}
+                      placeholder="生成新申请后自动回填"
+                    />
                   </div>
                 </Subsection>
 

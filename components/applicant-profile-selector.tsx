@@ -64,6 +64,7 @@ export interface ApplicantProfileSummary {
   schengen?: {
     country?: string
     city?: string
+    fraNumber?: string
   }
   files?: Record<string, unknown>
 }
@@ -847,6 +848,7 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
             {getPassportTail(activeProfile) && <span>护照尾号: {getPassportTail(activeProfile)}</span>}
             {activeProfile.schengen?.country && <span>申根国家: {activeProfile.schengen.country}</span>}
             {activeProfile.schengen?.city && <span>TLS 递签城市: {activeProfile.schengen.city}</span>}
+            {activeProfile.schengen?.fraNumber && <span>FRA Number: {activeProfile.schengen.fraNumber}</span>}
             <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-gray-400">
               <Clock3 className="h-3.5 w-3.5" />
               {formatDateTime(activeProfile.updatedAt)}
