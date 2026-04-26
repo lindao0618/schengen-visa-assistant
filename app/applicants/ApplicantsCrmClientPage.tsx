@@ -60,6 +60,7 @@ import {
   readClientCache,
   writeClientCache,
 } from "@/lib/applicant-client-cache"
+import { type ApplicantDetailPrefetchSource, shouldPrefetchApplicantDetailJson } from "@/lib/applicant-list-prefetch"
 import {
   canAccessAdminPortal,
   canAssignCases,
@@ -599,6 +600,7 @@ export default function ApplicantsCrmClientPage() {
     for (const value of selectedRegions) params.append("regions", value)
     for (const value of selectedPriorities) params.append("priorities", value)
     params.set("includeProfiles", "0")
+    params.set("includeProfileFiles", "0")
     return params.toString()
   }, [deferredKeyword, selectedPriorities, selectedRegions, selectedStatuses, selectedVisaTypes])
   const viewerCacheScope = useMemo(
@@ -875,9 +877,10 @@ export default function ApplicantsCrmClientPage() {
   )
 
   const prefetchApplicantDetail = useCallback(
-    (applicantId: string) => {
+    (applicantId: string, source: ApplicantDetailPrefetchSource = "intent") => {
       if (!applicantId) return
       router.prefetch(`/applicants/${applicantId}`)
+      if (!shouldPrefetchApplicantDetailJson({ applicantId, source })) return
       void prefetchJsonIntoClientCache(getApplicantDetailCacheKey(applicantId), `/api/applicants/${applicantId}`, {
         ttlMs: APPLICANT_DETAIL_CACHE_TTL_MS,
       }).catch(() => {
@@ -889,7 +892,7 @@ export default function ApplicantsCrmClientPage() {
 
   useEffect(() => {
     displayRows.slice(0, 3).forEach((row) => {
-      prefetchApplicantDetail(row.id)
+      prefetchApplicantDetail(row.id, "automatic")
     })
   }, [displayRows, prefetchApplicantDetail])
 
@@ -948,7 +951,7 @@ export default function ApplicantsCrmClientPage() {
       }
       setCreateDialogOpen(false)
       setCreateForm(emptyCreateForm)
-      prefetchApplicantDetail(data.profile.id)
+      prefetchApplicantDetail(data.profile.id, "create")
       router.push(`/applicants/${data.profile.id}`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "\u521b\u5efa\u7533\u8bf7\u4eba\u5931\u8d25")
