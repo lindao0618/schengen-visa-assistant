@@ -557,7 +557,8 @@ function getPrimaryStatsCase(cases: ApplicantStatsRecord["visaCases"]) {
   return cases.find((item) => item.isActive) ?? cases[0] ?? null
 }
 
-function mapCaseSummary(caseRecord: VisaCaseRecord): ApplicantCaseSummary {
+function mapCaseSummary(caseRecord: VisaCaseRecord, options: { includeActivity?: boolean } = {}): ApplicantCaseSummary {
+  const includeActivity = options.includeActivity ?? true
   return {
     id: caseRecord.id,
     caseType: caseRecord.caseType,
@@ -602,31 +603,35 @@ function mapCaseSummary(caseRecord: VisaCaseRecord): ApplicantCaseSummary {
           createdAt: caseRecord.statusHistory[0].createdAt.toISOString(),
         }
       : null,
-    statusHistory: caseRecord.statusHistory.map((item) => ({
-      id: item.id,
-      fromMainStatus: item.fromMainStatus,
-      fromSubStatus: item.fromSubStatus,
-      toMainStatus: item.toMainStatus,
-      toSubStatus: item.toSubStatus,
-      exceptionCode: item.exceptionCode,
-      reason: item.reason,
-      operatorType: item.operatorType,
-      operatorId: item.operatorId,
-      createdAt: item.createdAt.toISOString(),
-    })),
-    reminderLogs: caseRecord.reminderLogs.map((item) => ({
-      id: item.id,
-      ruleCode: item.ruleCode,
-      channel: item.channel,
-      automationMode: item.automationMode,
-      severity: item.severity,
-      templateCode: item.templateCode,
-      sendStatus: item.sendStatus,
-      renderedContent: item.renderedContent,
-      errorMessage: item.errorMessage,
-      triggeredAt: item.triggeredAt.toISOString(),
-      sentAt: toIsoString(item.sentAt),
-    })),
+    statusHistory: includeActivity
+      ? caseRecord.statusHistory.map((item) => ({
+          id: item.id,
+          fromMainStatus: item.fromMainStatus,
+          fromSubStatus: item.fromSubStatus,
+          toMainStatus: item.toMainStatus,
+          toSubStatus: item.toSubStatus,
+          exceptionCode: item.exceptionCode,
+          reason: item.reason,
+          operatorType: item.operatorType,
+          operatorId: item.operatorId,
+          createdAt: item.createdAt.toISOString(),
+        }))
+      : [],
+    reminderLogs: includeActivity
+      ? caseRecord.reminderLogs.map((item) => ({
+          id: item.id,
+          ruleCode: item.ruleCode,
+          channel: item.channel,
+          automationMode: item.automationMode,
+          severity: item.severity,
+          templateCode: item.templateCode,
+          sendStatus: item.sendStatus,
+          renderedContent: item.renderedContent,
+          errorMessage: item.errorMessage,
+          triggeredAt: item.triggeredAt.toISOString(),
+          sentAt: toIsoString(item.sentAt),
+        }))
+      : [],
   }
 }
 
@@ -848,11 +853,11 @@ async function loadCaseRecord(
       },
       statusHistory: {
         orderBy: { createdAt: "desc" },
-        take: 50,
+        take: 1,
       },
       reminderLogs: {
         orderBy: { triggeredAt: "desc" },
-        take: 50,
+        take: 0,
       },
     },
   })
@@ -932,7 +937,7 @@ export async function getApplicantCrmDetail(userId: string, role: string | undef
 
   return {
     profile: hydratedProfile,
-    cases: await Promise.all(cases.map(mapCaseSummaryWithArtifacts)),
+    cases: await Promise.all(cases.map((item) => mapCaseSummaryWithArtifacts(item, { includeActivity: false }))),
     activeCaseId: cases.find((item) => item.isActive)?.id ?? cases[0]?.id ?? null,
     availableAssignees,
   } satisfies ApplicantCrmDetail
@@ -1023,7 +1028,7 @@ export async function listVisaCases(
     },
   })
 
-  return cases.map(mapCaseSummary)
+  return cases.map((caseRecord) => mapCaseSummary(caseRecord))
 }
 
 async function normalizeAssigneeForSave(
@@ -1194,8 +1199,11 @@ async function readVisaCaseDs160PrecheckMeta(visaCase: Pick<VisaCaseRecord, "use
   }
 }
 
-async function mapCaseSummaryWithArtifacts(caseRecord: VisaCaseRecord): Promise<ApplicantCaseSummary> {
-  const summary = mapCaseSummary(caseRecord)
+async function mapCaseSummaryWithArtifacts(
+  caseRecord: VisaCaseRecord,
+  options: { includeActivity?: boolean } = {},
+): Promise<ApplicantCaseSummary> {
+  const summary = mapCaseSummary(caseRecord, options)
   const precheckMeta = await readVisaCaseDs160PrecheckMeta(caseRecord)
   if (!precheckMeta) return summary
 

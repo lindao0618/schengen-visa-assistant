@@ -1,11 +1,13 @@
 "use client"
 
+import { useEffect, useState } from "react"
+
 import { FranceCaseProgressCard } from "@/components/france-case-progress-card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { TabsContent } from "@/components/ui/tabs"
 import { formatFranceStatusLabel } from "@/lib/france-case-labels"
-import { formatDateTime, Section, ReadOnlyField } from "@/app/applicants/[id]/detail/detail-ui"
+import { formatDateTime, ReadOnlyField, Section } from "@/app/applicants/[id]/detail/detail-ui"
 
 type ReminderLogRecord = {
   id: string
@@ -39,6 +41,13 @@ type ProgressCaseRecord = {
   reminderLogs: ReminderLogRecord[]
 }
 
+type CaseActivityState = {
+  caseId: string
+  loading: boolean
+  error: string
+  caseRecord: ProgressCaseRecord | null
+}
+
 function getPriorityLabel(value?: string | null) {
   if (!value) return "-"
   if (value === "urgent") return "紧急"
@@ -69,31 +78,86 @@ export function ProgressTab({
   applicantName: string
   selectedCase?: ProgressCaseRecord | null
 }) {
+  const [activity, setActivity] = useState<CaseActivityState>({
+    caseId: "",
+    loading: false,
+    error: "",
+    caseRecord: null,
+  })
+  const activeCase = activity.caseId === selectedCase?.id && activity.caseRecord ? activity.caseRecord : selectedCase
+  const activityIsLoading = Boolean(activeCase && activity.caseId === activeCase.id && activity.loading)
+  const activityError = activeCase && activity.caseId === activeCase.id ? activity.error : ""
+
+  useEffect(() => {
+    if (!selectedCase?.id) {
+      setActivity({ caseId: "", loading: false, error: "", caseRecord: null })
+      return
+    }
+
+    const hasActivity = selectedCase.statusHistory.length > 0 || selectedCase.reminderLogs.length > 0
+    if (hasActivity) {
+      setActivity({ caseId: selectedCase.id, loading: false, error: "", caseRecord: selectedCase })
+      return
+    }
+
+    let cancelled = false
+    setActivity({ caseId: selectedCase.id, loading: true, error: "", caseRecord: null })
+
+    fetch(`/api/cases/${selectedCase.id}`, { credentials: "include" })
+      .then(async (response) => {
+        const data = (await response.json().catch(() => ({}))) as { case?: ProgressCaseRecord; error?: string }
+        if (!response.ok || !data.case) {
+          throw new Error(data.error || "加载案件日志失败")
+        }
+        if (!cancelled) {
+          setActivity({ caseId: selectedCase.id, loading: false, error: "", caseRecord: data.case })
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setActivity({
+            caseId: selectedCase.id,
+            loading: false,
+            error: error instanceof Error ? error.message : "加载案件日志失败",
+            caseRecord: null,
+          })
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedCase])
+
   return (
     <TabsContent value="progress" className="space-y-6">
-      {selectedCase ? (
+      {activeCase ? (
         <>
-          {selectedCase.caseType === "france-schengen" ? (
+          {activeCase.caseType === "france-schengen" ? (
             <div className="rounded-3xl border border-emerald-200 bg-[linear-gradient(180deg,_rgba(255,255,255,0.92),_rgba(236,253,245,0.92))] p-2 shadow-sm">
-              <FranceCaseProgressCard applicantProfileId={applicantProfileId} applicantName={applicantName} caseId={selectedCase.id} />
+              <FranceCaseProgressCard applicantProfileId={applicantProfileId} applicantName={applicantName} caseId={activeCase.id} />
             </div>
           ) : (
             <Section title="当前案件进度" description="当前选中的是非 France Case，这里先展示基础案件信息。" tone="emerald">
               <div className="grid gap-4 md:grid-cols-4">
-                <ReadOnlyField label="状态" value={formatCaseStatus(selectedCase.mainStatus, selectedCase.subStatus, selectedCase.caseType)} />
-                <ReadOnlyField label="异常" value={selectedCase.exceptionCode || "-"} />
-                <ReadOnlyField label="优先级" value={getPriorityLabel(selectedCase.priority)} />
-                <ReadOnlyField label="最近更新" value={formatDateTime(selectedCase.updatedAt)} />
+                <ReadOnlyField label="状态" value={formatCaseStatus(activeCase.mainStatus, activeCase.subStatus, activeCase.caseType)} />
+                <ReadOnlyField label="异常" value={activeCase.exceptionCode || "-"} />
+                <ReadOnlyField label="优先级" value={getPriorityLabel(activeCase.priority)} />
+                <ReadOnlyField label="最近更新" value={formatDateTime(activeCase.updatedAt)} />
               </div>
             </Section>
           )}
 
-          <Section title="状态日志" description="这里直接读取 VisaCaseStatusHistory。" tone="emerald">
-            {selectedCase.statusHistory.length === 0 ? (
+          <Section title="状态日志" description="进入本页签时才读取 VisaCaseStatusHistory，避免拖慢申请人详情首屏。" tone="emerald">
+            {activityIsLoading ? (
+              <div className="rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/70 p-4 text-sm text-emerald-800">正在加载案件日志...</div>
+            ) : activityError ? (
+              <div className="rounded-2xl border border-dashed border-red-300 bg-red-50/70 p-4 text-sm text-red-700">{activityError}</div>
+            ) : activeCase.statusHistory.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/70 p-4 text-sm text-emerald-800">当前案件还没有状态日志。</div>
             ) : (
               <div className="space-y-3">
-                {selectedCase.statusHistory.map((item) => (
+                {activeCase.statusHistory.map((item) => (
                   <div key={item.id} className="rounded-2xl border border-emerald-200 bg-white/95 p-4 shadow-sm">
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div className="text-sm font-semibold text-emerald-950">
@@ -110,8 +174,12 @@ export function ProgressTab({
             )}
           </Section>
 
-          <Section title="Reminder 日志" description="这里直接读取 ReminderLog，当前仍是模拟发送。" tone="slate">
-            {selectedCase.reminderLogs.length === 0 ? (
+          <Section title="Reminder 日志" description="进入本页签时才读取 ReminderLog，当前仍是模拟发送。" tone="slate">
+            {activityIsLoading ? (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-4 text-sm text-slate-600">正在加载 Reminder 日志...</div>
+            ) : activityError ? (
+              <div className="rounded-2xl border border-dashed border-red-300 bg-red-50/70 p-4 text-sm text-red-700">{activityError}</div>
+            ) : activeCase.reminderLogs.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-4 text-sm text-slate-600">当前案件还没有 Reminder 日志。</div>
             ) : (
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -127,7 +195,7 @@ export function ProgressTab({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {selectedCase.reminderLogs.map((item) => (
+                    {activeCase.reminderLogs.map((item) => (
                       <TableRow key={item.id}>
                         <TableCell>{formatDateTime(item.triggeredAt)}</TableCell>
                         <TableCell>{item.ruleCode}</TableCell>
