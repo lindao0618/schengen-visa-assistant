@@ -7,7 +7,6 @@ import Link from "next/link"
 import dynamic from "next/dynamic"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, Loader2, Save, Trash2 } from "lucide-react"
-import { read, utils, write } from "xlsx"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -320,6 +319,12 @@ const AUDIT_PROGRESS_STEPS = ["正在读取 Excel", "正在识别字段", "正�
 
 const US_VISA_EXCEL_PREVIEW_SLOTS = new Set(["usVisaDs160Excel", "usVisaAisExcel", "ds160Excel", "aisExcel"])
 
+type XlsxUtils = {
+  decode_cell: (ref: string) => { r: number; c: number }
+  // xlsx's public CellObject type is intentionally hidden here to keep the heavy import lazy.
+  format_cell?: (cell: any) => string
+}
+
 function cloneTableRows(rows: string[][]) {
   return rows.map((row) => [...row])
 }
@@ -332,7 +337,7 @@ function normalizeKey(value: string) {
     .replace(/[\u3000"'`“”‘’()（）[\]【】{}<>:：;；,.，。!?！？\\|@#$%^&*_+=~/-]/g, "")
 }
 
-function extractExcelSheetRows(sheet: unknown): string[][] {
+function extractExcelSheetRows(sheet: unknown, sheetUtils: XlsxUtils): string[][] {
   if (!sheet || typeof sheet !== "object") return []
 
   const worksheet = sheet as Record<string, { w?: unknown; v?: unknown; z?: unknown; t?: unknown }>
@@ -342,18 +347,18 @@ function extractExcelSheetRows(sheet: unknown): string[][] {
   let maxRow = 0
   let maxCol = 0
   for (const ref of cellRefs) {
-    const position = utils.decode_cell(ref)
+    const position = sheetUtils.decode_cell(ref)
     if (position.r > maxRow) maxRow = position.r
     if (position.c > maxCol) maxCol = position.c
   }
 
   const rows = Array.from({ length: maxRow + 1 }, () => Array.from({ length: maxCol + 1 }, () => ""))
   for (const ref of cellRefs) {
-    const position = utils.decode_cell(ref)
+    const position = sheetUtils.decode_cell(ref)
     const cell = worksheet[ref]
     let displayValue = ""
     if (cell) {
-      const formatted = typeof utils.format_cell === "function" ? utils.format_cell(cell as never) : ""
+      const formatted = typeof sheetUtils.format_cell === "function" ? sheetUtils.format_cell(cell) : ""
       displayValue = String(formatted || (cell.w ?? cell.v ?? ""))
     }
     rows[position.r][position.c] = displayValue
@@ -1104,7 +1109,8 @@ export default function ApplicantDetailClientPage({
     })
   }
 
-  const selectExcelSheet = (sheetName: string) => {
+  const selectExcelSheet = async (sheetName: string) => {
+    const { read, utils: xlsxUtils } = await import("xlsx")
     setPreview((prev) => {
       const targetSheet = prev.excelSheets.find((sheet) => sheet.name === sheetName)
       if (!targetSheet) return prev
@@ -1117,7 +1123,7 @@ export default function ApplicantDetailClientPage({
       }
       if (!prev.workbookArrayBuffer) return prev
       const wb = read(prev.workbookArrayBuffer, { type: "array", cellDates: true, cellNF: true, cellText: true })
-      const rows = extractExcelSheetRows(wb.Sheets[sheetName])
+      const rows = extractExcelSheetRows(wb.Sheets[sheetName], xlsxUtils)
       return {
         ...prev,
         activeExcelSheet: sheetName,
@@ -1156,14 +1162,15 @@ export default function ApplicantDetailClientPage({
     })
   }
 
-  const cancelExcelEdit = () => {
+  const cancelExcelEdit = async () => {
+    const { read, utils: xlsxUtils } = await import("xlsx")
     setPreview((prev) => {
       if (prev.kind !== "excel" || !prev.workbookArrayBuffer) {
         return { ...prev, excelEditMode: false, excelDirty: false }
       }
       const wb = read(prev.workbookArrayBuffer, { type: "array", cellDates: true, cellNF: true, cellText: true })
       const activeSheetName = prev.activeExcelSheet || wb.SheetNames[0] || ""
-      const activeRows = activeSheetName ? extractExcelSheetRows(wb.Sheets[activeSheetName]) : []
+      const activeRows = activeSheetName ? extractExcelSheetRows(wb.Sheets[activeSheetName], xlsxUtils) : []
       return {
         ...prev,
         excelSheets: wb.SheetNames.map((sheetName) => ({
@@ -1191,10 +1198,11 @@ export default function ApplicantDetailClientPage({
     setMessage("")
     try {
       await new Promise((resolve) => setTimeout(resolve, 0))
+      const { read, utils: xlsxUtils, write } = await import("xlsx")
       const wb = read(snap.workbookArrayBuffer, { type: "array" })
       for (const sh of snap.excelSheets) {
         if (!sh.rows) continue
-        wb.Sheets[sh.name] = utils.aoa_to_sheet(sh.rows)
+        wb.Sheets[sh.name] = xlsxUtils.aoa_to_sheet(sh.rows)
         setAuditDialog((prev) => ({
           ...prev,
           scope: "usVisa",
@@ -1297,12 +1305,13 @@ export default function ApplicantDetailClientPage({
 
       if (/\.(xlsx|xls)$/.test(filename) || mime.includes("spreadsheet") || mime.includes("excel")) {
         const arrayBuffer = await blob.arrayBuffer()
+        const { read, utils: xlsxUtils } = await import("xlsx")
         const workbook = read(arrayBuffer, { type: "array", cellDates: true, cellNF: true, cellText: true })
         const isUsVisaExcelPreview = US_VISA_EXCEL_PREVIEW_SLOTS.has(slot)
         const firstSheetName = isUsVisaExcelPreview
           ? workbook.SheetNames.find((sheetName) => /^sheet1$/i.test(sheetName)) || workbook.SheetNames[0] || ""
           : workbook.SheetNames[0] || ""
-        const firstRows = firstSheetName ? extractExcelSheetRows(workbook.Sheets[firstSheetName]) : []
+        const firstRows = firstSheetName ? extractExcelSheetRows(workbook.Sheets[firstSheetName], xlsxUtils) : []
         const excelSheets = isUsVisaExcelPreview
           ? firstSheetName
             ? [{ name: firstSheetName, rows: firstRows }]
