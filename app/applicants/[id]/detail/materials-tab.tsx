@@ -1,15 +1,15 @@
 "use client"
 
 import Link from "next/link"
-import type { ChangeEvent, ReactNode } from "react"
+import type { ChangeEvent } from "react"
 import { FileText } from "lucide-react"
 
 import { WecomDriveBindingsCard } from "@/components/wecom-drive-bindings-card"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { TabsContent } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
+import { formatDateTime, Section } from "@/app/applicants/[id]/detail/detail-ui"
 
 type FileMeta = {
   originalName: string
@@ -61,59 +61,6 @@ const schengenMaterialDocumentSlots: readonly MaterialSlot[] = [
   { key: "schengenHotelReservation", label: "酒店预订单材料", accept: ".pdf,.doc,.docx,image/*" },
   { key: "schengenFlightReservation", label: "机票/车票预订单材料", accept: ".pdf,.doc,.docx,image/*" },
 ]
-
-function formatDateTime(value?: string | null) {
-  if (!value) return "-"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "-"
-  return date.toLocaleString("zh-CN", { hour12: false })
-}
-
-function Section({
-  title,
-  description,
-  tone = "slate",
-  children,
-}: {
-  title: string
-  description: string
-  tone?: "slate" | "sky" | "emerald" | "amber"
-  children: ReactNode
-}) {
-  const toneMap = {
-    slate: {
-      card: "border-slate-200 bg-white/95",
-      title: "text-slate-900",
-      desc: "text-slate-500",
-    },
-    sky: {
-      card: "border-sky-200 bg-[linear-gradient(180deg,_#ffffff,_#f0f9ff)]",
-      title: "text-sky-950",
-      desc: "text-sky-700/80",
-    },
-    emerald: {
-      card: "border-emerald-200 bg-[linear-gradient(180deg,_#ffffff,_#ecfdf5)]",
-      title: "text-emerald-950",
-      desc: "text-emerald-700/80",
-    },
-    amber: {
-      card: "border-amber-200 bg-[linear-gradient(180deg,_#ffffff,_#fffbeb)]",
-      title: "text-amber-950",
-      desc: "text-amber-700/80",
-    },
-  } as const
-
-  const styles = toneMap[tone]
-  return (
-    <Card className={cn("shadow-sm", styles.card)}>
-      <CardHeader>
-        <CardTitle className={cn("text-lg font-semibold", styles.title)}>{title}</CardTitle>
-        <CardDescription className={cn("text-sm", styles.desc)}>{description}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">{children}</CardContent>
-    </Card>
-  )
-}
 
 function UploadGrid({
   applicantId,

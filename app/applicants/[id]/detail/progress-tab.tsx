@@ -1,16 +1,11 @@
 "use client"
 
-import type { ReactNode } from "react"
-
 import { FranceCaseProgressCard } from "@/components/france-case-progress-card"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { TabsContent } from "@/components/ui/tabs"
 import { formatFranceStatusLabel } from "@/lib/france-case-labels"
-import { cn } from "@/lib/utils"
+import { formatDateTime, Section, ReadOnlyField } from "@/app/applicants/[id]/detail/detail-ui"
 
 type ReminderLogRecord = {
   id: string
@@ -44,13 +39,6 @@ type ProgressCaseRecord = {
   reminderLogs: ReminderLogRecord[]
 }
 
-function formatDateTime(value?: string | null) {
-  if (!value) return "-"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "-"
-  return date.toLocaleString("zh-CN", { hour12: false })
-}
-
 function getPriorityLabel(value?: string | null) {
   if (!value) return "-"
   if (value === "urgent") return "紧急"
@@ -70,61 +58,6 @@ function formatCaseStatus(mainStatus?: string | null, subStatus?: string | null,
     return formatFranceStatusLabel(mainStatus, subStatus)
   }
   return `${mainStatus || "-"}${subStatus ? ` / ${subStatus}` : ""}`
-}
-
-function Section({
-  title,
-  description,
-  tone = "slate",
-  children,
-}: {
-  title: string
-  description: string
-  tone?: "slate" | "sky" | "emerald" | "amber"
-  children: ReactNode
-}) {
-  const toneMap = {
-    slate: {
-      card: "border-slate-200 bg-white/95",
-      title: "text-slate-900",
-      desc: "text-slate-500",
-    },
-    sky: {
-      card: "border-sky-200 bg-[linear-gradient(180deg,_#ffffff,_#f0f9ff)]",
-      title: "text-sky-950",
-      desc: "text-sky-700/80",
-    },
-    emerald: {
-      card: "border-emerald-200 bg-[linear-gradient(180deg,_#ffffff,_#ecfdf5)]",
-      title: "text-emerald-950",
-      desc: "text-emerald-700/80",
-    },
-    amber: {
-      card: "border-amber-200 bg-[linear-gradient(180deg,_#ffffff,_#fffbeb)]",
-      title: "text-amber-950",
-      desc: "text-amber-700/80",
-    },
-  } as const
-
-  const styles = toneMap[tone]
-  return (
-    <Card className={cn("shadow-sm", styles.card)}>
-      <CardHeader>
-        <CardTitle className={cn("text-lg font-semibold", styles.title)}>{title}</CardTitle>
-        <CardDescription className={cn("text-sm", styles.desc)}>{description}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">{children}</CardContent>
-    </Card>
-  )
-}
-
-function ReadOnlyField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <Input value={value} readOnly className="bg-gray-50" />
-    </div>
-  )
 }
 
 export function ProgressTab({

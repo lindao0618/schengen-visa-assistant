@@ -2,14 +2,12 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import type { Dispatch, ReactNode, SetStateAction } from "react"
+import type { Dispatch, SetStateAction } from "react"
 import { Save } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TabsContent } from "@/components/ui/tabs"
@@ -17,94 +15,10 @@ import { Textarea } from "@/components/ui/textarea"
 import type { ApplicantIntakeSnapshot, ApplicantProfileDetail, BasicFormState } from "@/app/applicants/[id]/detail/types"
 import { FRANCE_TLS_CITY_OPTIONS } from "@/lib/france-tls-city"
 import { cn } from "@/lib/utils"
-
-function formatDateTime(value?: string | null) {
-  if (!value) return "-"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "-"
-  return date.toLocaleString("zh-CN", { hour12: false })
-}
+import { formatDateTime, Section, Field, ReadOnlyField } from "@/app/applicants/[id]/detail/detail-ui"
 
 function buildApplicantFileUrl(applicantId: string, slot: string) {
   return `/api/applicants/${encodeURIComponent(applicantId)}/files/${encodeURIComponent(slot)}`
-}
-
-function Section({
-  title,
-  description,
-  tone = "slate",
-  children,
-}: {
-  title: string
-  description: string
-  tone?: "slate" | "sky" | "emerald" | "amber"
-  children: ReactNode
-}) {
-  const toneMap = {
-    slate: {
-      card: "border-slate-200 bg-white/95",
-      title: "text-slate-900",
-      desc: "text-slate-500",
-    },
-    sky: {
-      card: "border-sky-200 bg-[linear-gradient(180deg,_#ffffff,_#f0f9ff)]",
-      title: "text-sky-950",
-      desc: "text-sky-700/80",
-    },
-    emerald: {
-      card: "border-emerald-200 bg-[linear-gradient(180deg,_#ffffff,_#ecfdf5)]",
-      title: "text-emerald-950",
-      desc: "text-emerald-700/80",
-    },
-    amber: {
-      card: "border-amber-200 bg-[linear-gradient(180deg,_#ffffff,_#fffbeb)]",
-      title: "text-amber-950",
-      desc: "text-amber-700/80",
-    },
-  } as const
-
-  const styles = toneMap[tone]
-  return (
-    <Card className={cn("shadow-sm", styles.card)}>
-      <CardHeader>
-        <CardTitle className={cn("text-lg font-semibold", styles.title)}>{title}</CardTitle>
-        <CardDescription className={cn("text-sm", styles.desc)}>{description}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">{children}</CardContent>
-    </Card>
-  )
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  type = "text",
-  placeholder,
-  disabled = false,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  type?: string
-  placeholder?: string
-  disabled?: boolean
-}) {
-  return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <Input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} disabled={disabled} />
-    </div>
-  )
-}
-
-function ReadOnlyField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <Input value={value} readOnly className="bg-gray-50" />
-    </div>
-  )
 }
 
 function ParsedIntakeAccordion({
