@@ -9,7 +9,6 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, Loader2, Plus, Save, Trash2 } from "lucide-react"
 import { read, utils, write } from "xlsx"
 
-import { FranceCaseProgressCard } from "@/components/france-case-progress-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
@@ -17,7 +16,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { ACTIVE_APPLICANT_CASE_KEY, ACTIVE_APPLICANT_PROFILE_KEY } from "@/components/applicant-profile-selector"
@@ -65,6 +63,11 @@ const MaterialPreviewDialog = dynamic(
 
 const MaterialsTab = dynamic(
   () => import("@/app/applicants/[id]/detail/materials-tab").then((mod) => mod.MaterialsTab),
+  { ssr: false },
+)
+
+const ProgressTab = dynamic(
+  () => import("@/app/applicants/[id]/detail/progress-tab").then((mod) => mod.ProgressTab),
   { ssr: false },
 )
 
@@ -565,13 +568,6 @@ function getPriorityLabel(value?: string | null) {
 function getPriorityVariant(value?: string | null) {
   if (value === "urgent") return "destructive" as const
   if (value === "high") return "warning" as const
-  return "outline" as const
-}
-
-function getSendStatusBadge(status?: string | null) {
-  if (status === "sent") return "success" as const
-  if (status === "failed") return "destructive" as const
-  if (status === "processing") return "info" as const
   return "outline" as const
 }
 
@@ -2500,100 +2496,11 @@ export default function ApplicantDetailClientPage({
             onPreview={openPreview}
           />
 
-          <TabsContent value="progress" className="space-y-6">
-            {selectedCase ? (
-              <>
-                {selectedCase.caseType === "france-schengen" ? (
-                  <div className="rounded-3xl border border-emerald-200 bg-[linear-gradient(180deg,_rgba(255,255,255,0.92),_rgba(236,253,245,0.92))] p-2 shadow-sm">
-                    <FranceCaseProgressCard
-                      applicantProfileId={detail.profile.id}
-                      applicantName={detail.profile.name || detail.profile.label}
-                      caseId={selectedCase.id}
-                    />
-                  </div>
-                ) : (
-                  <Section title="当前案件进度" description="当前选中的是非 France Case，这里先展示基础案件信息。" tone="emerald">
-                    <div className="grid gap-4 md:grid-cols-4">
-                      <ReadOnlyField
-                        label="状态"
-                        value={formatCaseStatus(selectedCase.mainStatus, selectedCase.subStatus, selectedCase.caseType)}
-                      />
-                      <ReadOnlyField label="异常" value={selectedCase.exceptionCode || "-"} />
-                      <ReadOnlyField label="优先级" value={getPriorityLabel(selectedCase.priority)} />
-                      <ReadOnlyField label="最近更新" value={formatDateTime(selectedCase.updatedAt)} />
-                    </div>
-                  </Section>
-                )}
-
-                <Section title="状态日志" description="这里直接读取 VisaCaseStatusHistory。" tone="emerald">
-                  {selectedCase.statusHistory.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/70 p-4 text-sm text-emerald-800">当前案件还没有状态日志。</div>
-                  ) : (
-                    <div className="space-y-3">
-                      {selectedCase.statusHistory.map((item) => (
-                        <div key={item.id} className="rounded-2xl border border-emerald-200 bg-white/95 p-4 shadow-sm">
-                          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                            <div className="text-sm font-semibold text-emerald-950">
-                              {item.toMainStatus}
-                              {item.toSubStatus ? ` / ${item.toSubStatus}` : ""}
-                            </div>
-                            <div className="text-xs text-emerald-800/70">{formatDateTime(item.createdAt)}</div>
-                          </div>
-                          {item.reason && <div className="mt-2 text-sm text-slate-700">原因：{item.reason}</div>}
-                          {item.exceptionCode && (
-                            <div className="mt-2 text-sm text-red-600">异常：{item.exceptionCode}</div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </Section>
-
-                <Section title="Reminder 日志" description="这里直接读取 ReminderLog，当前仍是模拟发送。" tone="slate">
-                  {selectedCase.reminderLogs.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-4 text-sm text-slate-600">当前案件还没有 Reminder 日志。</div>
-                  ) : (
-                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <Table>
-                      <TableHeader className="bg-slate-50/90">
-                        <TableRow>
-                          <TableHead>触发时间</TableHead>
-                          <TableHead>规则</TableHead>
-                          <TableHead>渠道</TableHead>
-                          <TableHead>方式</TableHead>
-                          <TableHead>状态</TableHead>
-                          <TableHead>摘要</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {selectedCase.reminderLogs.map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell>{formatDateTime(item.triggeredAt)}</TableCell>
-                            <TableCell>{item.ruleCode}</TableCell>
-                            <TableCell>{item.channel}</TableCell>
-                            <TableCell>{item.automationMode}</TableCell>
-                            <TableCell>
-                              <Badge variant={getSendStatusBadge(item.sendStatus)}>{item.sendStatus}</Badge>
-                            </TableCell>
-                            <TableCell className="max-w-[320px] truncate text-sm text-slate-500">
-                              {item.renderedContent || item.errorMessage || "-"}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                    </div>
-                  )}
-                </Section>
-              </>
-            ) : (
-              <Section title="进度与日志" description="先在 Case 标签页中创建或选择一个案件。" tone="emerald">
-                <div className="rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/70 p-6 text-sm text-emerald-800">
-                  当前还没有可展示的案件进度。
-                </div>
-              </Section>
-            )}
-          </TabsContent>
+          <ProgressTab
+            applicantProfileId={detail.profile.id}
+            applicantName={detail.profile.name || detail.profile.label}
+            selectedCase={selectedCase}
+          />
         </Tabs>
       </div>
 
