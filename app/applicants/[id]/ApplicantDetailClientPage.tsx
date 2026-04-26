@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, FileText, Loader2, Plus, Save, Trash2 } from "lucide-react"
@@ -29,14 +29,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { ACTIVE_APPLICANT_CASE_KEY, ACTIVE_APPLICANT_PROFILE_KEY } from "@/components/applicant-profile-selector"
-import {
-  canAssignCases,
-  canTriggerAutomation as canTriggerAutomationForRole,
-  canWriteApplicants,
-  getAppRoleLabel,
-  isReadOnlyRole,
-  normalizeAppRole,
-} from "@/lib/access-control"
+import { getAppRoleLabel } from "@/lib/access-control"
+import { resolveApplicantDetailTab, useApplicantDetailController } from "@/app/applicants/[id]/detail/use-applicant-detail-controller"
 import {
   CRM_PRIORITY_OPTIONS,
   CRM_REGION_OPTIONS,
@@ -1267,36 +1261,52 @@ export default function ApplicantDetailClientPage({
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const normalizedViewerRole = useMemo(() => normalizeAppRole(viewerRole), [viewerRole])
-  const canEditApplicant = useMemo(() => canWriteApplicants(normalizedViewerRole), [normalizedViewerRole])
-  const canAssignCase = useMemo(() => canAssignCases(normalizedViewerRole), [normalizedViewerRole])
-  const canRunAutomation = useMemo(() => canTriggerAutomationForRole(normalizedViewerRole), [normalizedViewerRole])
-  const isReadOnlyViewer = useMemo(() => isReadOnlyRole(normalizedViewerRole), [normalizedViewerRole])
-  const [loading, setLoading] = useState(true)
-  const [message, setMessage] = useState("")
-  const [savingProfile, setSavingProfile] = useState(false)
-  const [savingCase, setSavingCase] = useState(false)
-  const [deletingApplicant, setDeletingApplicant] = useState(false)
-  const [creatingCase, setCreatingCase] = useState(false)
-  const [detail, setDetail] = useState<ApplicantDetailResponse | null>(null)
-  const [basicForm, setBasicForm] = useState<BasicFormState>(emptyBasicForm)
-  const [selectedCaseId, setSelectedCaseId] = useState("")
-  const [caseForm, setCaseForm] = useState<CaseFormState>(emptyCaseForm)
-  const [createCaseOpen, setCreateCaseOpen] = useState(false)
-  const [newCaseForm, setNewCaseForm] = useState<CaseFormState>(emptyCaseForm)
-  const [preview, setPreview] = useState<PreviewState>(emptyPreview)
-  const [auditDialog, setAuditDialog] = useState<AuditDialogState>(emptyAuditDialog)
+  const {
+    normalizedViewerRole,
+    isReadOnlyViewer,
+    canEditApplicant,
+    canAssignCase,
+    canRunAutomation,
+    loading,
+    setLoading,
+    message,
+    setMessage,
+    savingProfile,
+    setSavingProfile,
+    savingCase,
+    setSavingCase,
+    deletingApplicant,
+    setDeletingApplicant,
+    creatingCase,
+    setCreatingCase,
+    detail,
+    setDetail,
+    basicForm,
+    setBasicForm,
+    selectedCaseId,
+    setSelectedCaseId,
+    caseForm,
+    setCaseForm,
+    createCaseOpen,
+    setCreateCaseOpen,
+    newCaseForm,
+    setNewCaseForm,
+    preview,
+    setPreview,
+    auditDialog,
+    setAuditDialog,
+    detailCacheKey,
+    selectedCase,
+    invalidateApplicantCaches,
+    primeApplicantDetailCache,
+    applyDetailPayload,
+  } = useApplicantDetailController({
+    applicantId,
+    viewerRole,
+  })
   const defaultTab = useMemo(() => {
-    const requestedTab = searchParams.get("tab") || ""
-    const allowedTabs = new Set(["basic", "cases", "materials", "progress"])
-    return allowedTabs.has(requestedTab) ? requestedTab : "basic"
+    return resolveApplicantDetailTab(searchParams.get("tab"))
   }, [searchParams])
-  const detailCacheKey = useMemo(() => getApplicantDetailCacheKey(applicantId), [applicantId])
-
-  const selectedCase = useMemo(
-    () => detail?.cases.find((item) => item.id === selectedCaseId) ?? null,
-    [detail?.cases, selectedCaseId],
-  )
   const selectedFranceCase = useMemo(() => {
     if (selectedCase && isFranceSchengenCase(selectedCase)) return selectedCase
     return detail?.cases.find((item) => item.isActive && isFranceSchengenCase(item))
@@ -1345,31 +1355,7 @@ export default function ApplicantDetailClientPage({
     return () => {
       for (const timer of timers) window.clearTimeout(timer)
     }
-  }, [auditDialog.open, auditDialog.status])
-
-  const invalidateApplicantCaches = useCallback(() => {
-    clearClientCache(detailCacheKey)
-    clearClientCache(APPLICANT_SELECTOR_CACHE_KEY)
-    clearClientCacheByPrefix(APPLICANT_CRM_LIST_CACHE_PREFIX)
-    clearClientCacheByPrefix(APPLICANT_CRM_SUMMARY_CACHE_PREFIX)
-    clearClientCacheByPrefix(FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX)
-  }, [detailCacheKey])
-
-  const primeApplicantDetailCache = useCallback(
-    (data: ApplicantDetailResponse) => {
-      writeClientCache(detailCacheKey, data, APPLICANT_DETAIL_CACHE_TTL_MS)
-    },
-    [detailCacheKey],
-  )
-
-  const applyDetailPayload = useCallback((data: ApplicantDetailResponse) => {
-    setDetail(data)
-    setBasicForm(buildBasicForm(data.profile))
-    const nextCaseId = data.activeCaseId || data.cases[0]?.id || ""
-    setSelectedCaseId(nextCaseId)
-    setCaseForm(buildCaseForm(data.cases.find((item) => item.id === nextCaseId) || null))
-    persistSelectedApplicantCase(data.profile.id, nextCaseId)
-  }, [])
+  }, [auditDialog.open, auditDialog.status, setAuditDialog])
 
   const loadDetail = useCallback(async () => {
     const cached = readClientCache<ApplicantDetailResponse>(detailCacheKey)
@@ -1395,7 +1381,7 @@ export default function ApplicantDetailClientPage({
     } finally {
       setLoading(false)
     }
-  }, [applicantId, applyDetailPayload, detailCacheKey, primeApplicantDetailCache])
+  }, [applicantId, applyDetailPayload, detailCacheKey, primeApplicantDetailCache, setLoading, setMessage])
 
   useEffect(() => {
     void loadDetail()
@@ -1403,7 +1389,7 @@ export default function ApplicantDetailClientPage({
 
   useEffect(() => {
     setCaseForm(buildCaseForm(selectedCase))
-  }, [selectedCase])
+  }, [selectedCase, setCaseForm])
 
   useEffect(() => {
     if (caseForm.caseType !== "france-schengen") return
@@ -1413,7 +1399,7 @@ export default function ApplicantDetailClientPage({
       if (prev.caseType !== "france-schengen" || prev.tlsCity) return prev
       return { ...prev, tlsCity: basicForm.schengenVisaCity }
     })
-  }, [basicForm.schengenVisaCity, caseForm.caseType, caseForm.tlsCity])
+  }, [basicForm.schengenVisaCity, caseForm.caseType, caseForm.tlsCity, setCaseForm])
 
   useEffect(() => {
     if (!detail?.profile.id) return
