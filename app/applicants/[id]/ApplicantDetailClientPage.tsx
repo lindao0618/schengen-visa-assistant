@@ -29,6 +29,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { ACTIVE_APPLICANT_CASE_KEY, ACTIVE_APPLICANT_PROFILE_KEY } from "@/components/applicant-profile-selector"
+import { AuditDialog } from "@/app/applicants/[id]/detail/audit-dialog"
+import { resolveSelectedFranceCase, resolveTlsAccountCaseSource } from "@/app/applicants/[id]/detail/cases-tab"
+import { MaterialPreviewDialog } from "@/app/applicants/[id]/detail/material-preview-dialog"
 import { getAppRoleLabel } from "@/lib/access-control"
 import { resolveApplicantDetailTab, useApplicantDetailController } from "@/app/applicants/[id]/detail/use-applicant-detail-controller"
 import {
@@ -1307,29 +1310,14 @@ export default function ApplicantDetailClientPage({
   const defaultTab = useMemo(() => {
     return resolveApplicantDetailTab(searchParams.get("tab"))
   }, [searchParams])
-  const selectedFranceCase = useMemo(() => {
-    if (selectedCase && isFranceSchengenCase(selectedCase)) return selectedCase
-    return detail?.cases.find((item) => item.isActive && isFranceSchengenCase(item))
-      ?? detail?.cases.find((item) => isFranceSchengenCase(item))
-      ?? null
-  }, [detail?.cases, selectedCase])
-  const tlsAccountCaseSource = useMemo(() => {
-    if (selectedCase && isFranceSchengenCase(selectedCase)) {
-      return {
-        bookingWindow: caseForm.bookingWindow,
-        acceptVip: caseForm.acceptVip,
-        tlsCity: caseForm.tlsCity,
-      }
-    }
-    if (selectedFranceCase) {
-      return {
-        bookingWindow: selectedFranceCase.bookingWindow || "",
-        acceptVip: selectedFranceCase.acceptVip || "",
-        tlsCity: selectedFranceCase.tlsCity || "",
-      }
-    }
-    return null
-  }, [caseForm.acceptVip, caseForm.bookingWindow, caseForm.tlsCity, selectedCase, selectedFranceCase])
+  const selectedFranceCase = useMemo(
+    () => resolveSelectedFranceCase(detail?.cases || [], selectedCase),
+    [detail?.cases, selectedCase],
+  )
+  const tlsAccountCaseSource = useMemo(
+    () => resolveTlsAccountCaseSource(selectedCase, selectedFranceCase, caseForm),
+    [caseForm, selectedCase, selectedFranceCase],
+  )
   const tlsAccountInfo = useMemo(
     () => buildTlsAccountInfo(detail?.profile, tlsAccountCaseSource, basicForm.schengenVisaCity),
     [basicForm.schengenVisaCity, detail?.profile, tlsAccountCaseSource],
@@ -3007,313 +2995,33 @@ export default function ApplicantDetailClientPage({
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={preview.open}
-        onOpenChange={(open) => {
-          if (open) return
-          if (preview.kind === "excel" && preview.excelEditMode && preview.excelDirty) {
-            if (!window.confirm("有未保存的修改，确定关闭？")) return
-          }
-          closePreview()
-        }}
-      >
-        <DialogContent
-          className={cn(
-            "!flex max-h-[92vh] max-w-none flex-col gap-4 overflow-hidden p-6",
-            preview.kind === "excel" && preview.excelEditMode
-              ? "w-[min(99.5vw,1920px)]"
-              : preview.kind === "excel"
-                ? "w-[min(98vw,1680px)]"
-                : "w-[min(96vw,72rem)]",
-          )}
-        >
-          <DialogHeader>
-            <DialogTitle>{preview.title || "文件预览"}</DialogTitle>
-            {preview.kind === "excel" ? (
-              <DialogDescription>
-                预览申根/美签 Excel。点击「在线编辑」可直接改单元格并保存回档案（多 Sheet 请切换标签；保存后为 .xlsx）。
-              </DialogDescription>
-            ) : null}
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-gray-200 p-3">
-            {preview.loading && <div className="p-6 text-sm text-gray-500">正在加载预览...</div>}
-            {!preview.loading && preview.error && <div className="p-6 text-sm text-amber-700">{preview.error}</div>}
-            {!preview.loading && !preview.error && preview.kind === "pdf" && preview.objectUrl && (
-              <iframe src={preview.objectUrl} className="h-[70vh] w-full rounded-xl" />
-            )}
-            {!preview.loading && !preview.error && preview.kind === "image" && preview.objectUrl && (
-              <img src={preview.objectUrl} alt={preview.title} className="mx-auto max-h-[70vh] max-w-full object-contain" />
-            )}
-            {!preview.loading && !preview.error && preview.kind === "excel" && (
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  {preview.excelUsVisaSections.length > 0 && !preview.excelEditMode ? (
-                    <>
-                      <Button
-                        size="sm"
-                        variant={preview.excelPreviewMode === "form" ? "default" : "outline"}
-                        onClick={() => setPreview((p) => ({ ...p, excelPreviewMode: "form" }))}
-                      >
-                        表单视图
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant={preview.excelPreviewMode === "table" ? "default" : "outline"}
-                        onClick={() => setPreview((p) => ({ ...p, excelPreviewMode: "table" }))}
-                      >
-                        原始 Sheet1
-                      </Button>
-                    </>
-                  ) : null}
-                  {preview.excelEditMode ? (
-                    <>
-                      <Button size="sm" onClick={() => void saveExcelFromPreview()} disabled={preview.excelSaving || !canEditApplicant}>
-                        {preview.excelSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                        {preview.excelSaving ? "保存中…" : "保存到档案"}
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => cancelExcelEdit()} disabled={preview.excelSaving}>
-                        放弃修改
-                      </Button>
-                    </>
-                  ) : (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={!canEditApplicant}
-                        onClick={() =>
-                        setPreview((p) => ({
-                          ...p,
-                          excelEditMode: true,
-                          excelPreviewMode: "table",
-                        }))
-                      }
-                    >
-                      在线编辑
-                    </Button>
-                  )}
-                  {preview.excelDirty ? (
-                    <span className="text-xs text-amber-700">有未保存修改</span>
-                  ) : null}
-                </div>
-                {preview.excelUsVisaSections.length > 0 ? (
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                    当前仅预览 Sheet1。表单视图读取 A-C 主数据列，D-E 说明列会以提示信息展示；原始视图只显示 Sheet1 的 A-C 列。
-                  </div>
-                ) : null}
-                {preview.excelSheets.length > 1 && (
-                  <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-3">
-                    {preview.excelSheets.map((sheet) => (
-                      <Button
-                        key={sheet.name}
-                        variant={sheet.name === preview.activeExcelSheet ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => selectExcelSheet(sheet.name)}
-                        disabled={preview.excelSaving}
-                      >
-                        {sheet.name}
-                      </Button>
-                    ))}
-                  </div>
-                )}
-                <div className="text-xs text-gray-500">
-                  {preview.activeExcelSheet ? `Sheet：${preview.activeExcelSheet}` : "Sheet：-"}
-                  {" · "}
-                  {preview.tableRows.length} 行
-                </div>
-                {preview.excelSaving ? (
-                  <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>{preview.excelSavingStatus || "正在保存到档案…"}</span>
-                  </div>
-                ) : null}
-                {preview.excelUsVisaSections.length > 0 && preview.excelPreviewMode === "form" && !preview.excelEditMode ? (
-                  <div className="space-y-4">
-                    {preview.excelUsVisaSections.map((section) => {
-                      const sectionContent = (
-                        <div className="grid gap-3 md:grid-cols-2">
-                          {section.items.map((item) => (
-                            <div
-                              key={`${section.title}-${item.rowIndex}-${item.field}-${item.label}`}
-                              className={cn(
-                                "rounded-xl border p-4 shadow-sm",
-                                item.value ? "border-slate-200 bg-white" : "border-rose-200 bg-rose-50/70",
-                              )}
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="space-y-1">
-                                  <div className="text-sm font-semibold text-slate-900">{item.label || item.field || `第 ${item.rowIndex} 行`}</div>
-                                  {item.field ? <div className="text-[11px] text-slate-500">{item.field}</div> : null}
-                                </div>
-                                <div className="text-[11px] text-slate-400">第 {item.rowIndex} 行</div>
-                              </div>
-                              <div className={cn("mt-3 whitespace-pre-wrap break-words text-sm", item.value ? "text-slate-800" : "text-rose-600")}>
-                                {item.value || "未填写"}
-                              </div>
-                              {item.note ? <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">{item.note}</div> : null}
-                            </div>
-                          ))}
-                        </div>
-                      )
+      <MaterialPreviewDialog
+        preview={preview}
+        canEditApplicant={canEditApplicant}
+        onClose={closePreview}
+        onSelectExcelPreviewMode={(mode) => setPreview((prev) => ({ ...prev, excelPreviewMode: mode }))}
+        onEnableExcelEdit={() =>
+          setPreview((prev) => ({
+            ...prev,
+            excelEditMode: true,
+            excelPreviewMode: "table",
+          }))
+        }
+        onSaveExcelFromPreview={saveExcelFromPreview}
+        onCancelExcelEdit={cancelExcelEdit}
+        onSelectExcelSheet={selectExcelSheet}
+        onSetExcelCell={setExcelCell}
+        excelColumnMinWidthClass={excelColumnMinWidthClass}
+      />
 
-                      return section.title.includes("空着就行") ? (
-                        <details key={section.title} className="rounded-xl border border-slate-200 bg-white p-4">
-                          <summary className="cursor-pointer text-sm font-semibold text-slate-900">{section.title}</summary>
-                          <div className="mt-4">{sectionContent}</div>
-                        </details>
-                      ) : (
-                        <section key={section.title} className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
-                          <div className="text-sm font-semibold text-slate-900">{section.title}</div>
-                          {sectionContent}
-                        </section>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <div className="overflow-auto rounded-lg border border-gray-200">
-                    <table className="w-max min-w-full border-collapse text-xs">
-                      <tbody>
-                        {(() => {
-                          const maxCols =
-                            preview.tableRows.length === 0
-                              ? 0
-                              : Math.max(...preview.tableRows.map((r) => r.length))
-                          const visibleCols =
-                            preview.excelUsVisaSections.length > 0 && maxCols > 0 ? Math.min(3, maxCols) : maxCols
-                          return preview.tableRows.map((row, rowIndex) => (
-                            <tr key={`row-${rowIndex}`} className={rowIndex === 0 ? "bg-gray-50" : ""}>
-                              <td className="sticky left-0 z-[1] w-11 min-w-[2.75rem] border bg-white px-1.5 py-1 text-right text-[11px] text-gray-400">
-                                {rowIndex + 1}
-                              </td>
-                              {Array.from({ length: visibleCols }, (_, cellIndex) => {
-                                const cell = row[cellIndex] ?? ""
-                                const colClass = excelColumnMinWidthClass(cellIndex)
-                                return (
-                                  <td key={`cell-${rowIndex}-${cellIndex}`} className={cn("border p-0 align-top", colClass)}>
-                                    {preview.excelEditMode ? (
-                                      <Input
-                                        className={cn(
-                                          "h-auto min-h-8 w-full rounded-none border-0 py-1.5 text-xs shadow-none focus-visible:ring-1",
-                                          colClass,
-                                        )}
-                                        value={cell}
-                                        onChange={(e) => setExcelCell(rowIndex, cellIndex, e.target.value)}
-                                        disabled={preview.excelSaving}
-                                      />
-                                    ) : (
-                                      <div className={cn("whitespace-pre-wrap break-words px-2 py-1.5", colClass)}>
-                                        {cell || ""}
-                                      </div>
-                                    )}
-                                  </td>
-                                )
-                              })}
-                            </tr>
-                          ))
-                        })()}
-                      </tbody>
-                    </table>
-                    {preview.tableRows.length === 0 && <div className="p-4 text-sm text-gray-500">Excel 内容为空。</div>}
-                  </div>
-                )}
-              </div>
-            )}
-            {!preview.loading && !preview.error && preview.kind === "word" && (
-              <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: preview.htmlContent || "<p>暂无可预览内容</p>" }} />
-            )}
-            {!preview.loading && !preview.error && preview.kind === "text" && (
-              <pre className="whitespace-pre-wrap break-words p-3 text-xs">{preview.textContent || "暂无可预览内容"}</pre>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={auditDialog.open} onOpenChange={(open) => (!open ? setAuditDialog(emptyAuditDialog) : null)}>
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle className={auditDialog.status === "error" ? "text-red-600" : auditDialog.status === "success" ? "text-emerald-600" : ""}>
-              {auditDialog.title}
-            </DialogTitle>
-            <DialogDescription>
-              {auditDialog.status === "running"
-                ? "系统正在对上传的 Excel 进行字段完整性与规则检查。"
-                : auditDialog.status === "success"
-                  ? "审核通过，可继续后续流程。"
-                  : "审核发现问题，请先修正再继续。"}
-            </DialogDescription>
-            {auditDialog.helperText ? <div className="text-sm text-slate-500">{auditDialog.helperText}</div> : null}
-          </DialogHeader>
-
-          {auditDialog.status === "running" ? (
-            <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3">
-              <div className="flex items-center gap-2 text-sm font-medium text-blue-700">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>{AUDIT_PROGRESS_STEPS[auditPhaseIndex]}</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {AUDIT_PROGRESS_STEPS.map((step, index) => {
-                  const isDone = index < auditPhaseIndex
-                  const isActive = index === auditPhaseIndex
-                  return (
-                    <div
-                      key={step}
-                      className={cn(
-                        "rounded-xl border px-3 py-2 text-xs transition-colors",
-                        isDone
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : isActive
-                            ? "border-blue-300 bg-white text-blue-700 shadow-sm"
-                            : "border-blue-100 bg-blue-50/60 text-blue-400",
-                      )}
-                    >
-                      <div className="font-semibold">步骤 {index + 1}</div>
-                      <div className="mt-1">{step}</div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          ) : null}
-
-          {false && auditDialog.status === "running" ? (
-            <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-700">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              正在审核，请稍候...
-            </div>
-          ) : null}
-
-          {auditDialog.status === "error" && auditDialog.issues.length > 0 ? (
-            <div className="max-h-[360px] space-y-2 overflow-auto rounded-lg border border-red-200 bg-red-50/50 p-3">
-              {auditDialog.issues.map((issue, index) => (
-                <div key={`${issue.field}-${index}`} className="rounded-md border border-red-200 bg-white px-3 py-2 text-sm">
-                  <div className="font-medium text-red-700">
-                    {index + 1}. {issue.field}
-                  </div>
-                  <div className="mt-1 text-gray-700">{issue.message}</div>
-                  {issue.value ? <div className="mt-1 text-xs text-gray-500">当前值：{issue.value}</div> : null}
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          <DialogFooter>
-            {auditDialog.status === "error" && auditDialog.scope === "usVisa" ? (
-              <Button variant="outline" onClick={() => void autoFixUsVisaAuditIssues()} disabled={auditDialog.autoFixing || !canRunAutomation}>
-                {auditDialog.autoFixing ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    正在自动处理…
-                  </>
-                ) : (
-                  "先帮我处理可修格式问题"
-                )}
-              </Button>
-            ) : null}
-            <Button onClick={() => setAuditDialog(emptyAuditDialog)} disabled={auditDialog.autoFixing}>
-              {auditDialog.status === "error" ? "我知道了，去修正" : "确定"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AuditDialog
+        auditDialog={auditDialog}
+        auditProgressSteps={AUDIT_PROGRESS_STEPS}
+        auditPhaseIndex={auditPhaseIndex}
+        canRunAutomation={canRunAutomation}
+        onClose={() => setAuditDialog(emptyAuditDialog)}
+        onAutoFix={autoFixUsVisaAuditIssues}
+      />
     </div>
   )
 }

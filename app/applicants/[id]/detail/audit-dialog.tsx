@@ -25,6 +25,13 @@ export function AuditDialog({
   onClose,
   onAutoFix,
 }: AuditDialogProps) {
+  const description =
+    auditDialog.status === "running"
+      ? "正在读取 Excel、识别字段并校验规则，请稍候。"
+      : auditDialog.status === "success"
+        ? "审核已通过，可以继续后续流程。"
+        : "审核发现问题，请根据提示修正后再继续。"
+
   return (
     <Dialog open={auditDialog.open} onOpenChange={(open) => (!open ? onClose() : null)}>
       <DialogContent className="max-w-xl">
@@ -32,13 +39,7 @@ export function AuditDialog({
           <DialogTitle className={auditDialog.status === "error" ? "text-red-600" : auditDialog.status === "success" ? "text-emerald-600" : ""}>
             {auditDialog.title}
           </DialogTitle>
-          <DialogDescription>
-            {auditDialog.status === "running"
-              ? "系统正在对上传的 Excel 进行字段完整性与规则检查。"
-              : auditDialog.status === "success"
-                ? "审核通过，可以继续后续流程。"
-                : "审核发现问题，请先修正再继续。"}
-          </DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
           {auditDialog.helperText ? <div className="text-sm text-slate-500">{auditDialog.helperText}</div> : null}
         </DialogHeader>
 
@@ -52,6 +53,7 @@ export function AuditDialog({
               {auditProgressSteps.map((step, index) => {
                 const isDone = index < auditPhaseIndex
                 const isActive = index === auditPhaseIndex
+
                 return (
                   <div
                     key={step}
@@ -64,7 +66,7 @@ export function AuditDialog({
                           : "border-blue-100 bg-blue-50/60 text-blue-400",
                     )}
                   >
-                    <div className="font-semibold">步骤 {index + 1}</div>
+                    <div className="font-semibold">阶段 {index + 1}</div>
                     <div className="mt-1">{step}</div>
                   </div>
                 )
@@ -93,10 +95,10 @@ export function AuditDialog({
               {auditDialog.autoFixing ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  正在自动处理...
+                  正在自动修复...
                 </>
               ) : (
-                "先帮我处理可修格式问题"
+                "自动修复可修正项"
               )}
             </Button>
           ) : null}

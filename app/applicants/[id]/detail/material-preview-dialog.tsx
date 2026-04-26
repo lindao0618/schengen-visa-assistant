@@ -42,7 +42,7 @@ export function MaterialPreviewDialog({
       onOpenChange={(open) => {
         if (open) return
         if (preview.kind === "excel" && preview.excelEditMode && preview.excelDirty) {
-          if (!window.confirm("有未保存的修改，确定关闭吗？")) return
+          if (!window.confirm("Excel 还有未保存修改，确认关闭预览吗？")) return
         }
         onClose()
       }}
@@ -61,20 +61,21 @@ export function MaterialPreviewDialog({
           <DialogTitle>{preview.title || "文件预览"}</DialogTitle>
           {preview.kind === "excel" ? (
             <DialogDescription>
-              预览申根/美签 Excel。点击“在线编辑”可直接改单元格并保存回档案，保存后将统一写回为 `.xlsx`。
+              支持切换工作表、表格编辑和保存回申请人档案。在线编辑后会覆盖当前 Excel 文件。
             </DialogDescription>
           ) : null}
         </DialogHeader>
+
         <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-gray-200 p-3">
-          {preview.loading && <div className="p-6 text-sm text-gray-500">正在加载预览...</div>}
-          {!preview.loading && preview.error && <div className="p-6 text-sm text-amber-700">{preview.error}</div>}
-          {!preview.loading && !preview.error && preview.kind === "pdf" && preview.objectUrl && (
+          {preview.loading ? <div className="p-6 text-sm text-gray-500">正在加载预览...</div> : null}
+          {!preview.loading && preview.error ? <div className="p-6 text-sm text-amber-700">{preview.error}</div> : null}
+          {!preview.loading && !preview.error && preview.kind === "pdf" && preview.objectUrl ? (
             <iframe src={preview.objectUrl} className="h-[70vh] w-full rounded-xl" />
-          )}
-          {!preview.loading && !preview.error && preview.kind === "image" && preview.objectUrl && (
+          ) : null}
+          {!preview.loading && !preview.error && preview.kind === "image" && preview.objectUrl ? (
             <img src={preview.objectUrl} alt={preview.title} className="mx-auto max-h-[70vh] max-w-full object-contain" />
-          )}
-          {!preview.loading && !preview.error && preview.kind === "excel" && (
+          ) : null}
+          {!preview.loading && !preview.error && preview.kind === "excel" ? (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
                 {preview.excelUsVisaSections.length > 0 && !preview.excelEditMode ? (
@@ -84,14 +85,14 @@ export function MaterialPreviewDialog({
                       variant={preview.excelPreviewMode === "form" ? "default" : "outline"}
                       onClick={() => onSelectExcelPreviewMode("form")}
                     >
-                      表单视图
+                      字段卡片
                     </Button>
                     <Button
                       size="sm"
                       variant={preview.excelPreviewMode === "table" ? "default" : "outline"}
                       onClick={() => onSelectExcelPreviewMode("table")}
                     >
-                      原始 Sheet1
+                      Sheet 表格
                     </Button>
                   </>
                 ) : null}
@@ -102,7 +103,7 @@ export function MaterialPreviewDialog({
                       {preview.excelSaving ? "保存中..." : "保存到档案"}
                     </Button>
                     <Button size="sm" variant="outline" onClick={onCancelExcelEdit} disabled={preview.excelSaving}>
-                      放弃修改
+                      取消编辑
                     </Button>
                   </>
                 ) : (
@@ -110,14 +111,16 @@ export function MaterialPreviewDialog({
                     在线编辑
                   </Button>
                 )}
-                {preview.excelDirty ? <span className="text-xs text-amber-700">有未保存修改</span> : null}
+                {preview.excelDirty ? <span className="text-xs text-amber-700">当前有未保存修改</span> : null}
               </div>
+
               {preview.excelUsVisaSections.length > 0 ? (
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                  当前仅预览 `Sheet1`。表单视图读取 A-C 主数据列，原始视图只展示 `Sheet1` 的表格内容。
+                  当前支持按字段卡片查看 DS-160 / AIS 关键内容。进入编辑模式后会切回表格模式，保存时写回原始 Excel。
                 </div>
               ) : null}
-              {preview.excelSheets.length > 1 && (
+
+              {preview.excelSheets.length > 1 ? (
                 <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-3">
                   {preview.excelSheets.map((sheet) => (
                     <Button
@@ -131,18 +134,19 @@ export function MaterialPreviewDialog({
                     </Button>
                   ))}
                 </div>
-              )}
+              ) : null}
+
               <div className="text-xs text-gray-500">
-                {preview.activeExcelSheet ? `Sheet：${preview.activeExcelSheet}` : "Sheet：-"}
-                {" / "}
-                {preview.tableRows.length} 行
+                {preview.activeExcelSheet ? `Sheet：${preview.activeExcelSheet}` : "Sheet：-"} / {preview.tableRows.length} 行
               </div>
+
               {preview.excelSaving ? (
                 <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span>{preview.excelSavingStatus || "正在保存到档案..."}</span>
                 </div>
               ) : null}
+
               {preview.excelUsVisaSections.length > 0 && preview.excelPreviewMode === "form" && !preview.excelEditMode ? (
                 <div className="space-y-4">
                   {preview.excelUsVisaSections.map((section) => {
@@ -158,7 +162,9 @@ export function MaterialPreviewDialog({
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="space-y-1">
-                                <div className="text-sm font-semibold text-slate-900">{item.label || item.field || `第 ${item.rowIndex} 行`}</div>
+                                <div className="text-sm font-semibold text-slate-900">
+                                  {item.label || item.field || `第 ${item.rowIndex} 行`}
+                                </div>
                                 {item.field ? <div className="text-[11px] text-slate-500">{item.field}</div> : null}
                               </div>
                               <div className="text-[11px] text-slate-400">第 {item.rowIndex} 行</div>
@@ -172,7 +178,7 @@ export function MaterialPreviewDialog({
                       </div>
                     )
 
-                    return section.title.includes("空着就行") ? (
+                    return section.title.includes("补充说明") ? (
                       <details key={section.title} className="rounded-xl border border-slate-200 bg-white p-4">
                         <summary className="cursor-pointer text-sm font-semibold text-slate-900">{section.title}</summary>
                         <div className="mt-4">{sectionContent}</div>
@@ -196,6 +202,7 @@ export function MaterialPreviewDialog({
                             : Math.max(...preview.tableRows.map((row) => row.length))
                         const visibleCols =
                           preview.excelUsVisaSections.length > 0 && maxCols > 0 ? Math.min(3, maxCols) : maxCols
+
                         return preview.tableRows.map((row, rowIndex) => (
                           <tr key={`row-${rowIndex}`} className={rowIndex === 0 ? "bg-gray-50" : ""}>
                             <td className="sticky left-0 z-[1] w-11 min-w-[2.75rem] border bg-white px-1.5 py-1 text-right text-[11px] text-gray-400">
@@ -204,6 +211,7 @@ export function MaterialPreviewDialog({
                             {Array.from({ length: visibleCols }, (_, cellIndex) => {
                               const cell = row[cellIndex] ?? ""
                               const colClass = excelColumnMinWidthClass(cellIndex)
+
                               return (
                                 <td key={`cell-${rowIndex}-${cellIndex}`} className={cn("border p-0 align-top", colClass)}>
                                   {preview.excelEditMode ? (
@@ -227,17 +235,17 @@ export function MaterialPreviewDialog({
                       })()}
                     </tbody>
                   </table>
-                  {preview.tableRows.length === 0 && <div className="p-4 text-sm text-gray-500">Excel 内容为空。</div>}
+                  {preview.tableRows.length === 0 ? <div className="p-4 text-sm text-gray-500">Excel 内容为空。</div> : null}
                 </div>
               )}
             </div>
-          )}
-          {!preview.loading && !preview.error && preview.kind === "word" && (
+          ) : null}
+          {!preview.loading && !preview.error && preview.kind === "word" ? (
             <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: preview.htmlContent || "<p>暂无可预览内容</p>" }} />
-          )}
-          {!preview.loading && !preview.error && preview.kind === "text" && (
+          ) : null}
+          {!preview.loading && !preview.error && preview.kind === "text" ? (
             <pre className="whitespace-pre-wrap break-words p-3 text-xs">{preview.textContent || "暂无可预览内容"}</pre>
-          )}
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>
