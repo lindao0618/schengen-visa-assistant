@@ -1,66 +1,66 @@
-# Applicant Detail Page Split Design
+# 申请人详情页拆分设计
 
-## Goal
+## 目标
 
-Reduce the runtime and maintenance pressure of [`d:\Ai-user\schengen-visa-assistant (2)\visa-assistant\app\applicants\[id]\ApplicantDetailClientPage.tsx`](d:\Ai-user\schengen-visa-assistant%20(2)\visa-assistant\app\applicants\%5Bid%5D\ApplicantDetailClientPage.tsx) without changing the `/applicants/[id]` route shape, user-visible workflow, or existing automation behavior.
+在不改变 `/applicants/[id]` 路由形态、用户可见流程和现有自动化行为的前提下，降低 [d:\Ai-user\schengen-visa-assistant (2)\visa-assistant\app\applicants\[id]\ApplicantDetailClientPage.tsx](d:\Ai-user\schengen-visa-assistant%20(2)\visa-assistant\app\applicants\%5Bid%5D\ApplicantDetailClientPage.tsx) 的运行压力和维护压力。
 
-The immediate target is to break the current monolithic client component into smaller, bounded modules so the page becomes safer to change and easier to optimize further.
+这次的直接目标，是把当前单体客户端组件拆成若干职责清晰的小模块，让页面后续更安全、更容易继续做性能优化。
 
-## Current Problem
+## 当前问题
 
-The current detail page is a single client component of roughly 3300 lines that mixes:
+当前详情页是一个约 3300 行的单一客户端组件，里面混合了这些职责：
 
-- applicant detail fetching and refresh logic
-- permission and read-only gating
-- profile form state
-- case form state
-- file upload and download actions
-- Excel preview and inline editing
-- Word/HTML/text preview
-- audit dialog state and repair actions
-- tab layout and top-level user messaging
+- 申请人详情数据拉取和刷新逻辑
+- 权限和只读控制
+- 申请人基础表单状态
+- Case 表单状态
+- 文件上传和下载动作
+- Excel 预览与在线编辑
+- Word/HTML/文本预览
+- 审核弹窗状态和修复动作
+- tab 布局和顶层消息提示
 
-This produces three concrete problems:
+这会带来三个实际问题：
 
-1. The page is difficult to reason about and easy to regress.
-2. Heavy preview logic and large dialog state live in the main page bundle even when users only need basic detail editing.
-3. Follow-up performance work such as lazy loading, cache tightening, or route-level profiling is harder because responsibilities are not isolated.
+1. 页面很难理解，改动后容易引入回归。
+2. 预览逻辑和大块弹窗状态常驻在主页面包里，即使用户只是在看基础详情。
+3. 后续再做懒加载、缓存收紧、页面级性能分析时会很难，因为职责没有边界。
 
-## Scope
+## 范围
 
-This design covers only the applicant detail page under `/applicants/[id]`.
+本设计只覆盖 `/applicants/[id]` 这一个申请人详情页。
 
-In scope:
+包含在范围内的内容：
 
-- splitting state and UI responsibilities into focused modules
-- preserving existing tab structure
-- preserving role-based behavior from the current permissions work
-- making later bundle and render optimizations easier
+- 把状态和 UI 职责拆成几个聚焦模块
+- 保留现有 tab 结构
+- 保留前面已经落地的角色权限行为
+- 为后续的包体和渲染优化创造条件
 
-Out of scope:
+不包含在范围内的内容：
 
-- changing route paths
-- changing API contracts beyond what the page already consumes
-- removing any existing file preview, Excel edit, or audit behavior
-- rewriting automation workflows
-- redesigning the visual layout
+- 修改路由路径
+- 修改页面已使用的 API 契约
+- 删除任何现有文件预览、Excel 编辑或审核行为
+- 重写自动化流程
+- 重新设计视觉布局
 
-## Recommended Approach
+## 推荐方案
 
-Use a page-shell pattern with a single controller hook and tab-specific child components.
+采用“页面壳 + 单一控制器 Hook + tab 子组件”的结构。
 
-Recommended structure:
+推荐结构如下：
 
-- keep [`d:\Ai-user\schengen-visa-assistant (2)\visa-assistant\app\applicants\[id]\page.tsx`](d:\Ai-user\schengen-visa-assistant%20(2)\visa-assistant\app\applicants\%5Bid%5D\page.tsx) as the server entry
-- reduce [`d:\Ai-user\schengen-visa-assistant (2)\visa-assistant\app\applicants\[id]\ApplicantDetailClientPage.tsx`](d:\Ai-user\schengen-visa-assistant%20(2)\visa-assistant\app\applicants\%5Bid%5D\ApplicantDetailClientPage.tsx) to a page shell
-- move shared state and side effects into a controller hook
-- move heavy dialogs and tab content into dedicated files
+- 保留 [d:\Ai-user\schengen-visa-assistant (2)\visa-assistant\app\applicants\[id]\page.tsx](d:\Ai-user\schengen-visa-assistant%20(2)\visa-assistant\app\applicants\%5Bid%5D\page.tsx) 作为服务端入口
+- 把 [d:\Ai-user\schengen-visa-assistant (2)\visa-assistant\app\applicants\[id]\ApplicantDetailClientPage.tsx](d:\Ai-user\schengen-visa-assistant%20(2)\visa-assistant\app\applicants\%5Bid%5D\ApplicantDetailClientPage.tsx) 降成页面壳
+- 共享状态和副作用迁到控制器 Hook
+- 预览弹窗和各 tab 内容迁到独立文件
 
-This is preferred over a pure lazy-loading pass because the primary problem is not only bundle size, but also responsibility sprawl. It is also preferred over a full rewrite because the existing workflows are already live and tightly coupled to current business logic.
+相比“只做懒加载”的方案，这种方式更适合当前问题，因为现在的核心问题不只是包体大，更是职责缠在一起。相比“整页彻底重写”，这种方式风险更低，因为现有流程已经在线运行，而且和业务逻辑耦合很深。
 
-## Target File Structure
+## 目标文件结构
 
-The split should introduce a detail module under the current route folder:
+拆分后，在当前路由目录下新增一个 `detail` 模块目录：
 
 - `app/applicants/[id]/detail/use-applicant-detail-controller.ts`
 - `app/applicants/[id]/detail/basic-tab.tsx`
@@ -71,212 +71,212 @@ The split should introduce a detail module under the current route folder:
 - `app/applicants/[id]/detail/audit-dialog.tsx`
 - `app/applicants/[id]/detail/types.ts`
 
-The existing page shell file remains the integration point and imports these modules.
+现有页面壳文件继续作为集成入口，负责组装这些模块。
 
-## Responsibilities By Module
+## 各模块职责
 
-### ApplicantDetailClientPage page shell
+### ApplicantDetailClientPage 页面壳
 
-The page shell should only:
+页面壳只负责：
 
-- read the requested tab from the URL
-- initialize the controller hook
-- render the tab list and shared header
-- pass controller state and actions into the tab components
-- mount dialogs with their extracted props
+- 从 URL 读取当前请求的 tab
+- 初始化控制器 Hook
+- 渲染 tab 列表和共享页头
+- 把控制器提供的状态和动作传给各 tab 组件
+- 挂载拆出来的弹窗组件
 
-The page shell should no longer own detailed Excel preview logic, large blocks of case form rendering, or most asynchronous request code.
+页面壳不再直接持有详细的 Excel 预览逻辑、大块 Case 表单渲染逻辑，以及大部分异步请求代码。
 
 ### use-applicant-detail-controller
 
-This hook becomes the single state coordinator for the page. It should own:
+这个 Hook 作为页面的唯一状态协调器，负责：
 
-- detail fetch and refresh
-- top-level loading and message state
-- selected case and form initialization
-- save/delete/create actions for applicant and case records
-- permission-derived booleans such as `isReadOnly`, `canAssign`, and `canRunAutomation`
-- dialog open/close state and payload
+- 详情数据拉取和刷新
+- 顶层 loading 和 message 状态
+- 当前选中 Case 与表单初始化
+- 申请人和 Case 的保存、删除、创建动作
+- 从权限推导出的 `isReadOnly`、`canAssign`、`canRunAutomation` 等布尔值
+- 弹窗的开关状态和载荷
 
-This hook is the main boundary that allows the UI to become mostly declarative.
+这个 Hook 是让 UI 变成声明式结构的关键边界。
 
 ### basic-tab
 
-This component receives:
+这个组件接收：
 
-- profile form state
-- read-only flags
-- save handler
-- display helpers
+- 申请人基础表单状态
+- 只读控制
+- 保存动作
+- 展示辅助函数
 
-It should not fetch data directly or manage unrelated page state.
+它不直接拉数据，也不管理与自己无关的页面状态。
 
 ### cases-tab
 
-This component receives:
+这个组件接收：
 
-- case list
-- selected case id
-- case form state
-- create/save/switch handlers
-- role-based capability flags
+- Case 列表
+- 当前选中 Case id
+- Case 表单状态
+- 创建、保存、切换动作
+- 按角色推导出的能力标记
 
-It should encapsulate case rendering and editing UI but not own cross-page dialog state.
+它负责承接 Case 的渲染和编辑 UI，但不拥有跨页面的弹窗状态。
 
 ### materials-tab
 
-This component receives:
+这个组件接收：
 
-- applicant files and metadata
-- upload/download handlers
-- preview trigger handler
-- audit trigger handler
-- read-only and automation capability flags
+- 申请人文件和文件元数据
+- 上传和下载动作
+- 打开预览弹窗的动作
+- 打开审核弹窗的动作
+- 只读和自动化能力标记
 
-It should not implement preview parsing internally. It should only trigger dedicated dialogs.
+它不自己实现预览解析逻辑，只负责触发专门的弹窗组件。
 
 ### progress-tab
 
-This component receives already-prepared data and only renders progress-oriented content such as status and reminder-related views.
+这个组件接收已经准备好的数据，只负责渲染进度、提醒和状态时间线等内容。
 
 ### material-preview-dialog
 
-This component owns the heavy preview surface:
+这个组件负责最重的预览工作区：
 
-- Excel workbook parsing and sheet switching
-- inline Excel cell edits
-- workbook save-back flow
-- Word preview via `mammoth`
-- text, image, and HTML preview modes
+- Excel 工作簿解析和 Sheet 切换
+- Excel 单元格在线编辑
+- 工作簿保存回档案
+- 通过 `mammoth` 做 Word 预览
+- 文本、图片、HTML 等预览模式
 
-This isolates the most expensive and least frequently used code path from the page shell.
+这样可以把最重、使用频率又不是最高的逻辑从页面壳里剥离出来。
 
 ### audit-dialog
 
-This component owns:
+这个组件负责：
 
-- audit progress state display
-- issue list rendering
-- auto-fix trigger flow
-- audit-specific helper text
+- 审核进度状态展示
+- 问题列表渲染
+- 自动修复触发流程
+- 审核相关辅助提示
 
-This keeps automation-adjacent UI out of the main page body.
+这样可以把自动化相关的弹窗逻辑从主页面主体里分离出来。
 
-## Data Flow
+## 数据流
 
-The data flow should become:
+拆分后的数据流应该变成：
 
-1. `page.tsx` validates session and passes `applicantId` and `viewerRole`
-2. `ApplicantDetailClientPage` resolves the requested tab
-3. `useApplicantDetailController` loads and normalizes the detail state
-4. tab components render from controller-provided state
-5. dialogs receive focused state slices and action callbacks from the controller
+1. `page.tsx` 校验 session，并传入 `applicantId` 和 `viewerRole`
+2. `ApplicantDetailClientPage` 解析当前请求 tab
+3. `useApplicantDetailController` 拉取并整理详情状态
+4. 各 tab 组件只从控制器提供的数据里渲染
+5. 各弹窗只接收聚焦后的状态切片和动作回调
 
-This keeps all remote effects and shared mutations in one place while letting UI modules remain focused.
+这样可以把远程请求、副作用和共享状态集中在一个地方，同时让 UI 模块保持聚焦。
 
-## Rollout Order
+## 拆分顺序
 
-To reduce risk, implementation should be incremental.
+为了降低风险，实施必须按增量方式推进。
 
-### Step 1: Extract controller
+### 第一步：抽控制器
 
-Move fetch, refresh, permission flags, and top-level mutation handlers into `use-applicant-detail-controller.ts` while keeping the UI mostly intact.
+先把拉取、刷新、权限标记和顶层变更动作迁到 `use-applicant-detail-controller.ts`，UI 暂时尽量保持原样。
 
-Why first:
+先做这一步的原因：
 
-- lowest visual risk
-- immediately reduces state sprawl in the page shell
-- creates a stable API for later UI extraction
+- 视觉风险最低
+- 可以立刻减少页面壳里的状态膨胀
+- 能为后续 UI 拆分提供稳定接口
 
-### Step 2: Extract preview and audit dialogs
+### 第二步：抽预览和审核弹窗
 
-Move preview, Excel editing, `mammoth` parsing, and audit dialog rendering into dedicated modules.
+把预览、Excel 编辑、`mammoth` 解析和审核弹窗渲染迁到独立模块。
 
-Why second:
+先做第二步的原因：
 
-- cuts the heaviest logic from the main file
-- isolates the least frequently used code path
-- prepares for later lazy loading if desired
+- 可以最快砍掉主文件里最重的逻辑
+- 把最不常用但最复杂的路径单独隔离出来
+- 为后续懒加载创造条件
 
-### Step 3: Extract cases tab
+### 第三步：抽 cases-tab
 
-Move case editing, selection, and creation UI into `cases-tab.tsx`.
+把 Case 编辑、切换和新建 UI 迁到 `cases-tab.tsx`。
 
-Why third:
+第三步的原因：
 
-- this is the second-largest responsibility cluster
-- it has enough internal structure to stand on its own after controller extraction
+- 这是第二大职责块
+- 在控制器先抽出来之后，它已经具备独立成块的条件
 
-### Step 4: Extract basic and progress tabs
+### 第四步：抽 basic-tab 和 progress-tab
 
-Move the remaining simpler tab content into focused files, leaving the page shell as a composition layer.
+把剩余相对简单的 tab 内容拆到独立文件里，让页面壳最终退化成组合层。
 
-Why last:
+最后做这一步的原因：
 
-- lowest urgency compared with preview and case flows
-- easiest to complete once the core state boundaries already exist
+- 紧迫性低于预览和 Case 工作区
+- 在前面边界已经稳定后，这一块最容易落地
 
-## Behavior Guarantees
+## 行为保证
 
-The split must preserve:
+这次拆分必须保证以下行为不变：
 
-- route: `/applicants/[id]`
-- current tab names and tab navigation behavior
-- applicant save, delete, and case save flows
-- file upload, preview, and download behavior
-- Excel online edit and save-back behavior
-- audit dialog and auto-fix behavior
-- permissions for boss, supervisor, specialist, and service roles
+- 路由仍然是 `/applicants/[id]`
+- tab 名称和 tab 切换行为不变
+- 申请人保存、删除和 Case 保存流程不变
+- 文件上传、预览和下载行为不变
+- Excel 在线编辑和保存回档案行为不变
+- 审核弹窗和自动修复行为不变
+- 老板、主管、专员、客服四种角色的权限不回退
 
-The goal is structural improvement first, not workflow change.
+这次的目标是先改善结构，不是改流程。
 
-## Error Handling
+## 错误处理
 
-The extracted modules should keep current behavior, but ownership becomes clearer:
+拆分后仍然保持当前行为，但错误归属要更清楚：
 
-- controller handles request failures and top-level user messages
-- preview dialog handles preview parsing and preview save failures
-- audit dialog handles audit action status transitions
-- tab components stay mostly presentational and should not invent their own fetch layers
+- controller 负责请求失败和顶层用户消息
+- 预览弹窗负责预览解析和预览保存失败
+- 审核弹窗负责审核动作的状态切换
+- 各 tab 组件尽量保持展示型，不再自行发明新的拉取层
 
-This reduces the chance of duplicated or inconsistent error reporting.
+这样可以降低重复报错和错误展示不一致的概率。
 
-## Testing Strategy
+## 测试策略
 
-Implementation should verify behavior at three levels:
+实施时需要从三个层面验证：
 
-- unit tests for any extracted pure helpers or controller utilities
-- integration checks for detail page load, case switching, and preview open/save behavior
-- build and lint verification to ensure the split does not break route compilation
+- 单元测试：覆盖新抽出的纯函数或控制器工具函数
+- 集成验证：覆盖详情页加载、Case 切换、预览打开和保存等关键路径
+- 构建验证：确保拆分后路由仍能正常编译
 
-At minimum, each extraction step should keep:
+每一步拆分至少都要保持：
 
 - `npm run lint`
 - `npm run build`
 
-Where feasible, targeted tests should be added around controller-level logic or newly extracted pure helpers.
+在可行的情况下，继续为控制器级逻辑或新抽出的纯辅助函数补针对性测试。
 
-## Risks
+## 风险
 
-### Prop-drilling explosion
+### props 传递过多
 
-If the controller surface is too broad, tab components may receive unwieldy prop lists. Mitigation: define shared route-level types in `detail/types.ts` and group related actions into small objects.
+如果控制器暴露的表面太宽，各 tab 组件可能收到很长的 props 列表。缓解方式：把共享类型放到 `detail/types.ts`，并把相关动作按对象分组。
 
-### Hidden state coupling
+### 隐式状态耦合
 
-Some local state may currently depend on execution order inside the monolith. Mitigation: extract incrementally and verify each step before the next.
+当前单体文件里有些本地状态可能依赖执行顺序。缓解方式：按增量顺序逐步抽离，每一步拆完都做验证，再继续下一步。
 
-### Premature visual churn
+### 视觉抖动
 
-Large JSX moves can accidentally alter layout. Mitigation: keep markup stable during extraction and avoid opportunistic redesign.
+大量 JSX 挪动容易无意中改坏布局。缓解方式：拆分时保持现有 markup 不变，不做顺手重设计。
 
-## Success Criteria
+## 成功标准
 
-This design is successful when:
+满足以下条件时，这份设计就算成功：
 
-- the applicant detail route still behaves the same for end users
-- `ApplicantDetailClientPage.tsx` becomes a small integration shell rather than a monolith
-- preview and audit logic no longer live in the page shell
-- case editing UI is isolated from unrelated material preview logic
-- future performance work can target smaller modules instead of a single 3300-line file
+- 终端用户看到的详情页行为保持一致
+- `ApplicantDetailClientPage.tsx` 从单体文件降成较小的集成壳
+- 预览和审核逻辑不再堆在页面壳里
+- Case 编辑 UI 不再和材料预览逻辑混在一起
+- 后续性能优化可以针对更小的模块继续推进，而不是继续盯着一个 3300 行的大文件
 
