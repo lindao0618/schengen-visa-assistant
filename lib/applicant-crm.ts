@@ -11,7 +11,6 @@ import {
   resolveViewerRole,
 } from "@/lib/access-control-server"
 import { ApplicantProfile, getApplicantProfile, listApplicantProfiles } from "@/lib/applicant-profiles"
-import { buildApplicantSchengenIntakeView, buildApplicantUsVisaIntakeView } from "@/lib/agent-file-parsing"
 import {
   CRM_PRIORITY_FILTER_VALUES,
   CRM_REGION_FILTER_VALUES,
@@ -872,39 +871,11 @@ async function loadCaseRecord(
 
 export async function getApplicantCrmDetail(userId: string, role: string | undefined, applicantProfileId: string) {
   const [profile, viewerRole] = await Promise.all([
-    getApplicantProfile(userId, applicantProfileId, role, {
-      includeUsVisaFullIntake: true,
-      includeSchengenFullIntake: true,
-    }),
+    getApplicantProfile(userId, applicantProfileId, role),
     resolveViewerRole(userId, role),
   ])
 
   if (!profile) return null
-
-  let hydratedProfile = profile
-  const needsUsVisaFallback = Boolean(profile.files.usVisaDs160Excel || profile.files.ds160Excel || profile.files.usVisaAisExcel || profile.files.aisExcel) && !profile.usVisa?.fullIntake
-  const needsSchengenFallback = Boolean(profile.files.schengenExcel || profile.files.franceExcel) && !profile.schengen?.fullIntake
-
-  if (needsUsVisaFallback || needsSchengenFallback) {
-    const [usVisaIntakeView, schengenIntakeView] = await Promise.all([
-      needsUsVisaFallback ? buildApplicantUsVisaIntakeView(userId, applicantProfileId, role) : Promise.resolve(null),
-      needsSchengenFallback ? buildApplicantSchengenIntakeView(userId, applicantProfileId, role) : Promise.resolve(null),
-    ])
-
-    hydratedProfile = {
-      ...profile,
-      usVisa: {
-        ...(profile.usVisa || {}),
-        ...(usVisaIntakeView?.usVisa || {}),
-        fullIntake: profile.usVisa?.fullIntake || usVisaIntakeView?.intake || undefined,
-      },
-      schengen: {
-        ...(profile.schengen || {}),
-        ...(schengenIntakeView?.schengen || {}),
-        fullIntake: profile.schengen?.fullIntake || schengenIntakeView?.intake || undefined,
-      },
-    }
-  }
 
   const cases = await prisma.visaCase.findMany({
     where: {
@@ -924,11 +895,11 @@ export async function getApplicantCrmDetail(userId: string, role: string | undef
       },
       statusHistory: {
         orderBy: { createdAt: "desc" },
-        take: 50,
+        take: 1,
       },
       reminderLogs: {
         orderBy: { triggeredAt: "desc" },
-        take: 50,
+        take: 0,
       },
     },
   })
@@ -943,7 +914,7 @@ export async function getApplicantCrmDetail(userId: string, role: string | undef
     : []
 
   return {
-    profile: omitApplicantProfileFiles(hydratedProfile),
+    profile: omitApplicantProfileFiles(profile),
     cases: await Promise.all(cases.map((item) => mapCaseSummaryWithArtifacts(item, { includeActivity: false }))),
     activeCaseId: cases.find((item) => item.isActive)?.id ?? cases[0]?.id ?? null,
     availableAssignees,
@@ -957,8 +928,6 @@ export async function getApplicantActiveDetail(
 ) {
   const [profile, viewerRole] = await Promise.all([
     getApplicantProfile(userId, applicantProfileId, role, {
-      includeUsVisaFullIntake: true,
-      includeSchengenFullIntake: true,
       hydrateStoredSchengenCity: false,
     }),
     resolveViewerRole(userId, role),
