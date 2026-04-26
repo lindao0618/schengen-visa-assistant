@@ -4,6 +4,7 @@
 
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef } from "react"
 import Link from "next/link"
+import dynamic from "next/dynamic"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, FileText, Loader2, Plus, Save, Trash2 } from "lucide-react"
 import { read, utils, write } from "xlsx"
@@ -21,10 +22,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { ACTIVE_APPLICANT_CASE_KEY, ACTIVE_APPLICANT_PROFILE_KEY } from "@/components/applicant-profile-selector"
-import { AuditDialog } from "@/app/applicants/[id]/detail/audit-dialog"
 import { resolveSelectedFranceCase, resolveTlsAccountCaseSource } from "@/app/applicants/[id]/detail/cases-tab"
-import { CreateCaseDialog } from "@/app/applicants/[id]/detail/create-case-dialog"
-import { MaterialPreviewDialog } from "@/app/applicants/[id]/detail/material-preview-dialog"
 import { getAppRoleLabel } from "@/lib/access-control"
 import { resolveApplicantDetailTab, useApplicantDetailController } from "@/app/applicants/[id]/detail/use-applicant-detail-controller"
 import {
@@ -50,6 +48,21 @@ import {
 import { formatFranceStatusLabel } from "@/lib/france-case-labels"
 import { FRANCE_TLS_CITY_OPTIONS, getFranceTlsCityLabel } from "@/lib/france-tls-city"
 import { cn } from "@/lib/utils"
+
+const AuditDialog = dynamic(
+  () => import("@/app/applicants/[id]/detail/audit-dialog").then((mod) => mod.AuditDialog),
+  { ssr: false },
+)
+
+const CreateCaseDialog = dynamic(
+  () => import("@/app/applicants/[id]/detail/create-case-dialog").then((mod) => mod.CreateCaseDialog),
+  { ssr: false },
+)
+
+const MaterialPreviewDialog = dynamic(
+  () => import("@/app/applicants/[id]/detail/material-preview-dialog").then((mod) => mod.MaterialPreviewDialog),
+  { ssr: false },
+)
 
 type ApplicantIntakeSnapshot = {
   version: number
