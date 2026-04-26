@@ -32,8 +32,14 @@ next-env.d.ts
 /temp/
 
 # 本地调试导出（HTML/JSON 可能含个人信息）
-/debug-dumps/*
-!/debug-dumps/.gitkeep
+/debug-dumps/
+/.playwright-mcp/
+/.test-dist/
+/AA*.png
+/error_*.png
+/error_html_*.html
+/initial_html_*.html
+/initial_page_*.png
 
 # IDE / 编辑器
 .cursor/
