@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { type ChangeEvent, useCallback, useEffect, useMemo } from "react"
+import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import dynamic from "next/dynamic"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -29,7 +29,9 @@ import {
   writeClientCache,
 } from "@/lib/applicant-client-cache"
 import { getFranceTlsCityLabel } from "@/lib/france-tls-city"
+import { shouldFetchApplicantMaterialFiles } from "@/lib/applicant-material-files"
 import { cn } from "@/lib/utils"
+import type { ApplicantDetailTab } from "@/app/applicants/[id]/detail/types"
 
 const AuditDialog = dynamic(
   () => import("@/app/applicants/[id]/detail/audit-dialog").then((mod) => mod.AuditDialog),
@@ -106,6 +108,8 @@ type ApplicantProfileDetail = {
   }
   files?: Record<string, { originalName: string; uploadedAt: string }>
 }
+
+type ApplicantMaterialFiles = NonNullable<ApplicantProfileDetail["files"]>
 
 type ReminderLogRecord = {
   id: string
@@ -738,6 +742,11 @@ export default function ApplicantDetailClientPage({
   const defaultTab = useMemo(() => {
     return resolveApplicantDetailTab(searchParams.get("tab"))
   }, [searchParams])
+  const [activeTab, setActiveTab] = useState<ApplicantDetailTab>(defaultTab)
+  const [materialFiles, setMaterialFiles] = useState<ApplicantMaterialFiles>({})
+  const [materialFilesLoaded, setMaterialFilesLoaded] = useState(false)
+  const [materialFilesLoading, setMaterialFilesLoading] = useState(false)
+  const [materialFilesError, setMaterialFilesError] = useState("")
   const selectedFranceCase = useMemo(
     () => resolveSelectedFranceCase(detail?.cases || [], selectedCase),
     [detail?.cases, selectedCase],
@@ -755,6 +764,11 @@ export default function ApplicantDetailClientPage({
     auditDialog.status === "running"
       ? Math.min(auditDialog.phaseIndex ?? 0, AUDIT_PROGRESS_STEPS.length - 2)
       : AUDIT_PROGRESS_STEPS.length - 1
+  const detailProfileId = detail?.profile.id || ""
+
+  useEffect(() => {
+    setActiveTab(defaultTab)
+  }, [defaultTab])
 
   useEffect(() => {
     if (!auditDialog.open || auditDialog.status !== "running") return
@@ -802,6 +816,66 @@ export default function ApplicantDetailClientPage({
   useEffect(() => {
     void loadDetail()
   }, [loadDetail])
+
+  useEffect(() => {
+    setMaterialFiles({})
+    setMaterialFilesLoaded(false)
+    setMaterialFilesError("")
+  }, [detailProfileId])
+
+  useEffect(() => {
+    if (!detailProfileId) return
+    if (
+      !shouldFetchApplicantMaterialFiles({
+        activeTab,
+        hasFilesLoaded: materialFilesLoaded,
+        loading: materialFilesLoading,
+      })
+    ) {
+      return
+    }
+
+    let cancelled = false
+    setMaterialFilesLoading(true)
+    setMaterialFilesError("")
+
+    fetch(`/api/applicants/${applicantId}/files`, { credentials: "include", cache: "no-store" })
+      .then(async (response) => {
+        const data = (await readJsonSafely<{ files?: ApplicantMaterialFiles; error?: string }>(response)) ?? {}
+        if (!response.ok || !data.files) {
+          throw new Error(data.error || "加载材料文件失败")
+        }
+        if (cancelled) return
+        const nextFiles = data.files
+        setMaterialFiles(nextFiles)
+        setMaterialFilesLoaded(true)
+        setDetail((prev) =>
+          prev?.profile.id === detailProfileId
+            ? {
+                ...prev,
+                profile: {
+                  ...prev.profile,
+                  files: nextFiles,
+                },
+              }
+            : prev,
+        )
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setMaterialFilesError(error instanceof Error ? error.message : "加载材料文件失败")
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setMaterialFilesLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, applicantId, detailProfileId, materialFilesLoaded, materialFilesLoading, setDetail])
 
   useEffect(() => {
     setCaseForm(buildCaseForm(selectedCase))
@@ -975,7 +1049,20 @@ export default function ApplicantDetailClientPage({
       }
 
       invalidateApplicantCaches()
-      await loadDetail()
+      const uploadedProfile = data.profile
+      const nextFiles = uploadedProfile.files || {}
+      setMaterialFiles(nextFiles)
+      setMaterialFilesLoaded(true)
+      setMaterialFilesError("")
+      setDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              profile: uploadedProfile,
+            }
+          : prev,
+      )
+      setBasicForm(buildBasicForm(uploadedProfile))
 
       const parsedFields = [
         ...collectDetectedUsVisaFieldLabels(data?.parsedUsVisaFullIntake, data?.parsedUsVisaDetails),
@@ -1480,7 +1567,7 @@ export default function ApplicantDetailClientPage({
     )
   }
 
-  const files = detail.profile.files || {}
+  const files = materialFiles
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white px-4 py-8">
@@ -1520,7 +1607,7 @@ export default function ApplicantDetailClientPage({
           </div>
         )}
 
-        <Tabs key={defaultTab} defaultValue={defaultTab} className="space-y-5">
+        <Tabs key={defaultTab} value={activeTab} onValueChange={(value) => setActiveTab(resolveApplicantDetailTab(value))} className="space-y-5">
           <TabsList className="grid h-auto w-full grid-cols-4 rounded-2xl border border-slate-200 bg-white/90 p-1.5 shadow-sm backdrop-blur">
             <TabsTrigger
               value="basic"
@@ -1582,6 +1669,8 @@ export default function ApplicantDetailClientPage({
             applicantProfileId={detail.profile.id}
             selectedCaseId={selectedCase?.id}
             files={files}
+            filesLoading={materialFilesLoading}
+            filesError={materialFilesError}
             canEditApplicant={canEditApplicant}
             canRunAutomation={canRunAutomation}
             onUpload={uploadFiles}

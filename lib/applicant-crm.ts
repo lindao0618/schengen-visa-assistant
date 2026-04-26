@@ -273,6 +273,13 @@ export interface ApplicantActiveDetail {
   activeCaseId?: string | null
 }
 
+function omitApplicantProfileFiles(profile: ApplicantProfile): ApplicantProfile {
+  return {
+    ...profile,
+    files: {},
+  }
+}
+
 export interface VisaCaseInput {
   applicantProfileId: string
   caseType?: string
@@ -936,7 +943,7 @@ export async function getApplicantCrmDetail(userId: string, role: string | undef
     : []
 
   return {
-    profile: hydratedProfile,
+    profile: omitApplicantProfileFiles(hydratedProfile),
     cases: await Promise.all(cases.map((item) => mapCaseSummaryWithArtifacts(item, { includeActivity: false }))),
     activeCaseId: cases.find((item) => item.isActive)?.id ?? cases[0]?.id ?? null,
     availableAssignees,
@@ -989,7 +996,7 @@ export async function getApplicantActiveDetail(
   })
 
   return {
-    profile,
+    profile: omitApplicantProfileFiles(profile),
     cases: cases.map(mapActiveCaseSummary),
     activeCaseId: cases.find((item) => item.isActive)?.id ?? cases[0]?.id ?? null,
   } satisfies ApplicantActiveDetail

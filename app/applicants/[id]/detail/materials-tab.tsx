@@ -169,6 +169,8 @@ export function MaterialsTab({
   applicantProfileId,
   selectedCaseId,
   files,
+  filesLoading,
+  filesError,
   canEditApplicant,
   canRunAutomation,
   onUpload,
@@ -178,6 +180,8 @@ export function MaterialsTab({
   applicantProfileId: string
   selectedCaseId?: string
   files: Record<string, FileMeta>
+  filesLoading?: boolean
+  filesError?: string
   canEditApplicant: boolean
   canRunAutomation: boolean
   onUpload: (event: ChangeEvent<HTMLInputElement>, slot: string) => Promise<void>
@@ -190,6 +194,14 @@ export function MaterialsTab({
 
   return (
     <TabsContent value="materials" className="space-y-6">
+      {filesLoading ? (
+        <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+          正在加载材料文件列表...
+        </div>
+      ) : null}
+      {filesError ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{filesError}</div>
+      ) : null}
       <Section title="美签材料" description="继续兼容 DS-160、AIS、照片检测和提交 DS-160 的现有归档结构。" tone="sky">
         <div className="space-y-5">
           <div className="rounded-2xl border border-sky-200 bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.14),_transparent_40%),linear-gradient(135deg,_#ffffff,_#f0f9ff)] p-4 shadow-sm">

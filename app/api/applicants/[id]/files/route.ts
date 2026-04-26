@@ -6,9 +6,37 @@ import { applicantWriteForbiddenResponse } from "@/lib/access-control-response"
 import { handleApplicantProfileApiError } from "@/lib/applicant-profile-api-error"
 import { saveApplicantProfileFilesWithAnalysis } from "@/lib/applicant-profile-file-workflow"
 import { authOptions } from "@/lib/auth"
-import { ApplicantProfileFileSlot, isApplicantProfileFileSlot } from "@/lib/applicant-profiles"
+import { ApplicantProfileFileSlot, getApplicantProfileFiles, isApplicantProfileFileSlot } from "@/lib/applicant-profiles"
 
 export const dynamic = "force-dynamic"
+
+export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "未登录" }, { status: 401 })
+    }
+
+    const files = await getApplicantProfileFiles(session.user.id, params.id, session.user.role)
+    if (!files) {
+      return NextResponse.json({ error: "申请人档案不存在" }, { status: 404 })
+    }
+
+    const publicFiles = Object.fromEntries(
+      Object.entries(files).map(([slot, meta]) => [
+        slot,
+        {
+          originalName: meta.originalName,
+          uploadedAt: meta.uploadedAt,
+        },
+      ]),
+    )
+
+    return NextResponse.json({ files: publicFiles })
+  } catch (error) {
+    return handleApplicantProfileApiError(error)
+  }
+}
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {

@@ -648,6 +648,12 @@ export async function getApplicantProfile(
   return toApplicantProfile(hydratedProfile, options)
 }
 
+export async function getApplicantProfileFiles(userId: string, id: string, role?: string) {
+  const profile = await findApplicantProfileRecord(userId, id, role)
+  if (!profile) return null
+  return mapFiles(profile.files)
+}
+
 export async function getApplicantProfileUsVisaIntake(
   userId: string,
   id: string,
