@@ -515,9 +515,13 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
     if (!activeProfile?.id) return
     const href = `/applicants/${activeProfile.id}?tab=materials`
     router.prefetch(href)
-    void prefetchJsonIntoClientCache(getApplicantDetailCacheKey(activeProfile.id), `/api/applicants/${activeProfile.id}`, {
-      ttlMs: APPLICANT_DETAIL_CACHE_TTL_MS,
-    }).catch(() => {
+    void prefetchJsonIntoClientCache(
+      getApplicantDetailCacheKey(activeProfile.id, "active"),
+      `/api/applicants/${activeProfile.id}?view=active`,
+      {
+        ttlMs: APPLICANT_DETAIL_CACHE_TTL_MS,
+      },
+    ).catch(() => {
       // Ignore background prefetch failures.
     })
   }, [activeProfile?.id, router])

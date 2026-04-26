@@ -633,7 +633,7 @@ function ItineraryForm({
 export default function MaterialCustomizationPage() {
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null)
   const activeApplicant = useActiveApplicantProfile()
-  usePrefetchApplicantDetail(activeApplicant?.id)
+  usePrefetchApplicantDetail(activeApplicant?.id, { view: "active" })
 
   const handleServiceSelect = (service: MaterialService) => {
     if (service.actionType === "form" && service.id === "itinerary") {

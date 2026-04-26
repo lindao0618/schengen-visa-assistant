@@ -334,7 +334,7 @@ function FranceAutomationContent() {
   const { showLoginPrompt } = useAuthPrompt()
   const { data: session } = useSession()
   const activeApplicant = useActiveApplicantProfile()
-  usePrefetchApplicantDetail(activeApplicant?.id)
+  usePrefetchApplicantDetail(activeApplicant?.id, { view: "active" })
   const [profiles, setProfiles] = useState<ApplicantProfileOption[]>([])
   const viewerCacheScope = useMemo(
     () => `${session?.user?.id || "anon"}:${session?.user?.role || ""}`,

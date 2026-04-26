@@ -9,9 +9,13 @@ import {
   prefetchJsonIntoClientCache,
 } from "@/lib/applicant-client-cache"
 
-export function usePrefetchApplicantDetail(applicantId?: string | null, options?: { tab?: string }) {
+export function usePrefetchApplicantDetail(
+  applicantId?: string | null,
+  options?: { tab?: string; view?: "full" | "active" },
+) {
   const router = useRouter()
   const tab = options?.tab || "materials"
+  const view = options?.view || "full"
 
   const prefetchApplicantDetail = useCallback(
     (targetApplicantId?: string | null) => {
@@ -20,13 +24,14 @@ export function usePrefetchApplicantDetail(applicantId?: string | null, options?
 
       const href = `/applicants/${id}?tab=${encodeURIComponent(tab)}`
       router.prefetch(href)
-      void prefetchJsonIntoClientCache(getApplicantDetailCacheKey(id), `/api/applicants/${id}`, {
+      const apiUrl = view === "active" ? `/api/applicants/${id}?view=active` : `/api/applicants/${id}`
+      void prefetchJsonIntoClientCache(getApplicantDetailCacheKey(id, view), apiUrl, {
         ttlMs: APPLICANT_DETAIL_CACHE_TTL_MS,
       }).catch(() => {
         // Ignore background prefetch failures.
       })
     },
-    [applicantId, router, tab],
+    [applicantId, router, tab, view],
   )
 
   useEffect(() => {

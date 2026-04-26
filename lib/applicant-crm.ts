@@ -247,6 +247,32 @@ export interface ApplicantCrmDetail {
   }>
 }
 
+export interface ApplicantActiveDetail {
+  profile: ApplicantProfile
+  cases: Array<{
+    id: string
+    caseType: string
+    visaType?: string | null
+    applyRegion?: string | null
+    tlsCity?: string | null
+    bookingWindow?: string | null
+    acceptVip?: string | null
+    slotTime?: string | null
+    mainStatus: string
+    subStatus?: string | null
+    exceptionCode?: string | null
+    priority: string
+    travelDate?: string | null
+    submissionDate?: string | null
+    assignedToUserId?: string | null
+    assignedRole?: string | null
+    isActive: boolean
+    updatedAt: string
+    createdAt: string
+  }>
+  activeCaseId?: string | null
+}
+
 export interface VisaCaseInput {
   applicantProfileId: string
   caseType?: string
@@ -604,6 +630,50 @@ function mapCaseSummary(caseRecord: VisaCaseRecord): ApplicantCaseSummary {
   }
 }
 
+function mapActiveCaseSummary(caseRecord: {
+  id: string
+  caseType: string
+  visaType?: string | null
+  applyRegion?: string | null
+  tlsCity?: string | null
+  bookingWindow?: string | null
+  acceptVip?: string | null
+  slotTime?: Date | null
+  mainStatus: string
+  subStatus?: string | null
+  exceptionCode?: string | null
+  priority: string
+  travelDate?: Date | null
+  submissionDate?: Date | null
+  assignedToUserId?: string | null
+  assignedRole?: string | null
+  isActive: boolean
+  updatedAt: Date
+  createdAt: Date
+}) {
+  return {
+    id: caseRecord.id,
+    caseType: caseRecord.caseType,
+    visaType: caseRecord.visaType,
+    applyRegion: caseRecord.applyRegion,
+    tlsCity: caseRecord.tlsCity,
+    bookingWindow: caseRecord.bookingWindow,
+    acceptVip: caseRecord.acceptVip,
+    slotTime: toIsoString(caseRecord.slotTime),
+    mainStatus: caseRecord.mainStatus,
+    subStatus: caseRecord.subStatus,
+    exceptionCode: caseRecord.exceptionCode,
+    priority: caseRecord.priority,
+    travelDate: toIsoString(caseRecord.travelDate),
+    submissionDate: toIsoString(caseRecord.submissionDate),
+    assignedToUserId: caseRecord.assignedToUserId,
+    assignedRole: caseRecord.assignedRole,
+    isActive: caseRecord.isActive,
+    updatedAt: caseRecord.updatedAt.toISOString(),
+    createdAt: caseRecord.createdAt.toISOString(),
+  }
+}
+
 export async function listApplicantCrmData(
   userId: string,
   role: string | undefined,
@@ -866,6 +936,58 @@ export async function getApplicantCrmDetail(userId: string, role: string | undef
     activeCaseId: cases.find((item) => item.isActive)?.id ?? cases[0]?.id ?? null,
     availableAssignees,
   } satisfies ApplicantCrmDetail
+}
+
+export async function getApplicantActiveDetail(
+  userId: string,
+  role: string | undefined,
+  applicantProfileId: string,
+) {
+  const [profile, viewerRole] = await Promise.all([
+    getApplicantProfile(userId, applicantProfileId, role, {
+      includeUsVisaFullIntake: true,
+      includeSchengenFullIntake: true,
+      hydrateStoredSchengenCity: false,
+    }),
+    resolveViewerRole(userId, role),
+  ])
+
+  if (!profile) return null
+
+  const cases = await prisma.visaCase.findMany({
+    where: {
+      applicantProfileId,
+      ...buildCaseAccessWhere(userId, viewerRole),
+    },
+    orderBy: [{ isActive: "desc" }, { updatedAt: "desc" }],
+    select: {
+      id: true,
+      caseType: true,
+      visaType: true,
+      applyRegion: true,
+      tlsCity: true,
+      bookingWindow: true,
+      acceptVip: true,
+      slotTime: true,
+      mainStatus: true,
+      subStatus: true,
+      exceptionCode: true,
+      priority: true,
+      travelDate: true,
+      submissionDate: true,
+      assignedToUserId: true,
+      assignedRole: true,
+      isActive: true,
+      updatedAt: true,
+      createdAt: true,
+    },
+  })
+
+  return {
+    profile,
+    cases: cases.map(mapActiveCaseSummary),
+    activeCaseId: cases.find((item) => item.isActive)?.id ?? cases[0]?.id ?? null,
+  } satisfies ApplicantActiveDetail
 }
 
 export async function listVisaCases(

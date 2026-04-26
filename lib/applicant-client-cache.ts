@@ -46,8 +46,8 @@ function removeFromStorage(key: string) {
   }
 }
 
-export function getApplicantDetailCacheKey(applicantId: string) {
-  return `applicant-detail:${applicantId}`
+export function getApplicantDetailCacheKey(applicantId: string, view: "full" | "active" = "full") {
+  return `applicant-detail:${view}:${applicantId}`
 }
 
 export function getApplicantCrmListCacheKey(query: string) {

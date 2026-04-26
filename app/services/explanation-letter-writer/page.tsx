@@ -204,7 +204,7 @@ const labelByValue = (options: Option[], value: string) => options.find((item) =
 export default function ExplanationLetterWriterPage() {
   const router = useRouter()
   const activeApplicant = useActiveApplicantProfile()
-  usePrefetchApplicantDetail(activeApplicant?.id)
+  usePrefetchApplicantDetail(activeApplicant?.id, { view: "active" })
   const [isLoading, setIsLoading] = useState(false)
   const [taskIds, setTaskIds] = useState<string[]>([])
   const [excelSummary, setExcelSummary] = useState<ExplanationExcelSummary | null>(null)

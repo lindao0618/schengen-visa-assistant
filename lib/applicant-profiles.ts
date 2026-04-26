@@ -582,6 +582,7 @@ type ApplicantProfileRecord = NonNullable<Awaited<ReturnType<typeof findApplican
 type ApplicantProfileReadOptions = {
   includeUsVisaFullIntake?: boolean
   includeSchengenFullIntake?: boolean
+  hydrateStoredSchengenCity?: boolean
 }
 
 export function isApplicantProfileFileSlot(value: string): value is ApplicantProfileFileSlot {
@@ -640,7 +641,10 @@ export async function getApplicantProfile(
 ) {
   const profile = await findApplicantProfileRecord(userId, id, role)
   if (!profile) return null
-  const hydratedProfile = await hydrateSchengenCityFromStoredExcel(profile)
+  const shouldHydrateSchengenCity = options?.hydrateStoredSchengenCity ?? true
+  const hydratedProfile = shouldHydrateSchengenCity
+    ? await hydrateSchengenCityFromStoredExcel(profile)
+    : profile
   return toApplicantProfile(hydratedProfile, options)
 }
 

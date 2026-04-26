@@ -3,21 +3,27 @@ import { getServerSession } from "next-auth"
 
 import { canWriteApplicants } from "@/lib/access-control"
 import { applicantWriteForbiddenResponse } from "@/lib/access-control-response"
+import { resolveApplicantDetailView } from "@/lib/applicant-detail-view"
 import { handleApplicantProfileApiError } from "@/lib/applicant-profile-api-error"
-import { getApplicantCrmDetail } from "@/lib/applicant-crm"
+import { getApplicantActiveDetail, getApplicantCrmDetail } from "@/lib/applicant-crm"
 import { authOptions } from "@/lib/auth"
 import { deleteApplicantProfile, updateApplicantProfile } from "@/lib/applicant-profiles"
 
 export const dynamic = "force-dynamic"
 
-export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: "未登录" }, { status: 401 })
     }
 
-    const detail = await getApplicantCrmDetail(session.user.id, session.user.role, params.id)
+    const detailView = resolveApplicantDetailView(request.nextUrl.searchParams)
+    const detail =
+      detailView === "active"
+        ? await getApplicantActiveDetail(session.user.id, session.user.role, params.id)
+        : await getApplicantCrmDetail(session.user.id, session.user.role, params.id)
+
     if (!detail) {
       return NextResponse.json({ error: "申请人档案不存在" }, { status: 404 })
     }
@@ -26,7 +32,7 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
       profile: detail.profile,
       cases: detail.cases,
       activeCaseId: detail.activeCaseId,
-      availableAssignees: detail.availableAssignees,
+      availableAssignees: "availableAssignees" in detail ? detail.availableAssignees : [],
     })
   } catch (error) {
     return handleApplicantProfileApiError(error)

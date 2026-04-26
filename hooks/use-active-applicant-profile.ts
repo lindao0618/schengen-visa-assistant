@@ -138,7 +138,7 @@ export function useActiveApplicantProfile() {
         return
       }
 
-      const cacheKey = getApplicantDetailCacheKey(id)
+      const cacheKey = getApplicantDetailCacheKey(id, "active")
       const cached = readClientCache<ApplicantDetailResponse>(cacheKey)
       if (cached) {
         const cachedProfile = buildActiveApplicantProfile(id, cached)
@@ -148,7 +148,7 @@ export function useActiveApplicantProfile() {
       }
 
       try {
-        const res = await fetch(`/api/applicants/${id}`, { cache: "no-store" })
+        const res = await fetch(`/api/applicants/${id}?view=active`, { cache: "no-store" })
         if (!res.ok) {
           if (!cached) setProfile(null)
           return
