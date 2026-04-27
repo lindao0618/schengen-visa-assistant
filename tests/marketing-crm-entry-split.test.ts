@@ -7,6 +7,16 @@ function readSource(path: string) {
   return readFileSync(join(process.cwd(), path), "utf8")
 }
 
+test("home route lazy-loads its marketing client page", () => {
+  const source = readSource("app/page.tsx")
+
+  assert.match(source, /dynamic\(/)
+  assert.match(source, /import\(["']\.\/HomeClientPage["']\)/)
+  assert.doesNotMatch(source, /useSession/)
+  assert.doesNotMatch(source, /useRouter/)
+  assert.doesNotMatch(source, /components\/ui\/card/)
+})
+
 test("apply route lazy-loads its heavy client page", () => {
   const source = readSource("app/apply/page.tsx")
 
