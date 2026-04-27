@@ -28,9 +28,14 @@ import { readJsonSafely } from "@/app/applicants/[id]/detail/json-response"
 import { buildApplicantProfileUpdatePayload } from "@/app/applicants/[id]/detail/profile-save"
 import { buildTlsAccountInfo, buildTlsAccountTemplateText } from "@/app/applicants/[id]/detail/tls-account"
 import {
-  collectDetectedUsVisaFieldLabels,
-  type UsVisaIntakeLike,
-} from "@/app/applicants/[id]/detail/us-visa-fields"
+  buildApplicantUploadSuccessMessage,
+  buildRunningUploadAuditDialog,
+  buildUploadAuditResultDialog,
+  buildUsVisaAutoFixAuditDialog,
+  getUploadExcelScope,
+  type ApplicantFileUploadResponse,
+  type UsVisaAutoFixResponse,
+} from "@/app/applicants/[id]/detail/upload-feedback"
 import { resolveApplicantDetailTab, useApplicantDetailController } from "@/app/applicants/[id]/detail/use-applicant-detail-controller"
 import {
   APPLICANT_CRM_LIST_CACHE_PREFIX,
@@ -44,7 +49,6 @@ import {
   readClientCache,
   writeClientCache,
 } from "@/lib/applicant-client-cache"
-import { getFranceTlsCityLabel } from "@/lib/france-tls-city"
 import { shouldFetchApplicantMaterialFiles } from "@/lib/applicant-material-files"
 import { cn } from "@/lib/utils"
 import {
@@ -416,23 +420,11 @@ export default function ApplicantDetailClientPage({
     const file = event.target.files?.[0]
     if (!file) return
 
-    const isSchengenExcelUpload = slot === "schengenExcel" || slot === "franceExcel"
-    const isUsVisaExcelUpload =
-      slot === "usVisaDs160Excel" || slot === "usVisaAisExcel" || slot === "ds160Excel" || slot === "aisExcel"
+    const uploadExcelScope = getUploadExcelScope(slot)
     setMessage("")
     try {
-      if (isSchengenExcelUpload || isUsVisaExcelUpload) {
-        setAuditDialog({
-          open: true,
-          title: isSchengenExcelUpload ? "申根 Excel 审核中" : "美签 Excel 审核中",
-          status: "running",
-          issues: [],
-          scope: isSchengenExcelUpload ? "schengen" : "usVisa",
-          slot,
-          helperText: "",
-          autoFixing: false,
-          phaseIndex: 0,
-        })
+      if (uploadExcelScope) {
+        setAuditDialog(buildRunningUploadAuditDialog(uploadExcelScope, slot))
       }
 
       const formData = new FormData()
@@ -441,29 +433,7 @@ export default function ApplicantDetailClientPage({
         method: "POST",
         body: formData,
       })
-      const data = await readJsonSafely<{
-        profile?: ApplicantProfileDetail
-        parsedUsVisaDetails?: {
-          surname?: string
-          givenName?: string
-          birthYear?: string
-          passportNumber?: string
-          chineseName?: string
-          telecodeSurname?: string
-          telecodeGivenName?: string
-        }
-        parsedUsVisaFullIntake?: UsVisaIntakeLike
-        parsedSchengenDetails?: { city?: string }
-        schengenAudit?: {
-          ok: boolean
-          errors: Array<{ field: string; message: string; value?: string }>
-        }
-        usVisaAudit?: {
-          ok: boolean
-          errors: Array<{ field: string; message: string; value?: string }>
-        }
-        error?: string
-      }>(response)
+      const data = await readJsonSafely<ApplicantFileUploadResponse>(response)
 
       if (!response.ok || !data?.profile) {
         throw new Error(data?.error || "上传文件失败")
@@ -485,49 +455,16 @@ export default function ApplicantDetailClientPage({
       )
       setBasicForm(buildBasicForm(uploadedProfile))
 
-      const parsedFields = [
-        ...collectDetectedUsVisaFieldLabels(data?.parsedUsVisaFullIntake, data?.parsedUsVisaDetails),
-        data.parsedSchengenDetails?.city
-          ? `TLS 递签城市：${getFranceTlsCityLabel(data.parsedSchengenDetails.city) || data.parsedSchengenDetails.city}`
-          : "",
-      ].filter(Boolean)
+      setMessage(buildApplicantUploadSuccessMessage(data))
 
-      setMessage(parsedFields.length > 0 ? `资料已上传，并自动识别 ${parsedFields.join("、")}` : "资料已上传")
-
-      if (isSchengenExcelUpload) {
-        const issues = data.schengenAudit?.errors || []
-        const passed = Boolean(data.schengenAudit?.ok)
-        setAuditDialog({
-          open: true,
-          title: passed ? "申根 Excel 审核通过" : "申根 Excel 审核失败",
-          status: passed ? "success" : "error",
-          issues: passed
-            ? []
-            : issues.length > 0
-              ? issues
-              : [{ field: "审核流程", message: "未获得有效审核结果，请重试上传。" }],
-        })
-        setAuditDialog((prev) => ({ ...prev, scope: "schengen", slot, helperText: "", autoFixing: false }))
-      } else if (isUsVisaExcelUpload) {
-        const issues = data.usVisaAudit?.errors || []
-        const passed = Boolean(data.usVisaAudit?.ok)
-        setAuditDialog({
-          open: true,
-          title: passed ? "美签 Excel 审核通过" : "美签 Excel 审核失败",
-          status: passed ? "success" : "error",
-          issues: passed
-            ? []
-            : issues.length > 0
-              ? issues
-              : [{ field: "审核流程", message: "未获得有效审核结果，请重试上传。" }],
-        })
-        setAuditDialog((prev) => ({
-          ...prev,
-          scope: "usVisa",
-          slot,
-          helperText: passed ? "" : "格式类问题可以先让系统帮你处理，剩下的再手动修改。",
-          autoFixing: false,
-        }))
+      if (uploadExcelScope) {
+        setAuditDialog(
+          buildUploadAuditResultDialog(
+            uploadExcelScope,
+            slot,
+            uploadExcelScope === "schengen" ? data.schengenAudit : data.usVisaAudit,
+          ),
+        )
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "上传文件失败")
@@ -554,17 +491,7 @@ export default function ApplicantDetailClientPage({
       const response = await fetch(`/api/applicants/${applicantId}/files/${auditDialog.slot}/auto-fix-us-visa`, {
         method: "POST",
       })
-      const data = await readJsonSafely<{
-        profile?: ApplicantProfileDetail
-        changed?: boolean
-        fixedCount?: number
-        changes?: Array<{ field: string; before: string; after: string }>
-        usVisaAudit?: {
-          ok: boolean
-          errors: Array<{ field: string; message: string; value?: string }>
-        }
-        error?: string
-      }>(response)
+      const data = await readJsonSafely<UsVisaAutoFixResponse>(response)
 
       if (!response.ok || !data?.profile) {
         throw new Error(data?.error || "自动处理格式问题失败")
@@ -575,28 +502,8 @@ export default function ApplicantDetailClientPage({
 
       const fixedCount = data.fixedCount || 0
       const passed = Boolean(data.usVisaAudit?.ok)
-      const issues = data.usVisaAudit?.errors || []
-      const helperText =
-        fixedCount > 0
-          ? passed
-            ? `已自动处理 ${fixedCount} 处格式问题，当前这份美签 Excel 已通过审核。`
-            : `已自动处理 ${fixedCount} 处格式问题，剩余问题请你手动修改。`
-          : "这份 Excel 里没有检测到可自动处理的格式问题，请手动修改剩余内容。"
 
-      setAuditDialog({
-        open: true,
-        title: passed ? "美签 Excel 审核通过" : "美签 Excel 审核失败",
-        status: passed ? "success" : "error",
-        issues: passed
-          ? []
-          : issues.length > 0
-            ? issues
-            : [{ field: "审核流程", message: "未获得有效审核结果，请重试上传。" }],
-        scope: "usVisa",
-        slot: auditDialog.slot,
-        helperText,
-        autoFixing: false,
-      })
+      setAuditDialog(buildUsVisaAutoFixAuditDialog(auditDialog.slot, fixedCount, data.usVisaAudit))
 
       if (fixedCount > 0) {
         setMessage(passed ? `已自动处理 ${fixedCount} 处格式问题并保存到档案` : `已自动处理 ${fixedCount} 处格式问题`)
