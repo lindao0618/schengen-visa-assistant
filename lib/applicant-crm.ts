@@ -41,29 +41,68 @@ import {
 import { advanceFranceCase } from "@/lib/france-cases"
 import { advanceUsaCase } from "@/lib/usa-cases"
 
+const applicantCrmVisaCaseListSelect = Prisma.validator<Prisma.VisaCaseSelect>()({
+  id: true,
+  caseType: true,
+  visaType: true,
+  applyRegion: true,
+  tlsCity: true,
+  bookingWindow: true,
+  acceptVip: true,
+  slotTime: true,
+  mainStatus: true,
+  subStatus: true,
+  exceptionCode: true,
+  priority: true,
+  travelDate: true,
+  submissionDate: true,
+  assignedToUserId: true,
+  assignedRole: true,
+  isActive: true,
+  updatedAt: true,
+  createdAt: true,
+  assignedTo: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+    },
+  },
+})
+
+const applicantCrmListSelect = Prisma.validator<Prisma.ApplicantProfileSelect>()({
+  id: true,
+  name: true,
+  groupName: true,
+  phone: true,
+  email: true,
+  wechat: true,
+  passportNumber: true,
+  passportLast4: true,
+  usVisaAaCode: true,
+  usVisaSurname: true,
+  usVisaBirthYear: true,
+  usVisaPassportNumber: true,
+  schengenCountry: true,
+  schengenVisaCity: true,
+  schengenFraNumber: true,
+  updatedAt: true,
+  user: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+    },
+  },
+  visaCases: {
+    select: applicantCrmVisaCaseListSelect,
+  },
+})
+
 type ApplicantWithCasesRecord = Prisma.ApplicantProfileGetPayload<{
-  include: {
-    user: {
-      select: {
-        id: true
-        name: true
-        email: true
-        role: true
-      }
-    }
-    visaCases: {
-      include: {
-        assignedTo: {
-          select: {
-            id: true
-            name: true
-            email: true
-            role: true
-          }
-        }
-      }
-    }
-  }
+  select: typeof applicantCrmListSelect
 }>
 
 type VisaCaseRecord = Prisma.VisaCaseGetPayload<{
@@ -698,25 +737,19 @@ export async function listApplicantCrmData(
   const priorities = (filters.priorities ?? []).filter(Boolean)
   const includeStats = Boolean(filters.includeStats)
   const includeSelectorCases = Boolean(filters.includeSelectorCases)
-  const includeProfiles = filters.includeProfiles !== false
-  const includeProfileFiles = filters.includeProfileFiles !== false
+  const includeProfiles = Boolean(filters.includeProfiles)
+  const includeProfileFiles = Boolean(filters.includeProfileFiles)
   const includeAvailableAssignees = Boolean(filters.includeAvailableAssignees)
 
   const applicants = await prisma.applicantProfile.findMany({
     where: buildApplicantAccessWhere(userId, viewerRole),
     orderBy: { updatedAt: "desc" },
-    include: {
-      user: {
-        select: { id: true, name: true, email: true, role: true },
-      },
+    select: {
+      ...applicantCrmListSelect,
       visaCases: {
         where: buildCaseAccessWhere(userId, viewerRole),
         orderBy: [{ isActive: "desc" }, { updatedAt: "desc" }],
-        include: {
-          assignedTo: {
-            select: { id: true, name: true, email: true, role: true },
-          },
-        },
+        select: applicantCrmVisaCaseListSelect,
       },
     },
   })

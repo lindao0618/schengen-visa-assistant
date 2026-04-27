@@ -537,7 +537,7 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
 
         const data = await prefetchJsonIntoClientCache<ApplicantsSelectorResponse>(
           APPLICANT_SELECTOR_CACHE_KEY,
-          "/api/applicants?includeSelectorCases=1&includeProfileFiles=0&includeAvailableAssignees=0",
+          "/api/applicants?includeProfiles=1&includeSelectorCases=1&includeProfileFiles=0&includeAvailableAssignees=0",
           { ttlMs: APPLICANT_SELECTOR_CACHE_TTL_MS },
         )
         applySelectorData(data)

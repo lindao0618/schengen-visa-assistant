@@ -199,7 +199,7 @@ export default function ApplicantsClientPage() {
   )
 
   const loadProfiles = async () => {
-    const res = await fetch("/api/applicants", { cache: "no-store" })
+    const res = await fetch("/api/applicants?includeProfiles=1&includeProfileFiles=1", { cache: "no-store" })
     const data = await readJsonSafely<{ profiles?: ApplicantProfileDetail[]; error?: string }>(res)
     if (!res.ok) {
       setMessage(data?.error || "加载申请人档案失败")

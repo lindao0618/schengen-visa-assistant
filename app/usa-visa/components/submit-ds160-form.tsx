@@ -82,7 +82,7 @@ export function SubmitDS160Form() {
   useEffect(() => {
     const loadProfiles = async () => {
       try {
-        const res = await fetch("/api/applicants", { cache: "no-store" })
+        const res = await fetch("/api/applicants?includeProfiles=1&includeProfileFiles=0", { cache: "no-store" })
         if (!res.ok) return
         const data = await res.json()
         setProfiles((data.profiles || []) as ApplicantProfileOption[])

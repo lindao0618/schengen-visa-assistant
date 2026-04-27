@@ -5,25 +5,12 @@ import { canWriteApplicants } from "@/lib/access-control"
 import { applicantWriteForbiddenResponse } from "@/lib/access-control-response"
 import { handleApplicantProfileApiError } from "@/lib/applicant-profile-api-error"
 import { createVisaCaseForApplicant, listApplicantCrmData } from "@/lib/applicant-crm"
+import { buildApplicantCrmFiltersFromSearchParams } from "@/lib/applicant-crm-query"
 import { deriveApplicantCaseTypeFromVisaType } from "@/lib/applicant-crm-labels"
 import { authOptions } from "@/lib/auth"
 import { createApplicantProfile } from "@/lib/applicant-profiles"
 
 export const dynamic = "force-dynamic"
-
-function getMultiValues(searchParams: URLSearchParams, key: string) {
-  return searchParams
-    .getAll(key)
-    .flatMap((item) => item.split(","))
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
-function getBooleanFlag(searchParams: URLSearchParams, key: string, defaultValue = false) {
-  const value = searchParams.get(key)
-  if (value === null) return defaultValue
-  return ["1", "true", "yes"].includes(value.toLowerCase())
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,18 +20,11 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url)
-    const data = await listApplicantCrmData(session.user.id, session.user.role, {
-      keyword: searchParams.get("keyword")?.trim() || "",
-      visaTypes: getMultiValues(searchParams, "visaTypes"),
-      statuses: getMultiValues(searchParams, "statuses"),
-      regions: getMultiValues(searchParams, "regions"),
-      priorities: getMultiValues(searchParams, "priorities"),
-      includeStats: getBooleanFlag(searchParams, "includeStats"),
-      includeSelectorCases: getBooleanFlag(searchParams, "includeSelectorCases"),
-      includeProfiles: getBooleanFlag(searchParams, "includeProfiles", true),
-      includeProfileFiles: getBooleanFlag(searchParams, "includeProfileFiles", true),
-      includeAvailableAssignees: getBooleanFlag(searchParams, "includeAvailableAssignees"),
-    })
+    const data = await listApplicantCrmData(
+      session.user.id,
+      session.user.role,
+      buildApplicantCrmFiltersFromSearchParams(searchParams),
+    )
 
     return NextResponse.json(data)
   } catch (error) {
