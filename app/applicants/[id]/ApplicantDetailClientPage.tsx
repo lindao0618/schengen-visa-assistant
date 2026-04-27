@@ -862,53 +862,61 @@ export default function ApplicantDetailClientPage({
             </TabsTrigger>
           </TabsList>
 
-          <BasicTabContent
-            applicantId={detail.profile.id}
-            profile={detail.profile}
-            basicForm={basicForm}
-            setBasicForm={setBasicForm}
-            tlsAccountTemplateText={tlsAccountTemplateText}
-            isReadOnlyViewer={isReadOnlyViewer}
-            savingProfile={savingProfile}
-            canEditApplicant={canEditApplicant}
-            onCopyTlsAccountTemplate={copyTlsAccountTemplate}
-            onSaveProfile={saveProfile}
-          />
+          {activeTab === "basic" ? (
+            <BasicTabContent
+              applicantId={detail.profile.id}
+              profile={detail.profile}
+              basicForm={basicForm}
+              setBasicForm={setBasicForm}
+              tlsAccountTemplateText={tlsAccountTemplateText}
+              isReadOnlyViewer={isReadOnlyViewer}
+              savingProfile={savingProfile}
+              canEditApplicant={canEditApplicant}
+              onCopyTlsAccountTemplate={copyTlsAccountTemplate}
+              onSaveProfile={saveProfile}
+            />
+          ) : null}
 
-        <CasesTabContent
-          cases={detail.cases}
-          selectedCaseId={selectedCaseId}
-          onSelectCaseId={setSelectedCaseId}
-          selectedCase={selectedCase}
-          caseForm={caseForm}
-          setCaseForm={setCaseForm}
-          availableAssignees={detail.availableAssignees}
-          isReadOnlyViewer={isReadOnlyViewer}
-          canAssignCase={canAssignCase}
-          canEditApplicant={canEditApplicant}
-          savingCase={savingCase}
-          onOpenCreateCase={() => setCreateCaseOpen(true)}
-          onSaveCase={saveCase}
-        />
+          {activeTab === "cases" ? (
+            <CasesTabContent
+              cases={detail.cases}
+              selectedCaseId={selectedCaseId}
+              onSelectCaseId={setSelectedCaseId}
+              selectedCase={selectedCase}
+              caseForm={caseForm}
+              setCaseForm={setCaseForm}
+              availableAssignees={detail.availableAssignees}
+              isReadOnlyViewer={isReadOnlyViewer}
+              canAssignCase={canAssignCase}
+              canEditApplicant={canEditApplicant}
+              savingCase={savingCase}
+              onOpenCreateCase={() => setCreateCaseOpen(true)}
+              onSaveCase={saveCase}
+            />
+          ) : null}
 
-          <MaterialsTab
-            applicantId={applicantId}
-            applicantProfileId={detail.profile.id}
-            selectedCaseId={selectedCase?.id}
-            files={files}
-            filesLoading={materialFilesLoading}
-            filesError={materialFilesError}
-            canEditApplicant={canEditApplicant}
-            canRunAutomation={canRunAutomation}
-            onUpload={uploadFiles}
-            onPreview={openPreview}
-          />
+          {activeTab === "materials" ? (
+            <MaterialsTab
+              applicantId={applicantId}
+              applicantProfileId={detail.profile.id}
+              selectedCaseId={selectedCase?.id}
+              files={files}
+              filesLoading={materialFilesLoading}
+              filesError={materialFilesError}
+              canEditApplicant={canEditApplicant}
+              canRunAutomation={canRunAutomation}
+              onUpload={uploadFiles}
+              onPreview={openPreview}
+            />
+          ) : null}
 
-          <ProgressTab
-            applicantProfileId={detail.profile.id}
-            applicantName={detail.profile.name || detail.profile.label}
-            selectedCase={selectedCase}
-          />
+          {activeTab === "progress" ? (
+            <ProgressTab
+              applicantProfileId={detail.profile.id}
+              applicantName={detail.profile.name || detail.profile.label}
+              selectedCase={selectedCase}
+            />
+          ) : null}
         </Tabs>
       </div>
 
