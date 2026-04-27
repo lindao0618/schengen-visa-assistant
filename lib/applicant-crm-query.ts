@@ -6,6 +6,7 @@ type ApplicantCrmIncludeDefaults = Pick<
 >
 
 const APPLICANT_CRM_MAX_PAGE_LIMIT = 200
+const APPLICANT_CRM_QUICK_VIEWS = new Set(["mine", "review", "exception", "today"])
 
 function getMultiValues(searchParams: URLSearchParams, key: string) {
   return searchParams
@@ -35,6 +36,11 @@ function getNonNegativeInteger(searchParams: URLSearchParams, key: string) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
 }
 
+function getQuickView(searchParams: URLSearchParams) {
+  const value = searchParams.get("quickView")?.trim()
+  return value && APPLICANT_CRM_QUICK_VIEWS.has(value) ? (value as ApplicantCrmFilters["quickView"]) : undefined
+}
+
 export function buildApplicantCrmFiltersFromSearchParams(
   searchParams: URLSearchParams,
   defaults: ApplicantCrmIncludeDefaults = {},
@@ -49,6 +55,8 @@ export function buildApplicantCrmFiltersFromSearchParams(
     statuses: getMultiValues(searchParams, "statuses"),
     regions: getMultiValues(searchParams, "regions"),
     priorities: getMultiValues(searchParams, "priorities"),
+    groups: getMultiValues(searchParams, "groups"),
+    quickView: getQuickView(searchParams),
     includeStats: getBooleanFlag(searchParams, "includeStats", Boolean(defaults.includeStats)),
     includeSelectorCases: getBooleanFlag(
       searchParams,

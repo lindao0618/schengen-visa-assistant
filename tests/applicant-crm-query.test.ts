@@ -40,12 +40,13 @@ test("applicant CRM list query preserves custom defaults for agent callers", () 
 
 test("applicant CRM list query normalizes keyword and multi-select filters", () => {
   const filters = buildApplicantCrmFiltersFromSearchParams(
-    new URLSearchParams("keyword=%20Alice%20&visaTypes=france-schengen,usa&regions=uk&regions=cn"),
+    new URLSearchParams("keyword=%20Alice%20&visaTypes=france-schengen,usa&regions=uk&regions=cn&groups=VIP,2026&groups=TeamA"),
   )
 
   assert.equal(filters.keyword, "Alice")
   assert.deepEqual(filters.visaTypes, ["france-schengen", "usa"])
   assert.deepEqual(filters.regions, ["uk", "cn"])
+  assert.deepEqual(filters.groups, ["VIP", "2026", "TeamA"])
 })
 
 test("applicant CRM list limits nested cases unless full case payload is needed", () => {
@@ -73,4 +74,11 @@ test("applicant CRM list query ignores pagination without a valid limit", () => 
 
   assert.equal(filters.limit, undefined)
   assert.equal(filters.offset, undefined)
+})
+
+test("applicant CRM list query validates quick view filters", () => {
+  assert.equal(buildApplicantCrmFiltersFromSearchParams(new URLSearchParams("quickView=mine")).quickView, "mine")
+  assert.equal(buildApplicantCrmFiltersFromSearchParams(new URLSearchParams("quickView=today")).quickView, "today")
+  assert.equal(buildApplicantCrmFiltersFromSearchParams(new URLSearchParams("quickView=all")).quickView, undefined)
+  assert.equal(buildApplicantCrmFiltersFromSearchParams(new URLSearchParams("quickView=unknown")).quickView, undefined)
 })

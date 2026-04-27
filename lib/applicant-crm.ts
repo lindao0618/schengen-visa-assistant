@@ -161,6 +161,8 @@ export interface ApplicantCrmFilters {
   statuses?: string[]
   regions?: string[]
   priorities?: string[]
+  groups?: string[]
+  quickView?: "mine" | "review" | "exception" | "today"
   includeStats?: boolean
   includeSelectorCases?: boolean
   includeProfiles?: boolean
@@ -497,6 +499,31 @@ function matchesArrayFilter(value: string | null | undefined, selected: string[]
   return selected.includes(value)
 }
 
+const applicantCrmActionableStatuses = new Set([
+  "pending_payment",
+  "preparing_docs",
+  "reviewing",
+  "docs_ready",
+  "tls_processing",
+  "slot_booked",
+  "exception",
+])
+
+function matchesQuickViewFilter(row: ApplicantCrmRow, quickView: ApplicantCrmFilters["quickView"], userId: string) {
+  switch (quickView) {
+    case "mine":
+      return row.assignee?.id === userId || (!row.assignee && row.owner.id === userId)
+    case "review":
+      return row.currentStatusKey === "reviewing" || row.currentStatusKey === "docs_ready"
+    case "exception":
+      return row.currentStatusKey === "exception"
+    case "today":
+      return applicantCrmActionableStatuses.has(row.currentStatusKey)
+    default:
+      return true
+  }
+}
+
 function mapSelectorCase(caseRecord: ApplicantWithCasesRecord["visaCases"][number]) {
   return {
     id: caseRecord.id,
@@ -745,6 +772,8 @@ export async function listApplicantCrmData(
   const statuses = (filters.statuses ?? []).filter(Boolean)
   const regions = (filters.regions ?? []).filter(Boolean)
   const priorities = (filters.priorities ?? []).filter(Boolean)
+  const groups = (filters.groups ?? []).filter(Boolean)
+  const quickView = filters.quickView
   const includeStats = Boolean(filters.includeStats)
   const includeSelectorCases = Boolean(filters.includeSelectorCases)
   const includeProfiles = Boolean(filters.includeProfiles)
@@ -795,13 +824,18 @@ export async function listApplicantCrmData(
     if (!matchesArrayFilter(row.priority, priorities)) return false
     return true
   })
-  const paginatedRows = pageLimit ? filteredRows.slice(pageOffset, pageOffset + pageLimit) : filteredRows
+  const displayRows = filteredRows.filter((row) => {
+    if (!matchesArrayFilter(row.groupName, groups)) return false
+    if (!matchesQuickViewFilter(row, quickView, userId)) return false
+    return true
+  })
+  const paginatedDisplayRows = pageLimit ? displayRows.slice(pageOffset, pageOffset + pageLimit) : displayRows
   const pagination: ApplicantCrmPagination | undefined = pageLimit
     ? {
-        totalRows: filteredRows.length,
+        totalRows: displayRows.length,
         limit: pageLimit,
         offset: pageOffset,
-        hasMore: pageOffset + pageLimit < filteredRows.length,
+        hasMore: pageOffset + pageLimit < displayRows.length,
       }
     : undefined
 
@@ -834,7 +868,7 @@ export async function listApplicantCrmData(
 
   return {
     profiles,
-    rows: paginatedRows,
+    rows: paginatedDisplayRows,
     pagination,
     stats,
     filterOptions,
