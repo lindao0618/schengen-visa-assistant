@@ -6,7 +6,9 @@ import {
   getInitialExcelSheetName,
   parseUsVisaExcelPreviewSections,
   resolveApplicantPreviewMode,
+  updateExcelPreviewCell,
 } from "../app/applicants/[id]/detail/material-preview"
+import { emptyPreview } from "../app/applicants/[id]/detail/types"
 
 test("resolveApplicantPreviewMode 识别 Word、Excel 和图片", () => {
   assert.equal(
@@ -63,4 +65,28 @@ test("cloneTableRows 返回可独立编辑的表格副本", () => {
 
   assert.equal(rows[0][1], "ZHANG")
   assert.equal(cloned[0][1], "LI")
+})
+
+test("updateExcelPreviewCell 更新当前 sheet 并保持原状态不可变", () => {
+  const prev = {
+    ...emptyPreview,
+    kind: "excel" as const,
+    activeExcelSheet: "Sheet1",
+    tableRows: [["姓名", "ZHANG"]],
+    excelSheets: [{ name: "Sheet1", rows: [["姓名", "ZHANG"]] }],
+  }
+
+  const next = updateExcelPreviewCell(prev, 1, 2, "新增值")
+
+  assert.equal(prev.tableRows.length, 1)
+  assert.deepEqual(prev.excelSheets[0].rows, [["姓名", "ZHANG"]])
+  assert.equal(next.excelDirty, true)
+  assert.equal(next.tableRows[1][2], "新增值")
+  assert.equal(next.excelSheets[0].rows?.[1][2], "新增值")
+})
+
+test("updateExcelPreviewCell 忽略非 Excel 预览", () => {
+  const prev = { ...emptyPreview, kind: "text" as const }
+
+  assert.equal(updateExcelPreviewCell(prev, 0, 0, "不会写入"), prev)
 })

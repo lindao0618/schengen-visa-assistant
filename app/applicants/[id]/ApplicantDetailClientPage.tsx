@@ -20,7 +20,10 @@ import {
   cloneTableRows,
   extractExcelSheetRows,
   parseUsVisaExcelPreviewSections,
+  updateExcelPreviewCell,
 } from "@/app/applicants/[id]/detail/material-preview"
+import { readJsonSafely } from "@/app/applicants/[id]/detail/json-response"
+import { buildApplicantProfileUpdatePayload } from "@/app/applicants/[id]/detail/profile-save"
 import { buildTlsAccountInfo, buildTlsAccountTemplateText } from "@/app/applicants/[id]/detail/tls-account"
 import { resolveApplicantDetailTab, useApplicantDetailController } from "@/app/applicants/[id]/detail/use-applicant-detail-controller"
 import {
@@ -132,12 +135,6 @@ function persistSelectedApplicantCase(applicantId: string, caseId?: string | nul
       detail: { applicantProfileId: applicantId, caseId: normalizedCaseId || undefined },
     }),
   )
-}
-
-async function readJsonSafely<T>(response: Response) {
-  const text = await response.text()
-  if (!text) return null as T | null
-  return JSON.parse(text) as T
 }
 
 function formatDateTime(value?: string | null) {
@@ -482,23 +479,7 @@ export default function ApplicantDetailClientPage({
       const response = await fetch(`/api/applicants/${applicantId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: basicForm.name,
-          phone: basicForm.phone,
-          email: basicForm.email,
-          wechat: basicForm.wechat,
-          passportNumber: basicForm.passportNumber,
-          note: basicForm.note,
-          usVisa: {
-            surname: basicForm.usVisaSurname,
-            birthYear: basicForm.usVisaBirthYear,
-            passportNumber: basicForm.usVisaPassportNumber,
-          },
-          schengen: {
-            country: basicForm.schengenCountry,
-            city: basicForm.schengenVisaCity,
-          },
-        }),
+        body: JSON.stringify(buildApplicantProfileUpdatePayload(basicForm)),
       })
 
       const data = await readJsonSafely<{ profile?: ApplicantProfileDetail; error?: string }>(response)
@@ -795,32 +776,7 @@ export default function ApplicantDetailClientPage({
   }
 
   const setExcelCell = (rowIndex: number, colIndex: number, value: string) => {
-    setPreview((prev) => {
-      if (prev.kind !== "excel") return prev
-      const sheetIndex = prev.excelSheets.findIndex((s) => s.name === prev.activeExcelSheet)
-      if (sheetIndex < 0) return prev
-      const nextSheets = prev.excelSheets.map((s) => ({
-        ...s,
-        rows: s.rows ? cloneTableRows(s.rows) : undefined,
-      }))
-      const rows = nextSheets[sheetIndex].rows ? cloneTableRows(nextSheets[sheetIndex].rows) : cloneTableRows(prev.tableRows)
-      while (rows.length <= rowIndex) {
-        rows.push([])
-      }
-      const row = [...rows[rowIndex]]
-      while (row.length <= colIndex) {
-        row.push("")
-      }
-      row[colIndex] = value
-      rows[rowIndex] = row
-      nextSheets[sheetIndex] = { ...nextSheets[sheetIndex], rows }
-      return {
-        ...prev,
-        excelSheets: nextSheets,
-        tableRows: cloneTableRows(rows),
-        excelDirty: true,
-      }
-    })
+    setPreview((prev) => updateExcelPreviewCell(prev, rowIndex, colIndex, value))
   }
 
   const cancelExcelEdit = async () => {

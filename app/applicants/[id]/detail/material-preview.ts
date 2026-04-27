@@ -1,4 +1,4 @@
-import type { PreviewKind, UsVisaExcelPreviewItem, UsVisaExcelPreviewSection } from "./types"
+import type { PreviewKind, PreviewState, UsVisaExcelPreviewItem, UsVisaExcelPreviewSection } from "./types"
 
 export const US_VISA_EXCEL_PREVIEW_SLOTS = new Set(["usVisaDs160Excel", "usVisaAisExcel", "ds160Excel", "aisExcel"])
 
@@ -135,4 +135,41 @@ export function parseUsVisaExcelPreviewSections(rows: string[][]): UsVisaExcelPr
 
   pushCurrent()
   return sections
+}
+
+export function updateExcelPreviewCell(
+  preview: PreviewState,
+  rowIndex: number,
+  colIndex: number,
+  value: string,
+): PreviewState {
+  if (preview.kind !== "excel") return preview
+  const sheetIndex = preview.excelSheets.findIndex((sheet) => sheet.name === preview.activeExcelSheet)
+  if (sheetIndex < 0) return preview
+
+  const nextSheets = preview.excelSheets.map((sheet) => ({
+    ...sheet,
+    rows: sheet.rows ? cloneTableRows(sheet.rows) : undefined,
+  }))
+  const rows = nextSheets[sheetIndex].rows
+    ? cloneTableRows(nextSheets[sheetIndex].rows)
+    : cloneTableRows(preview.tableRows)
+
+  while (rows.length <= rowIndex) {
+    rows.push([])
+  }
+  const row = [...rows[rowIndex]]
+  while (row.length <= colIndex) {
+    row.push("")
+  }
+  row[colIndex] = value
+  rows[rowIndex] = row
+  nextSheets[sheetIndex] = { ...nextSheets[sheetIndex], rows }
+
+  return {
+    ...preview,
+    excelSheets: nextSheets,
+    tableRows: cloneTableRows(rows),
+    excelDirty: true,
+  }
 }
