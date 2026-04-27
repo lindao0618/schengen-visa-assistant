@@ -39,3 +39,22 @@ for (const page of clientPages) {
     assert.doesNotMatch(source, /import \{ MaterialTaskList \} from ['"]@\/components\/MaterialTaskList['"]/)
   })
 }
+
+test("MaterialTaskList lazy-loads completed task result rendering", () => {
+  const source = readFileSync(join(process.cwd(), "components/MaterialTaskList.tsx"), "utf8")
+
+  assert.match(source, /dynamic\(/)
+  assert.match(source, /@\/components\/material-task-result-summary/)
+  assert.doesNotMatch(source, /function MaterialResultSummary/)
+  assert.doesNotMatch(source, /function PreviewPdfButton/)
+  assert.doesNotMatch(source, /涓嬭浇|榛樿|鏂扮獥/)
+})
+
+test("material task result summary keeps PDF preview copy readable", () => {
+  const source = readFileSync(join(process.cwd(), "components/material-task-result-summary.tsx"), "utf8")
+
+  assert.match(source, /export function MaterialResultSummary/)
+  assert.match(source, /下载 PDF/)
+  assert.match(source, /新窗口打开/)
+  assert.doesNotMatch(source, /涓嬭浇|榛樿|鏂扮獥/)
+})
