@@ -39,6 +39,8 @@ export type ApplicantProfileDetail = {
   files?: Record<string, { originalName: string; uploadedAt: string }>
 }
 
+export type ApplicantMaterialFiles = NonNullable<ApplicantProfileDetail["files"]>
+
 export type ReminderLogRecord = {
   id: string
   ruleCode: string
