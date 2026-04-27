@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import React from "react";
+import dynamic from "next/dynamic";
 import { 
   Card, 
   CardContent, 
@@ -27,13 +28,42 @@ import {
   FileText,
   ExternalLink
 } from "lucide-react";
-import { TaskList } from "@/app/usa-visa/components/task-list";
-import { FranceTaskList } from "@/app/schengen-visa/france/automation/FranceTaskList";
-import { MaterialTaskList } from "@/components/MaterialTaskList";
 
 const MATERIAL_REVIEW_TASK_IDS_KEY = "material-review-task-ids";
 const MATERIAL_ITINERARY_TASK_IDS_KEY = "material-itinerary-task-ids";
 const MATERIAL_EXPLANATION_TASK_IDS_KEY = "material-explanation-letter-task-ids";
+
+function TaskListLoading() {
+  return (
+    <div className="rounded-xl border border-dashed border-gray-200 bg-white/70 p-4 text-sm text-gray-500">
+      正在加载任务列表...
+    </div>
+  );
+}
+
+const TaskList = dynamic(
+  () => import("@/app/usa-visa/components/task-list").then((mod) => mod.TaskList),
+  {
+    ssr: false,
+    loading: TaskListLoading,
+  },
+);
+
+const FranceTaskList = dynamic(
+  () => import("@/app/schengen-visa/france/automation/FranceTaskList").then((mod) => mod.FranceTaskList),
+  {
+    ssr: false,
+    loading: TaskListLoading,
+  },
+);
+
+const MaterialTaskList = dynamic(
+  () => import("@/components/MaterialTaskList").then((mod) => mod.MaterialTaskList),
+  {
+    ssr: false,
+    loading: TaskListLoading,
+  },
+);
 
 const loadStoredTaskIds = (key: string) => {
   if (typeof window === "undefined") return [];
@@ -721,5 +751,4 @@ export function VisaServicesModule() {
     </Card>
   );
 }
-
 

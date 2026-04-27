@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { BookingFormData } from "../../appointment-booking/page"
+import type { BookingFormData } from "../../appointment-booking/types"
 import { ArrowLeft, CreditCard, CheckCircle, AlertCircle, User, Calendar, MapPin, Clock } from "lucide-react"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"

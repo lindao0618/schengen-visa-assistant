@@ -2,7 +2,7 @@
 
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { BookingFormData } from "../../appointment-booking/page"
+import type { BookingFormData } from "../../appointment-booking/types"
 import { ArrowLeft, ArrowRight, Mail, Phone, Bell } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"

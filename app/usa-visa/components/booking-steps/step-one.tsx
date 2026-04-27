@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { MapPin, Globe, Building2, Info } from "lucide-react"
-import { BookingFormData, VisaSystemType } from "../../appointment-booking/page"
+import type { BookingFormData, VisaSystemType } from "../../appointment-booking/types"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
