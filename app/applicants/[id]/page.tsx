@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth"
 import { redirect } from "next/navigation"
 
-import ApplicantDetailClientPage from "@/app/applicants/[id]/ApplicantDetailClientPage"
+import ApplicantDetailClientEntry from "@/app/applicants/[id]/ApplicantDetailClientEntry"
 import { authOptions } from "@/lib/auth"
 
 export default async function ApplicantDetailPage({
@@ -33,5 +33,5 @@ export default async function ApplicantDetailPage({
     redirect(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`)
   }
 
-  return <ApplicantDetailClientPage applicantId={params.id} viewerRole={session.user.role} />
+  return <ApplicantDetailClientEntry applicantId={params.id} viewerRole={session.user.role} />
 }
