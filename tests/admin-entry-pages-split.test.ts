@@ -19,6 +19,26 @@ const adminPages = [
     importPath: "./AdminMonitorClientPage",
   },
   {
+    route: "app/admin/content/page.tsx",
+    client: "app/admin/content/AdminContentClientPage.tsx",
+    importPath: "./AdminContentClientPage",
+  },
+  {
+    route: "app/admin/orders/page.tsx",
+    client: "app/admin/orders/AdminOrdersClientPage.tsx",
+    importPath: "./AdminOrdersClientPage",
+  },
+  {
+    route: "app/admin/settings/page.tsx",
+    client: "app/admin/settings/AdminSettingsClientPage.tsx",
+    importPath: "./AdminSettingsClientPage",
+  },
+  {
+    route: "app/admin/login/page.tsx",
+    client: "app/admin/login/AdminLoginClientPage.tsx",
+    importPath: "./AdminLoginClientPage",
+  },
+  {
     route: "app/admin/users/page.tsx",
     client: "app/admin/users/AdminUsersClientPage.tsx",
     importPath: "./AdminUsersClientPage",
