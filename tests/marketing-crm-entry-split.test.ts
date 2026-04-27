@@ -98,6 +98,41 @@ test("services hotel booking route renders as a server-only static page", () => 
   assert.ok(source.includes("/material-customization"))
 })
 
+const serviceStaticPages = [
+  {
+    route: "app/services/insurance-comparison/page.tsx",
+    requiredSnippet: "Coverwise",
+  },
+  {
+    route: "app/services/ticket-booking/page.tsx",
+    requiredSnippet: "欧洲之星",
+  },
+]
+
+for (const page of serviceStaticPages) {
+  test(`${page.route} renders as a server-only service directory`, () => {
+    const source = readSource(page.route)
+
+    assert.doesNotMatch(source, /"use client"/)
+    assert.doesNotMatch(source, /components\/ui\//)
+    assert.doesNotMatch(source, /lucide-react/)
+    assert.ok(source.includes(page.requiredSnippet))
+    assert.ok(source.includes("/material-customization"))
+  })
+}
+
+test("community route lazy-loads its interactive client page", () => {
+  const pageSource = readSource("app/community/page.tsx")
+  const clientSource = readSource("app/community/CommunityClientPage.tsx")
+
+  assert.match(pageSource, /dynamic\(/)
+  assert.match(pageSource, /import\(["']\.\/CommunityClientPage["']\)/)
+  assert.doesNotMatch(pageSource, /useState/)
+  assert.doesNotMatch(pageSource, /components\/ui\//)
+  assert.match(clientSource, /"use client"/)
+  assert.match(clientSource, /handlePostSubmit/)
+})
+
 test("apply route lazy-loads its heavy client page", () => {
   const source = readSource("app/apply/page.tsx")
 
