@@ -14,6 +14,11 @@ const publicPages = [
     importPath: "./SignUpClientPage",
   },
   {
+    route: "app/login/page.tsx",
+    client: "app/login/LoginClientPage.tsx",
+    importPath: "./LoginClientPage",
+  },
+  {
     route: "app/visa-info/page.tsx",
     client: "app/visa-info/VisaInfoClientPage.tsx",
     importPath: "./VisaInfoClientPage",
