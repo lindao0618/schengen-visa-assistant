@@ -25,3 +25,15 @@ test("applicant CRM selection applies to currently rendered rows", () => {
   assert.match(source, /当前显示/)
   assert.doesNotMatch(source, /displayRows\.map\(\(row\) =>/)
 })
+
+test("applicant CRM table rendering lives in a memoized focused component", () => {
+  const pageSource = readSource("app/applicants/ApplicantsCrmClientPage.tsx")
+  const tableSource = readSource("app/applicants/applicant-crm-rows-table.tsx")
+
+  assert.match(pageSource, /ApplicantCrmRowsTable/)
+  assert.doesNotMatch(pageSource, /import \{ Table/)
+  assert.doesNotMatch(pageSource, /visibleRows\.map\(\(row\) => \(/)
+  assert.match(tableSource, /memo\(function ApplicantCrmRowsTable/)
+  assert.match(tableSource, /rows\.map\(\(row\) =>/)
+  assert.match(tableSource, /selectedApplicantIdSet/)
+})

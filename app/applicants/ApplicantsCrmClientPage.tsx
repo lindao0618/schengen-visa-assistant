@@ -16,10 +16,8 @@ import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
 import {
   AlertCircle,
-  ArrowRight,
   BriefcaseBusiness,
   CalendarClock,
-  CheckCircle2,
   ChevronDown,
   Clock3,
   FolderPlus,
@@ -30,7 +28,6 @@ import {
   Sparkles,
   Trash2,
   UserPlus,
-  Users,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -92,8 +89,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import type { CreateApplicantForm } from "@/app/applicants/create-applicant-dialog"
+import { ApplicantCrmRowsTable } from "@/app/applicants/applicant-crm-rows-table"
 
 const CreateApplicantDialog = dynamic(
   () => import("@/app/applicants/create-applicant-dialog").then((module) => module.CreateApplicantDialog),
@@ -108,7 +105,7 @@ type ApplicantCrmStatusOption = {
   label: string
 }
 
-type ApplicantCrmRow = {
+export type ApplicantCrmRow = {
   id: string
   name: string
   groupName?: string
@@ -252,20 +249,6 @@ const toneClassMap: Record<
   },
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return "-"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "-"
-  return date.toLocaleDateString("zh-CN")
-}
-
-function formatDateTime(value?: string | null) {
-  if (!value) return "-"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "-"
-  return date.toLocaleString("zh-CN", { hour12: false })
-}
-
 function buildSuggestedGroupName() {
   const now = new Date()
   const yyyy = now.getFullYear()
@@ -274,56 +257,6 @@ function buildSuggestedGroupName() {
   const hh = String(now.getHours()).padStart(2, "0")
   const mi = String(now.getMinutes()).padStart(2, "0")
   return `自定义分组 ${yyyy}-${mm}-${dd} ${hh}:${mi}`
-}
-
-function getStatusVariant(statusKey: string) {
-  if (statusKey === "exception") return "destructive" as const
-  if (statusKey === "completed") return "success" as const
-  if (statusKey === "submitted" || statusKey === "slot_booked") return "info" as const
-  if (statusKey === "reviewing") return "warning" as const
-  return "outline" as const
-}
-
-function getPriorityBadgeClass(priority?: string) {
-  if (priority === "urgent") return "border-red-200 bg-red-50 text-red-700"
-  if (priority === "high") return "border-amber-200 bg-amber-50 text-amber-700"
-  return "border-gray-200 bg-gray-50 text-gray-700"
-}
-
-function getVisaTypeBadgeClass(value?: string) {
-  if (!value) return "border-gray-200 bg-gray-50 text-gray-700"
-  const normalized = value.toLowerCase()
-  if (normalized.includes("france") || normalized.includes("schengen") || normalized.includes("法国") || normalized.includes("申根")) {
-    return "border-blue-200 bg-blue-50 text-blue-700"
-  }
-  if (normalized.includes("usa") || normalized.includes("us") || normalized.includes("美国")) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700"
-  }
-  if (normalized.includes("uk") || normalized.includes("英国")) {
-    return "border-violet-200 bg-violet-50 text-violet-700"
-  }
-  return "border-slate-200 bg-slate-50 text-slate-700"
-}
-
-const groupBadgePalette = [
-  "border-blue-200 bg-blue-50 text-blue-700",
-  "border-emerald-200 bg-emerald-50 text-emerald-700",
-  "border-violet-200 bg-violet-50 text-violet-700",
-  "border-amber-200 bg-amber-50 text-amber-700",
-  "border-rose-200 bg-rose-50 text-rose-700",
-  "border-cyan-200 bg-cyan-50 text-cyan-700",
-  "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
-  "border-lime-200 bg-lime-50 text-lime-700",
-]
-
-function getGroupBadgeClass(groupName?: string) {
-  const normalized = (groupName || "").trim()
-  if (!normalized) return "border-slate-200 bg-slate-50 text-slate-700"
-  let hash = 0
-  for (let index = 0; index < normalized.length; index += 1) {
-    hash = (hash * 31 + normalized.charCodeAt(index)) >>> 0
-  }
-  return groupBadgePalette[hash % groupBadgePalette.length]
 }
 
 function getApplicantCrmStatusLabel(statusKey: string, fallbackLabel?: string) {
@@ -510,34 +443,6 @@ function SelectedFilterPill({
       <span className={cn("h-2 w-2 rounded-full", toneClasses.dot)} />
       {label}
       <span className="text-xs opacity-70">×</span>
-    </button>
-  )
-}
-
-function SelectionToggleButton({
-  checked,
-  onClick,
-  label,
-}: {
-  checked: boolean
-  onClick: () => void
-  label: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "inline-flex h-9 min-w-[78px] items-center justify-center gap-2 rounded-xl border px-3 text-xs font-semibold transition-all",
-        checked
-          ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-200"
-          : "border-gray-200 bg-white text-gray-600 hover:border-blue-300 hover:text-blue-700",
-      )}
-      aria-pressed={checked}
-      aria-label={label}
-    >
-      <CheckCircle2 className={cn("h-4 w-4", checked ? "text-white" : "text-gray-300")} />
-      <span>{checked ? "已选" : "选择"}</span>
     </button>
   )
 }
@@ -879,6 +784,13 @@ export default function ApplicantsCrmClientPage() {
       }).catch(() => {
         // Ignore background prefetch errors.
       })
+    },
+    [router],
+  )
+
+  const openApplicantDetail = useCallback(
+    (applicantId: string) => {
+      router.push(`/applicants/${applicantId}`)
     },
     [router],
   )
@@ -1345,104 +1257,15 @@ export default function ApplicantsCrmClientPage() {
                 <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-gray-900" />
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[96px]">
-                      <SelectionToggleButton
-                        checked={allVisibleSelected}
-                        onClick={() => toggleSelectAllVisible(!allVisibleSelected)}
-                        label={allVisibleSelected ? "取消全选当前显示" : "全选当前显示"}
-                      />
-                    </TableHead>
-                    <TableHead>{"\u7533\u8bf7\u4eba"}</TableHead>
-                    <TableHead>{"\u7b7e\u8bc1\u7c7b\u578b"}</TableHead>
-                    <TableHead>{"\u5730\u533a"}</TableHead>
-                    <TableHead>{"\u5f53\u524d\u72b6\u6001"}</TableHead>
-                    <TableHead>{"\u4f18\u5148\u7ea7"}</TableHead>
-                    <TableHead>{"\u51fa\u884c\u65f6\u95f4"}</TableHead>
-                    <TableHead>{"\u6700\u8fd1\u66f4\u65b0"}</TableHead>
-                    <TableHead className="w-[120px]">{"\u64cd\u4f5c"}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visibleRows.map((row) => (
-                    <TableRow
-                      key={row.id}
-                      className={cn("cursor-pointer transition-colors", selectedApplicantIds.includes(row.id) && "bg-blue-50/60")}
-                      onMouseEnter={() => prefetchApplicantDetail(row.id)}
-                      onFocus={() => prefetchApplicantDetail(row.id)}
-                      onClick={() => router.push(`/applicants/${row.id}`)}
-                    >
-                      <TableCell onClick={(event) => event.stopPropagation()}>
-                        <SelectionToggleButton
-                          checked={selectedApplicantIds.includes(row.id)}
-                          onClick={() => toggleApplicantSelection(row.id, !selectedApplicantIds.includes(row.id))}
-                          label={`选择 ${row.name}`}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="font-medium text-gray-900">{row.name}</div>
-                            {row.groupName ? (
-                              <Badge variant="outline" className={getGroupBadgeClass(row.groupName)}>
-                                {row.groupName}
-                              </Badge>
-                            ) : null}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            {row.phone || row.email || row.wechat || row.passportNumber || "\u6682\u65e0\u8054\u7cfb\u65b9\u5f0f"}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={getVisaTypeBadgeClass(row.visaType || row.caseType)}
-                        >
-                          {getApplicantCrmVisaTypeLabel(row.visaType || row.caseType)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{getApplicantCrmRegionLabel(row.region)}</TableCell>
-                      <TableCell>
-                        <Badge variant={getStatusVariant(row.currentStatusKey)}>
-                          {getApplicantCrmStatusLabel(row.currentStatusKey, row.currentStatusLabel)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={getPriorityBadgeClass(row.priority)}>
-                          {getApplicantCrmPriorityLabel(row.priority)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{formatDate(row.travelDate)}</TableCell>
-                      <TableCell>{formatDateTime(row.updatedAt)}</TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onMouseEnter={() => prefetchApplicantDetail(row.id)}
-                          onFocus={() => prefetchApplicantDetail(row.id)}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            router.push(`/applicants/${row.id}`)
-                          }}
-                        >
-                          查看详情
-                          <ArrowRight className="ml-1 h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {displayRows.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={9} className="py-10 text-center text-sm text-gray-500">
-                        暂无符合当前筛选条件的申请人，建议调整筛选条件后重试。
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
+              <ApplicantCrmRowsTable
+                rows={visibleRows}
+                selectedApplicantIds={selectedApplicantIds}
+                allVisibleSelected={allVisibleSelected}
+                onToggleAllVisible={toggleSelectAllVisible}
+                onToggleApplicant={toggleApplicantSelection}
+                onOpenApplicant={openApplicantDetail}
+                onPrefetchApplicant={prefetchApplicantDetail}
+              />
             )}
             {!loading && hasMoreVisibleRows ? (
               <div className="mt-4 flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-200 bg-gray-50/80 p-4 text-center">
