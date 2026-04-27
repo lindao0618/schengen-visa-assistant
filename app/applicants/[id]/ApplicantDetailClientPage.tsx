@@ -12,9 +12,14 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ACTIVE_APPLICANT_CASE_KEY, ACTIVE_APPLICANT_PROFILE_KEY } from "@/components/applicant-profile-selector"
 import { resolveSelectedFranceCase, resolveTlsAccountCaseSource } from "@/app/applicants/[id]/detail/cases-tab"
 import { getAppRoleLabel } from "@/lib/access-control"
+import {
+  ACTIVE_APPLICANT_PROFILE_KEY,
+  dispatchActiveApplicantCaseChange,
+  dispatchActiveApplicantProfileChange,
+  writeStoredApplicantCaseId,
+} from "@/lib/applicant-selection-storage"
 import {
   cloneTableRows,
   excelColumnMinWidthClass,
@@ -92,34 +97,14 @@ const ProgressTab = dynamic(
 
 const AUDIT_PROGRESS_STEPS = ["正在读取 Excel", "正在识别字段", "正在检查规则", "审核完成"]
 
-function getApplicantCaseStorageKey(applicantId: string) {
-  return `activeApplicantCaseId:${applicantId}`
-}
-
 function persistSelectedApplicantCase(applicantId: string, caseId?: string | null) {
   if (typeof window === "undefined") return
 
   window.localStorage.setItem(ACTIVE_APPLICANT_PROFILE_KEY, applicantId)
-
   const normalizedCaseId = caseId || ""
-  if (normalizedCaseId) {
-    window.localStorage.setItem(ACTIVE_APPLICANT_CASE_KEY, normalizedCaseId)
-    window.localStorage.setItem(getApplicantCaseStorageKey(applicantId), normalizedCaseId)
-  } else {
-    window.localStorage.removeItem(ACTIVE_APPLICANT_CASE_KEY)
-    window.localStorage.removeItem(getApplicantCaseStorageKey(applicantId))
-  }
-
-  window.dispatchEvent(
-    new CustomEvent("active-applicant-profile-changed", {
-      detail: { applicantProfileId: applicantId },
-    }),
-  )
-  window.dispatchEvent(
-    new CustomEvent("active-applicant-case-changed", {
-      detail: { applicantProfileId: applicantId, caseId: normalizedCaseId || undefined },
-    }),
-  )
+  writeStoredApplicantCaseId(applicantId, normalizedCaseId)
+  dispatchActiveApplicantProfileChange(applicantId)
+  dispatchActiveApplicantCaseChange(applicantId, normalizedCaseId || undefined)
 }
 
 export default function ApplicantDetailClientPage({

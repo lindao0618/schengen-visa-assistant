@@ -46,6 +46,14 @@ import {
   canWriteApplicants,
   normalizeAppRole,
 } from "@/lib/access-control"
+import {
+  ACTIVE_APPLICANT_CASE_KEY,
+  ACTIVE_APPLICANT_PROFILE_KEY,
+  RECENT_APPLICANT_PROFILE_IDS_KEY,
+  dispatchActiveApplicantCaseChange,
+  readStoredApplicantCaseId,
+  writeStoredApplicantCaseId,
+} from "@/lib/applicant-selection-storage"
 import { formatFranceStatusLabel } from "@/lib/france-case-labels"
 import { cn } from "@/lib/utils"
 
@@ -132,13 +140,7 @@ interface ApplicantProfileSelectorProps {
   scope?: ApplicantProfileSelectorScope
 }
 
-export const ACTIVE_APPLICANT_PROFILE_KEY = "activeApplicantProfileId"
-export const ACTIVE_APPLICANT_CASE_KEY = "activeApplicantCaseId"
-const RECENT_APPLICANT_PROFILE_IDS_KEY = "recentApplicantProfileIds"
-
-function getApplicantCaseStorageKey(applicantProfileId: string) {
-  return `${ACTIVE_APPLICANT_CASE_KEY}:${applicantProfileId}`
-}
+export { ACTIVE_APPLICANT_CASE_KEY, ACTIVE_APPLICANT_PROFILE_KEY }
 
 function formatDateTime(value?: string | null) {
   if (!value) return "暂无更新"
@@ -174,39 +176,6 @@ function writeRecentIds(ids: string[]) {
 function buildRecentIds(nextId: string) {
   const current = readRecentIds().filter((item) => item !== nextId)
   writeRecentIds([nextId, ...current])
-}
-
-function readStoredCaseId(applicantProfileId: string) {
-  if (typeof window === "undefined") return ""
-  return (
-    window.localStorage.getItem(getApplicantCaseStorageKey(applicantProfileId)) ||
-    window.localStorage.getItem(ACTIVE_APPLICANT_CASE_KEY) ||
-    ""
-  )
-}
-
-function writeStoredCaseId(applicantProfileId: string, caseId?: string | null) {
-  if (typeof window === "undefined") return
-  if (caseId) {
-    window.localStorage.setItem(ACTIVE_APPLICANT_CASE_KEY, caseId)
-    window.localStorage.setItem(getApplicantCaseStorageKey(applicantProfileId), caseId)
-    return
-  }
-
-  window.localStorage.removeItem(ACTIVE_APPLICANT_CASE_KEY)
-  window.localStorage.removeItem(getApplicantCaseStorageKey(applicantProfileId))
-}
-
-function dispatchCaseChange(applicantProfileId: string, caseId?: string | null) {
-  if (typeof window === "undefined") return
-  window.dispatchEvent(
-    new CustomEvent("active-applicant-case-changed", {
-      detail: {
-        applicantProfileId,
-        caseId: caseId ?? null,
-      },
-    }),
-  )
 }
 
 function getCaseTitle(caseItem: ApplicantCaseOption) {
@@ -562,10 +531,15 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
     let cancelled = false
 
     const applyCaseSelection = (cases: ApplicantCaseOption[]) => {
-      const nextCaseId = resolveActiveCaseId(cases, scope, readStoredCaseId(selectedId), activeProfile?.activeCaseId)
+      const nextCaseId = resolveActiveCaseId(
+        cases,
+        scope,
+        readStoredApplicantCaseId(selectedId),
+        activeProfile?.activeCaseId,
+      )
       setSelectedCaseId(nextCaseId || "")
-      writeStoredCaseId(selectedId, nextCaseId)
-      dispatchCaseChange(selectedId, nextCaseId)
+      writeStoredApplicantCaseId(selectedId, nextCaseId)
+      dispatchActiveApplicantCaseChange(selectedId, nextCaseId)
     }
 
     if (cachedCases) {
@@ -652,8 +626,8 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
   const handleCaseChange = (caseId: string) => {
     if (!selectedId) return
     setSelectedCaseId(caseId)
-    writeStoredCaseId(selectedId, caseId)
-    dispatchCaseChange(selectedId, caseId)
+    writeStoredApplicantCaseId(selectedId, caseId)
+    dispatchActiveApplicantCaseChange(selectedId, caseId)
   }
 
   const activeSummary = activeCase

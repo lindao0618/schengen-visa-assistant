@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react"
 import {
-  ACTIVE_APPLICANT_CASE_KEY,
   ACTIVE_APPLICANT_PROFILE_KEY,
-} from "@/components/applicant-profile-selector"
+  readStoredApplicantCaseId,
+  writeStoredApplicantCaseId,
+} from "@/lib/applicant-selection-storage"
 import {
   APPLICANT_DETAIL_CACHE_TTL_MS,
   getApplicantDetailCacheKey,
@@ -73,31 +74,6 @@ type ApplicantDetailResponse = {
   activeCaseId?: string | null
 }
 
-function getApplicantCaseStorageKey(applicantProfileId: string) {
-  return `${ACTIVE_APPLICANT_CASE_KEY}:${applicantProfileId}`
-}
-
-function readStoredCaseId(applicantProfileId: string) {
-  if (typeof window === "undefined") return ""
-  return (
-    window.localStorage.getItem(getApplicantCaseStorageKey(applicantProfileId)) ||
-    window.localStorage.getItem(ACTIVE_APPLICANT_CASE_KEY) ||
-    ""
-  )
-}
-
-function writeStoredCaseId(applicantProfileId: string, caseId?: string | null) {
-  if (typeof window === "undefined") return
-  if (caseId) {
-    window.localStorage.setItem(ACTIVE_APPLICANT_CASE_KEY, caseId)
-    window.localStorage.setItem(getApplicantCaseStorageKey(applicantProfileId), caseId)
-    return
-  }
-
-  window.localStorage.removeItem(ACTIVE_APPLICANT_CASE_KEY)
-  window.localStorage.removeItem(getApplicantCaseStorageKey(applicantProfileId))
-}
-
 function resolveActiveCaseId(cases: ActiveApplicantCase[], preferredCaseId?: string | null, fallbackCaseId?: string | null) {
   if (preferredCaseId && cases.some((item) => item.id === preferredCaseId)) {
     return preferredCaseId
@@ -113,11 +89,11 @@ function buildActiveApplicantProfile(id: string, data: ApplicantDetailResponse) 
   if (!nextProfile) return null
 
   const cases = Array.isArray(data.cases) ? data.cases : []
-  const savedCaseId = readStoredCaseId(id)
+  const savedCaseId = readStoredApplicantCaseId(id)
   const activeCaseId = resolveActiveCaseId(cases, savedCaseId, data.activeCaseId)
   const activeCase = activeCaseId ? cases.find((item) => item.id === activeCaseId) ?? null : null
 
-  writeStoredCaseId(id, activeCaseId)
+  writeStoredApplicantCaseId(id, activeCaseId)
 
   return {
     ...(nextProfile as ActiveApplicantProfile),
