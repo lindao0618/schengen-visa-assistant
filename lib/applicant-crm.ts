@@ -12,6 +12,10 @@ import {
 } from "@/lib/access-control-server"
 import { ApplicantProfile, getApplicantProfile, listApplicantProfiles } from "@/lib/applicant-profiles"
 import {
+  buildApplicantCrmListWhere,
+  shouldUseApplicantCrmKeywordWhere,
+} from "@/lib/applicant-crm-db-filters"
+import {
   CRM_PRIORITY_FILTER_VALUES,
   CRM_REGION_FILTER_VALUES,
   CRM_VISA_TYPE_FILTER_VALUES,
@@ -764,9 +768,17 @@ export async function listApplicantCrmData(
   const pageLimit = typeof filters.limit === "number" && filters.limit > 0 ? filters.limit : undefined
   const pageOffset = pageLimit && typeof filters.offset === "number" && filters.offset > 0 ? filters.offset : 0
   const caseListTakeLimit = getApplicantCrmCaseListTakeLimit({ includeStats, includeSelectorCases })
+  const applicantAccessWhere = buildApplicantAccessWhere(userId, viewerRole)
+  const applicantListWhere = shouldUseApplicantCrmKeywordWhere({
+    includeStats,
+    includeProfiles,
+    includeSelectorCases,
+  })
+    ? buildApplicantCrmListWhere(applicantAccessWhere, keyword)
+    : applicantAccessWhere
 
   const applicants = await prisma.applicantProfile.findMany({
-    where: buildApplicantAccessWhere(userId, viewerRole),
+    where: applicantListWhere,
     orderBy: { updatedAt: "desc" },
     select: {
       ...applicantCrmListSelect,
