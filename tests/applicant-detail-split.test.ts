@@ -40,6 +40,20 @@ test("applicant material section owns material-only hooks and dialogs", () => {
   assert.match(source, /AuditDialog/)
 })
 
+test("basic detail tab defers full intake accordion logic", () => {
+  const basicSource = readSource("app/applicants/[id]/detail/basic-tab-content.tsx")
+  const intakeSource = readSource("app/applicants/[id]/detail/parsed-intake-accordion.tsx")
+
+  assert.match(basicSource, /dynamic\(/)
+  assert.match(basicSource, /parsed-intake-accordion/)
+  assert.doesNotMatch(basicSource, /function ParsedIntakeAccordion/)
+  assert.doesNotMatch(basicSource, /shouldFetchApplicantIntake/)
+  assert.doesNotMatch(basicSource, /\/intake\?scope=/)
+  assert.match(intakeSource, /function ParsedIntakeAccordion/)
+  assert.match(intakeSource, /shouldFetchApplicantIntake/)
+  assert.match(intakeSource, /\/intake\?scope=/)
+})
+
 test("material preview controller uses direct URLs for browser-native previews", () => {
   const source = readSource("app/applicants/[id]/detail/use-material-preview-controller.ts")
 
