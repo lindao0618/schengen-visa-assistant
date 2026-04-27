@@ -16,7 +16,6 @@ import { ACTIVE_APPLICANT_CASE_KEY, ACTIVE_APPLICANT_PROFILE_KEY } from "@/compo
 import { resolveSelectedFranceCase, resolveTlsAccountCaseSource } from "@/app/applicants/[id]/detail/cases-tab"
 import { getAppRoleLabel } from "@/lib/access-control"
 import {
-  US_VISA_EXCEL_PREVIEW_SLOTS,
   cloneTableRows,
   excelColumnMinWidthClass,
   extractExcelSheetRows,
@@ -680,93 +679,16 @@ export default function ApplicantDetailClientPage({
       if (!response.ok) throw new Error("读取文件失败")
 
       const blob = await response.blob()
-      const mime = (blob.type || "").toLowerCase()
       const objectUrl = URL.createObjectURL(blob)
-
-      if (mime.includes("pdf")) {
-        setPreview((prev) => ({ ...prev, loading: false, kind: "pdf", objectUrl }))
-        return
-      }
-
-      if (mime.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(filename)) {
-        setPreview((prev) => ({ ...prev, loading: false, kind: "image", objectUrl }))
-        return
-      }
-
-      if (/\.(xlsx|xls)$/.test(filename) || mime.includes("spreadsheet") || mime.includes("excel")) {
-        const arrayBuffer = await blob.arrayBuffer()
-        const { read, utils: xlsxUtils } = await import("xlsx")
-        const workbook = read(arrayBuffer, { type: "array", cellDates: true, cellNF: true, cellText: true })
-        const isUsVisaExcelPreview = US_VISA_EXCEL_PREVIEW_SLOTS.has(slot)
-        const firstSheetName = isUsVisaExcelPreview
-          ? workbook.SheetNames.find((sheetName) => /^sheet1$/i.test(sheetName)) || workbook.SheetNames[0] || ""
-          : workbook.SheetNames[0] || ""
-        const firstRows = firstSheetName ? extractExcelSheetRows(workbook.Sheets[firstSheetName], xlsxUtils) : []
-        const excelSheets = isUsVisaExcelPreview
-          ? firstSheetName
-            ? [{ name: firstSheetName, rows: firstRows }]
-            : []
-          : workbook.SheetNames.map((sheetName) => ({
-              name: sheetName,
-              rows: sheetName === firstSheetName ? firstRows : undefined,
-            }))
-        const excelUsVisaSections = isUsVisaExcelPreview ? parseUsVisaExcelPreviewSections(firstRows) : []
-        URL.revokeObjectURL(objectUrl)
-        setPreview((prev) => ({
-          ...prev,
-          loading: false,
-          kind: "excel",
-          excelSheets,
-          activeExcelSheet: firstSheetName,
-          tableRows: cloneTableRows(firstRows),
-          excelSlot: slot,
-          excelOriginalName: meta.originalName || "",
-          workbookArrayBuffer: arrayBuffer.slice(0),
-          excelEditMode: false,
-          excelDirty: false,
-          excelSaving: false,
-          excelPreviewMode: excelUsVisaSections.length > 0 ? "form" : "table",
-          excelUsVisaSections,
-        }))
-        return
-      }
-
-      if (/\.(docx?|rtf)$/.test(filename) || mime.includes("word")) {
-        const arrayBuffer = await blob.arrayBuffer()
-        try {
-          const mammoth = (await import("mammoth")) as unknown as {
-            convertToHtml: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>
-            extractRawText: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>
-          }
-          const html = await mammoth.convertToHtml({ arrayBuffer })
-          URL.revokeObjectURL(objectUrl)
-          setPreview((prev) => ({ ...prev, loading: false, kind: "word", htmlContent: html.value || "" }))
-          return
-        } catch {
-          const mammoth = (await import("mammoth")) as unknown as {
-            extractRawText: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>
-          }
-          const text = await mammoth.extractRawText({ arrayBuffer })
-          URL.revokeObjectURL(objectUrl)
-          setPreview((prev) => ({ ...prev, loading: false, kind: "text", textContent: text.value || "" }))
-          return
-        }
-      }
-
-      if (mime.includes("json") || mime.startsWith("text/") || /\.(json|txt|csv|md)$/i.test(filename)) {
-        const text = await blob.text()
-        URL.revokeObjectURL(objectUrl)
-        setPreview((prev) => ({ ...prev, loading: false, kind: "text", textContent: text }))
-        return
-      }
-
-      setPreview((prev) => ({
-        ...prev,
-        loading: false,
-        kind: "unknown",
+      const { buildMaterialPreviewUpdate } = await import("@/app/applicants/[id]/detail/material-preview-loader")
+      const update = await buildMaterialPreviewUpdate({
+        slot,
+        filename,
+        originalName: meta.originalName || "",
+        blob,
         objectUrl,
-        error: "当前格式暂不支持内嵌预览，请直接下载查看。",
-      }))
+      })
+      setPreview((prev) => ({ ...prev, ...update }))
     } catch (error) {
       setPreview((prev) => ({
         ...prev,
