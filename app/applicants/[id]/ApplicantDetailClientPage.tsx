@@ -26,14 +26,9 @@ import { buildBasicForm, buildCaseForm, emptyApplicantCaseForm } from "@/app/app
 import { readJsonSafely } from "@/app/applicants/[id]/detail/json-response"
 import { buildApplicantProfileUpdatePayload } from "@/app/applicants/[id]/detail/profile-save"
 import { buildTlsAccountInfo, buildTlsAccountTemplateText } from "@/app/applicants/[id]/detail/tls-account"
-import {
-  buildApplicantUploadSuccessMessage,
-  buildRunningUploadAuditDialog,
-  buildUploadAuditResultDialog,
-  buildUsVisaAutoFixAuditDialog,
-  getUploadExcelScope,
-  type ApplicantFileUploadResponse,
-  type UsVisaAutoFixResponse,
+import type {
+  ApplicantFileUploadResponse,
+  UsVisaAutoFixResponse,
 } from "@/app/applicants/[id]/detail/upload-feedback"
 import { resolveApplicantDetailTab, useApplicantDetailController } from "@/app/applicants/[id]/detail/use-applicant-detail-controller"
 import {
@@ -419,6 +414,12 @@ export default function ApplicantDetailClientPage({
     const file = event.target.files?.[0]
     if (!file) return
 
+    const {
+      buildApplicantUploadSuccessMessage,
+      buildRunningUploadAuditDialog,
+      buildUploadAuditResultDialog,
+      getUploadExcelScope,
+    } = await import("@/app/applicants/[id]/detail/upload-feedback")
     const uploadExcelScope = getUploadExcelScope(slot)
     setMessage("")
     try {
@@ -499,6 +500,7 @@ export default function ApplicantDetailClientPage({
       invalidateApplicantCaches()
       await loadDetail()
 
+      const { buildUsVisaAutoFixAuditDialog } = await import("@/app/applicants/[id]/detail/upload-feedback")
       const fixedCount = data.fixedCount || 0
       const passed = Boolean(data.usVisaAudit?.ok)
 
