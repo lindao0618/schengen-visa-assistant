@@ -9,6 +9,16 @@ function readSource(path: string) {
 
 const adminPages = [
   {
+    route: "app/admin/page.tsx",
+    client: "app/admin/AdminDashboardClientPage.tsx",
+    importPath: "./AdminDashboardClientPage",
+  },
+  {
+    route: "app/admin/monitor/page.tsx",
+    client: "app/admin/monitor/AdminMonitorClientPage.tsx",
+    importPath: "./AdminMonitorClientPage",
+  },
+  {
     route: "app/admin/users/page.tsx",
     client: "app/admin/users/AdminUsersClientPage.tsx",
     importPath: "./AdminUsersClientPage",
