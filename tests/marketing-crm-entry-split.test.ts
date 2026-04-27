@@ -17,6 +17,31 @@ test("home route lazy-loads its marketing client page", () => {
   assert.doesNotMatch(source, /components\/ui\/card/)
 })
 
+const publicStaticPages = [
+  {
+    route: "app/guest/page.tsx",
+    requiredSnippets: ["签证信息（游客模式）", "/register"],
+  },
+  {
+    route: "app/pricing/page.tsx",
+    requiredSnippets: ["选择适合您的方案", "年付"],
+  },
+]
+
+for (const page of publicStaticPages) {
+  test(`${page.route} renders as a server-only public page`, () => {
+    const source = readSource(page.route)
+
+    assert.doesNotMatch(source, /"use client"/)
+    assert.doesNotMatch(source, /useState/)
+    assert.doesNotMatch(source, /components\/ui\//)
+    assert.doesNotMatch(source, /lucide-react/)
+    for (const snippet of page.requiredSnippets) {
+      assert.ok(source.includes(snippet))
+    }
+  })
+}
+
 test("apply route lazy-loads its heavy client page", () => {
   const source = readSource("app/apply/page.tsx")
 
