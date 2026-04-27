@@ -30,6 +30,30 @@ const workflowPages = [
   },
 ]
 
+const lightweightStaticPages = [
+  {
+    route: "app/schengen-visa/automation/page.tsx",
+    requiredSnippets: ["/schengen-visa/france/automation"],
+  },
+  {
+    route: "app/schengen-visa/materials/page.tsx",
+    requiredSnippets: ["/schengen-visa/materials/${country.slug}", 'slug: "france"'],
+  },
+]
+
+for (const page of lightweightStaticPages) {
+  test(`${page.route} renders as a server-only static entry`, () => {
+    const source = readSource(page.route)
+
+    assert.doesNotMatch(source, /"use client"/)
+    assert.doesNotMatch(source, /components\/ui\/card/)
+    assert.doesNotMatch(source, /lucide-react/)
+    for (const snippet of page.requiredSnippets) {
+      assert.ok(source.includes(snippet))
+    }
+  })
+}
+
 for (const page of workflowPages) {
   test(`${page.route} lazy-loads its heavy client page`, () => {
     const source = readSource(page.route)

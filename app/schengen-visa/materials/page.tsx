@@ -1,73 +1,69 @@
-"use client"
-
 import Link from "next/link"
-import Image from "next/image"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { FileText, ChevronRight } from "lucide-react"
 
 const SCHENGEN_COUNTRIES = [
-  { slug: "france", label: "法国", flag: "https://flagcdn.com/w80/fr.png" },
-  { slug: "germany", label: "德国", flag: "https://flagcdn.com/w80/de.png" },
-  { slug: "italy", label: "意大利", flag: "https://flagcdn.com/w80/it.png" },
-  { slug: "spain", label: "西班牙", flag: "https://flagcdn.com/w80/es.png" },
-  { slug: "netherlands", label: "荷兰", flag: "https://flagcdn.com/w80/nl.png" },
-  { slug: "switzerland", label: "瑞士", flag: "https://flagcdn.com/w80/ch.png" },
-  { slug: "austria", label: "奥地利", flag: "https://flagcdn.com/w80/at.png" },
-  { slug: "belgium", label: "比利时", flag: "https://flagcdn.com/w80/be.png" },
-  { slug: "portugal", label: "葡萄牙", flag: "https://flagcdn.com/w80/pt.png" },
-  { slug: "greece", label: "希腊", flag: "https://flagcdn.com/w80/gr.png" },
+  { slug: "france", label: "法国", code: "FR", note: "高频办理" },
+  { slug: "germany", label: "德国", code: "DE", note: "商务/旅游" },
+  { slug: "italy", label: "意大利", code: "IT", note: "旅游常用" },
+  { slug: "spain", label: "西班牙", code: "ES", note: "假期热门" },
+  { slug: "netherlands", label: "荷兰", code: "NL", note: "短途旅行" },
+  { slug: "switzerland", label: "瑞士", code: "CH", note: "材料严格" },
+  { slug: "austria", label: "奥地利", code: "AT", note: "行程清晰" },
+  { slug: "belgium", label: "比利时", code: "BE", note: "探亲商务" },
+  { slug: "portugal", label: "葡萄牙", code: "PT", note: "旅游路线" },
+  { slug: "greece", label: "希腊", code: "GR", note: "海岛行程" },
 ]
 
 export default function SchengenMaterialsPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-black">
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center mb-8">
-          <h1 className="text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-b from-gray-900 to-gray-700 dark:from-white dark:to-gray-400">
+    <main className="min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_right,_#dcfce7,_transparent_28rem),linear-gradient(180deg,_#f8fafc,_#eef2ff)] px-4 py-10 dark:bg-[radial-gradient(circle_at_top_right,_rgba(22,101,52,0.24),_transparent_28rem),linear-gradient(180deg,_#020617,_#030712)]">
+      <section className="mx-auto max-w-6xl">
+        <div className="mb-8 max-w-3xl">
+          <p className="mb-3 inline-flex rounded-full border border-emerald-200 bg-white/75 px-3 py-1 text-sm font-medium text-emerald-700 shadow-sm dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200">
+            申根材料清单
+          </p>
+          <h1 className="text-4xl font-black tracking-tight text-slate-950 dark:text-white sm:text-5xl">
             申根材料准备
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 text-lg">
-            选择目标国家，查看并勾选所需材料清单
+          <p className="mt-4 text-lg text-slate-600 dark:text-slate-300">
+            选择目标国家进入材料清单。专员可按国家差异核对材料，也方便把清单发给客户准备。
           </p>
         </div>
 
-        <Card className="backdrop-blur-md bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-black border border-gray-200/50 dark:border-gray-800/50 shadow-2xl rounded-2xl overflow-hidden">
-          <CardHeader className="border-b border-gray-100 dark:border-gray-800/50">
-            <CardTitle className="text-2xl font-semibold flex items-center gap-2">
-              <FileText className="h-6 w-6" />
-              选择申根国家
-            </CardTitle>
-            <CardDescription>
-              不同国家材料要求略有差异，请选择您要申请签证的国家进入材料清单
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-              {SCHENGEN_COUNTRIES.map((country) => (
-                <Link
-                  key={country.slug}
-                  href={`/schengen-visa/materials/${country.slug}`}
-                  className="flex items-center gap-4 p-4 rounded-xl border border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/50 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-lg transition-all duration-200 group"
-                >
-                  <div className="relative w-12 h-12 rounded-lg overflow-hidden shrink-0 shadow-sm">
-                    <Image
-                      src={country.flag}
-                      alt={country.label}
-                      width={48}
-                      height={48}
-                      className="object-cover"
-                    />
-                  </div>
-                  <span className="font-medium text-gray-900 dark:text-gray-100 flex-1">
-                    {country.label}
-                  </span>
-                  <ChevronRight className="h-5 w-5 text-gray-400 group-hover:text-blue-600 shrink-0" />
-                </Link>
-              ))}
+        <div className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-2xl shadow-emerald-100/70 backdrop-blur dark:border-slate-800 dark:bg-slate-950/70 dark:shadow-black/30 sm:p-7">
+          <div className="mb-6 flex flex-col gap-2 border-b border-slate-200 pb-5 dark:border-slate-800 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-950 dark:text-white">选择申根国家</h2>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                不同国家材料要求略有差异，先选国家再进入对应清单。
+              </p>
             </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {SCHENGEN_COUNTRIES.length} 个国家
+            </span>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            {SCHENGEN_COUNTRIES.map((country) => (
+              <Link
+                key={country.slug}
+                href={`/schengen-visa/materials/${country.slug}`}
+                className="group rounded-3xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-xl hover:shadow-emerald-100 dark:border-slate-800 dark:from-slate-900 dark:to-slate-950 dark:hover:border-emerald-700 dark:hover:shadow-black/40"
+              >
+                <div className="mb-5 flex items-center justify-between">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-sm font-black text-white shadow-lg dark:bg-white dark:text-slate-950">
+                    {country.code}
+                  </span>
+                  <span className="text-lg text-slate-300 transition group-hover:translate-x-1 group-hover:text-emerald-500">
+                    →
+                  </span>
+                </div>
+                <h3 className="text-lg font-bold text-slate-950 dark:text-white">{country.label}</h3>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{country.note}</p>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+    </main>
   )
 }
