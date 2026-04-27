@@ -71,7 +71,14 @@ import { Label } from "@/components/ui/label"
 import type { CreateApplicantForm } from "@/app/applicants/create-applicant-dialog"
 import { ApplicantCrmDashboardPanel } from "@/app/applicants/applicant-crm-dashboard-panel"
 import { ApplicantCrmRowsTable } from "@/app/applicants/applicant-crm-rows-table"
+import {
+  APPLICANT_CRM_PAGE_SIZE,
+  buildApplicantCrmListSearchParams,
+  mergeApplicantCrmPageRows,
+} from "@/app/applicants/applicant-crm-client-pagination"
 import type {
+  ApplicantCrmPagination,
+  ApplicantCrmQuickCounts,
   ApplicantCrmRow,
   ApplicantCrmStats,
   ApplicantsAssigneesResponse,
@@ -86,8 +93,12 @@ const CreateApplicantDialog = dynamic(
   { ssr: false },
 )
 
-const APPLICANT_CRM_INITIAL_VISIBLE_ROWS = 50
-const APPLICANT_CRM_VISIBLE_ROWS_STEP = 50
+const EMPTY_QUICK_COUNTS: ApplicantCrmQuickCounts = {
+  mine: 0,
+  review: 0,
+  exception: 0,
+  today: 0,
+}
 
 type BatchActionMode = "set-group" | "clear-group" | "delete" | null
 
@@ -131,9 +142,13 @@ export default function ApplicantsCrmClientPage() {
     exceptionCaseCount: 0,
     updatedLast7DaysCount: 0,
   })
+  const [quickCounts, setQuickCounts] = useState<ApplicantCrmQuickCounts>(EMPTY_QUICK_COUNTS)
+  const [groupOptions, setGroupOptions] = useState<string[]>([])
+  const [pagination, setPagination] = useState<ApplicantCrmPagination | undefined>()
   const [availableAssignees, setAvailableAssignees] = useState<ApplicantsAssigneesResponse["availableAssignees"]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [summaryLoading, setSummaryLoading] = useState(true)
   const [assigneesLoading, setAssigneesLoading] = useState(false)
   const [message, setMessage] = useState("")
@@ -151,20 +166,32 @@ export default function ApplicantsCrmClientPage() {
   const [batchActionMode, setBatchActionMode] = useState<BatchActionMode>(null)
   const [batchActionLoading, setBatchActionLoading] = useState(false)
   const [groupNameInput, setGroupNameInput] = useState("")
-  const [visibleRowLimit, setVisibleRowLimit] = useState(APPLICANT_CRM_INITIAL_VISIBLE_ROWS)
   const initialLoadRef = useRef(true)
   const deferredKeyword = useDeferredValue(keyword.trim())
-  const requestQuery = useMemo(() => {
-    const params = new URLSearchParams()
-    if (deferredKeyword) params.set("keyword", deferredKeyword)
-    for (const value of selectedVisaTypes) params.append("visaTypes", value)
-    for (const value of selectedStatuses) params.append("statuses", value)
-    for (const value of selectedRegions) params.append("regions", value)
-    for (const value of selectedPriorities) params.append("priorities", value)
-    params.set("includeProfiles", "0")
-    params.set("includeProfileFiles", "0")
-    return params.toString()
-  }, [deferredKeyword, selectedPriorities, selectedRegions, selectedStatuses, selectedVisaTypes])
+  const buildListQuery = useCallback(
+    (offset = 0) =>
+      buildApplicantCrmListSearchParams({
+        keyword: deferredKeyword,
+        selectedVisaTypes,
+        selectedStatuses,
+        selectedRegions,
+        selectedPriorities,
+        selectedGroups,
+        quickView,
+        limit: APPLICANT_CRM_PAGE_SIZE,
+        offset,
+      }),
+    [
+      deferredKeyword,
+      quickView,
+      selectedGroups,
+      selectedPriorities,
+      selectedRegions,
+      selectedStatuses,
+      selectedVisaTypes,
+    ],
+  )
+  const requestQuery = useMemo(() => buildListQuery(0), [buildListQuery])
   const viewerCacheScope = useMemo(
     () => `${session?.user?.id || "anon"}:${session?.user?.role || ""}`,
     [session?.user?.id, session?.user?.role],
@@ -182,9 +209,18 @@ export default function ApplicantsCrmClientPage() {
     [viewerCacheScope],
   )
 
-  const applyApplicantsRows = useCallback((data: ApplicantsRowsResponse | null | undefined) => {
-    setRows(data?.rows || [])
-  }, [])
+  const applyApplicantsRows = useCallback(
+    (data: ApplicantsRowsResponse | null | undefined, mode: "replace" | "append" = "replace") => {
+      const nextRows = data?.rows || []
+      startTransition(() => {
+        setRows((prev) => mergeApplicantCrmPageRows(prev, nextRows, mode))
+        setPagination(data?.pagination)
+        setQuickCounts(data?.quickCounts || EMPTY_QUICK_COUNTS)
+        setGroupOptions(data?.groupOptions || [])
+      })
+    },
+    [],
+  )
 
   const fetchApplicants = useCallback(
     async (mode: "auto" | "manual" = "auto") => {
@@ -224,6 +260,29 @@ export default function ApplicantsCrmClientPage() {
     },
     [applyApplicantsRows, listCacheKey, requestQuery],
   )
+
+  const loadMoreApplicants = useCallback(async () => {
+    if (loadingMore || !pagination?.hasMore) return
+
+    setLoadingMore(true)
+    setMessage("")
+    try {
+      const nextOffset = pagination.offset + pagination.limit
+      const response = await fetch(`/api/applicants?${buildListQuery(nextOffset)}`, {
+        cache: "no-store",
+      })
+      const data = (await response.json().catch(() => null)) as ApplicantsRowsResponse | null
+      if (!response.ok || !data?.rows) {
+        throw new Error(data?.error || "加载更多申请人失败")
+      }
+
+      applyApplicantsRows(data, "append")
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "加载更多申请人失败")
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [applyApplicantsRows, buildListQuery, loadingMore, pagination])
 
   useEffect(() => {
     void fetchApplicants("auto")
@@ -320,10 +379,10 @@ export default function ApplicantsCrmClientPage() {
 
   const availableGroupOptions = useMemo(
     () =>
-      Array.from(new Set(rows.map((row) => row.groupName?.trim()).filter(Boolean) as string[]))
+      Array.from(new Set([...groupOptions, ...selectedGroups].map((item) => item.trim()).filter(Boolean)))
         .sort((a, b) => a.localeCompare(b, "zh-CN"))
         .map((value) => ({ value, label: value })),
-    [rows],
+    [groupOptions, selectedGroups],
   )
   const displayRows = useMemo(
     () =>
@@ -335,8 +394,8 @@ export default function ApplicantsCrmClientPage() {
     [quickView, rows, selectedGroups, session?.user?.id],
   )
   const visibleRows = useMemo(
-    () => displayRows.slice(0, visibleRowLimit),
-    [displayRows, visibleRowLimit],
+    () => displayRows,
+    [displayRows],
   )
   const displayRowIds = useMemo(() => visibleRows.map((row) => row.id), [visibleRows])
   const selectedVisibleCount = useMemo(
@@ -344,7 +403,8 @@ export default function ApplicantsCrmClientPage() {
     [displayRowIds, selectedApplicantIds],
   )
   const allVisibleSelected = visibleRows.length > 0 && selectedVisibleCount === visibleRows.length
-  const hasMoreVisibleRows = visibleRows.length < displayRows.length
+  const totalDisplayRows = pagination?.totalRows ?? displayRows.length
+  const hasMoreVisibleRows = Boolean(pagination?.hasMore)
 
   const hasFilters = useMemo(
     () =>
@@ -386,10 +446,6 @@ export default function ApplicantsCrmClientPage() {
       prefetchApplicantDetail(row.id, "automatic")
     })
   }, [displayRows, prefetchApplicantDetail])
-
-  useEffect(() => {
-    setVisibleRowLimit(APPLICANT_CRM_INITIAL_VISIBLE_ROWS)
-  }, [quickView, requestQuery, selectedGroups])
 
   useEffect(() => {
     setSelectedApplicantIds((prev) => prev.filter((id) => rows.some((row) => row.id === id)))
@@ -471,9 +527,7 @@ export default function ApplicantsCrmClientPage() {
   }
 
   const showMoreRows = () => {
-    startTransition(() => {
-      setVisibleRowLimit((prev) => Math.min(prev + APPLICANT_CRM_VISIBLE_ROWS_STEP, displayRows.length))
-    })
+    void loadMoreApplicants()
   }
 
   const resetBatchActionState = () => {
@@ -658,8 +712,7 @@ export default function ApplicantsCrmClientPage() {
         <ApplicantCrmDashboardPanel
           stats={stats}
           summaryLoading={summaryLoading}
-          rows={rows}
-          currentUserId={session?.user?.id}
+          quickCounts={quickCounts}
           quickView={quickView}
           setQuickView={setQuickView}
           keyword={keyword}
@@ -687,7 +740,7 @@ export default function ApplicantsCrmClientPage() {
               {"\u70b9\u51fb\u884c\u6216\u201c\u67e5\u770b\u8be6\u60c5\u201d\u8fdb\u5165\u7533\u8bf7\u4eba\u5de5\u4f5c\u53f0\u3002"}
               {!loading && displayRows.length > 0 ? (
                 <span className="ml-2 text-gray-400">
-                  当前显示 {visibleRows.length} / {displayRows.length} 位
+                  当前显示 {visibleRows.length} / {totalDisplayRows} 位
                 </span>
               ) : null}
             </CardDescription>
@@ -737,10 +790,10 @@ export default function ApplicantsCrmClientPage() {
             {!loading && hasMoreVisibleRows ? (
               <div className="mt-4 flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-200 bg-gray-50/80 p-4 text-center">
                 <div className="text-sm text-gray-500">
-                  当前显示 {visibleRows.length} / {displayRows.length} 位申请人
+                  当前显示 {visibleRows.length} / {totalDisplayRows} 位申请人
                 </div>
-                <Button type="button" variant="outline" onClick={showMoreRows}>
-                  加载更多申请人
+                <Button type="button" variant="outline" onClick={showMoreRows} disabled={loadingMore}>
+                  {loadingMore ? "加载中..." : "加载更多申请人"}
                 </Button>
               </div>
             ) : null}

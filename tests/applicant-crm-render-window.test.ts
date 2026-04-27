@@ -7,13 +7,14 @@ function readSource(path: string) {
   return readFileSync(join(process.cwd(), path), "utf8")
 }
 
-test("applicant CRM list renders applicants in visible batches", () => {
+test("applicant CRM list loads applicants in server-side pages", () => {
   const source = readSource("app/applicants/ApplicantsCrmClientPage.tsx")
 
-  assert.match(source, /APPLICANT_CRM_INITIAL_VISIBLE_ROWS/)
-  assert.match(source, /const \[visibleRowLimit, setVisibleRowLimit\] = useState/)
-  assert.match(source, /const visibleRows = useMemo/)
-  assert.match(source, /displayRows\.slice\(0, visibleRowLimit\)/)
+  assert.match(source, /APPLICANT_CRM_PAGE_SIZE/)
+  assert.match(source, /const \[pagination, setPagination\] = useState/)
+  assert.match(source, /buildApplicantCrmListSearchParams/)
+  assert.match(source, /loadMoreApplicants/)
+  assert.doesNotMatch(source, /displayRows\.slice\(0, visibleRowLimit\)/)
   assert.match(source, /visibleRows\.map\(\(row\) =>/)
   assert.match(source, /加载更多申请人/)
 })

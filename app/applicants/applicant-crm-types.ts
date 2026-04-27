@@ -39,6 +39,20 @@ export type ApplicantCrmStats = {
   updatedLast7DaysCount: number
 }
 
+export type ApplicantCrmQuickCounts = {
+  mine: number
+  review: number
+  exception: number
+  today: number
+}
+
+export type ApplicantCrmPagination = {
+  totalRows: number
+  limit: number
+  offset: number
+  hasMore: boolean
+}
+
 export type FilterOptions = {
   visaTypes: string[]
   regions: string[]
@@ -48,6 +62,9 @@ export type FilterOptions = {
 
 export type ApplicantsRowsResponse = {
   rows: ApplicantCrmRow[]
+  pagination?: ApplicantCrmPagination
+  quickCounts?: ApplicantCrmQuickCounts
+  groupOptions?: string[]
   error?: string
 }
 

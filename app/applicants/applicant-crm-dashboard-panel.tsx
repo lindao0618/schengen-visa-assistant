@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import type {
-  ApplicantCrmRow,
+  ApplicantCrmQuickCounts,
   ApplicantCrmStats,
   FilterOptions,
   FilterTone,
@@ -42,7 +42,6 @@ import type {
 } from "@/app/applicants/applicant-crm-types"
 import {
   getApplicantCrmStatusLabel,
-  matchesQuickView,
   STATUS_LABELS,
   toggleValue,
 } from "@/app/applicants/applicant-crm-view-helpers"
@@ -256,8 +255,7 @@ function SelectedFilterPill({
 export const ApplicantCrmDashboardPanel = memo(function ApplicantCrmDashboardPanel({
   stats,
   summaryLoading,
-  rows,
-  currentUserId,
+  quickCounts,
   quickView,
   setQuickView,
   keyword,
@@ -279,8 +277,7 @@ export const ApplicantCrmDashboardPanel = memo(function ApplicantCrmDashboardPan
 }: {
   stats: ApplicantCrmStats
   summaryLoading: boolean
-  rows: ApplicantCrmRow[]
-  currentUserId?: string
+  quickCounts: ApplicantCrmQuickCounts
   quickView: QuickView
   setQuickView: Dispatch<SetStateAction<QuickView>>
   keyword: string
@@ -301,42 +298,37 @@ export const ApplicantCrmDashboardPanel = memo(function ApplicantCrmDashboardPan
   onClearFilters: () => void
 }) {
   const quickCards = useMemo(() => {
-    const mineCount = rows.filter((row) => matchesQuickView(row, "mine", currentUserId)).length
-    const reviewCount = rows.filter((row) => matchesQuickView(row, "review", currentUserId)).length
-    const exceptionCount = rows.filter((row) => matchesQuickView(row, "exception", currentUserId)).length
-    const todayCount = rows.filter((row) => matchesQuickView(row, "today", currentUserId)).length
-
     return [
       {
         key: "mine" as const,
         title: "\u6211\u8d1f\u8d23\u7684",
-        value: mineCount,
+        value: quickCounts.mine,
         hint: "\u6211\u521b\u5efa\u6216\u88ab\u5206\u914d\u7ed9\u6211\u7684\u7533\u8bf7\u4eba",
         icon: <BriefcaseBusiness className="h-5 w-5" />,
       },
       {
         key: "review" as const,
         title: "\u5f85\u5ba1\u6838",
-        value: reviewCount,
+        value: quickCounts.review,
         hint: "\u6b63\u5728\u5ba1\u6838\u6216\u6750\u6599\u5df2\u5c31\u7eea",
         icon: <Clock3 className="h-5 w-5" />,
       },
       {
         key: "exception" as const,
         title: "\u5f02\u5e38\u5904\u7406\u4e2d",
-        value: exceptionCount,
+        value: quickCounts.exception,
         hint: "\u9700\u8981\u4f18\u5148\u8ddf\u8fdb\u7684\u5f02\u5e38\u6848\u4ef6",
         icon: <AlertCircle className="h-5 w-5" />,
       },
       {
         key: "today" as const,
         title: "\u4eca\u65e5\u8981\u63a8\u8fdb",
-        value: todayCount,
+        value: quickCounts.today,
         hint: "\u5f53\u524d\u4ecd\u5728\u63a8\u8fdb\u94fe\u8def\u4e2d\u7684\u6848\u4ef6",
         icon: <Sparkles className="h-5 w-5" />,
       },
     ]
-  }, [currentUserId, rows])
+  }, [quickCounts])
 
   const selectedFilterItems = useMemo(() => {
     const items: Array<{ key: string; label: string; tone: FilterTone; onRemove: () => void }> = []
