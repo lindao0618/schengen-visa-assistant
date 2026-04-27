@@ -1,35 +1,10 @@
-"use client"
-
-import { useEffect, useState } from "react"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
-import { signOut, useSession } from "next-auth/react"
-import {
-  ChevronDown,
-  FilePlus2,
-  FileText,
-  Globe,
-  Plane,
-  UserCircle,
-  Users,
-} from "lucide-react"
-
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { cn } from "@/lib/utils"
+import { NavBarAuthActions } from "@/components/nav-bar-auth-actions"
 
 type NavItem = {
   name: string
   href: string
-  icon: typeof Plane
-  active?: (path: string) => boolean
+  iconLabel: string
   menuItems?: Array<{
     name: string
     href: string
@@ -41,14 +16,12 @@ const navigation: NavItem[] = [
   {
     name: "美国签证",
     href: "/usa-visa",
-    icon: Plane,
-    active: (path) => path.startsWith("/usa-visa"),
+    iconLabel: "US",
   },
   {
     name: "申根签证",
     href: "/schengen-visa",
-    icon: Globe,
-    active: (path) => path.startsWith("/schengen-visa"),
+    iconLabel: "EU",
     menuItems: [
       {
         name: "申根首页",
@@ -65,8 +38,7 @@ const navigation: NavItem[] = [
   {
     name: "材料审核",
     href: "/material-review",
-    icon: FileText,
-    active: (path) => path.startsWith("/material-review"),
+    iconLabel: "审",
     menuItems: [
       {
         name: "单独材料审核",
@@ -88,14 +60,12 @@ const navigation: NavItem[] = [
   {
     name: "材料定制",
     href: "/material-customization",
-    icon: FilePlus2,
-    active: (path) => path.startsWith("/material-customization"),
+    iconLabel: "定",
   },
   {
     name: "申请人档案",
     href: "/applicants",
-    icon: Users,
-    active: (path) => path.startsWith("/applicants"),
+    iconLabel: "档",
   },
 ]
 
@@ -105,137 +75,74 @@ function getMenuLabel(itemName: string) {
   return "快捷入口"
 }
 
+function NavBadge({ children }: { children: string }) {
+  return (
+    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-gray-900 px-1.5 text-[10px] font-black leading-none text-white">
+      {children}
+    </span>
+  )
+}
+
+const navButtonClass =
+  "inline-flex h-9 items-center gap-2 rounded-full px-4 text-sm font-medium text-gray-700 transition hover:bg-gray-100 hover:text-gray-950"
+
 export function NavBar() {
-  const pathname = usePathname()
-  const router = useRouter()
-  const [mounted, setMounted] = useState(false)
-  const { data: session, status } = useSession()
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  const handleLogin = () => {
-    router.push("/login")
-  }
-
   return (
     <nav className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/80">
-      <div className="container flex h-14 items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <Link href="/" className="mr-6 flex items-center space-x-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-900">
-              <Globe className="h-5 w-5 text-white" />
+      <div className="container flex h-14 items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <Link href="/" className="mr-4 flex shrink-0 items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-900 text-sm font-black text-white">
+              签
             </div>
             <span className="bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-lg font-bold text-transparent">
               签证助手
             </span>
           </Link>
 
-          {navigation.map((item) => {
-            const isActive = item.active ? item.active(pathname) : pathname === item.href
-
-            if (item.menuItems?.length) {
-              return (
-                <DropdownMenu key={item.href}>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      className={cn(
-                        "h-9 rounded-full px-4 transition-all duration-200",
-                        isActive
-                          ? "bg-gray-900 font-medium text-white hover:bg-black hover:text-white"
-                          : "hover:bg-gray-100"
-                      )}
-                    >
-                      <span className="flex items-center space-x-2">
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.name}</span>
-                        <ChevronDown className="h-4 w-4 opacity-70" />
-                      </span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-64 rounded-2xl p-2">
-                    <DropdownMenuLabel className="px-3 py-2 text-xs uppercase tracking-[0.18em] text-gray-500">
-                      {getMenuLabel(item.name)}
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {item.menuItems.map((menuItem) => {
-                      const menuActive = pathname === menuItem.href
-                      return (
-                        <DropdownMenuItem
+          <div className="hidden items-center gap-1 lg:flex">
+            {navigation.map((item) => {
+              if (item.menuItems?.length) {
+                return (
+                  <details key={item.href} className="group relative">
+                    <summary className={`${navButtonClass} cursor-pointer list-none [&::-webkit-details-marker]:hidden`}>
+                      <NavBadge>{item.iconLabel}</NavBadge>
+                      <span>{item.name}</span>
+                      <span className="text-xs text-gray-400 transition group-open:rotate-180">⌄</span>
+                    </summary>
+                    <div className="absolute left-0 top-11 z-50 w-72 rounded-2xl border border-gray-200 bg-white p-2 shadow-xl">
+                      <div className="px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                        {getMenuLabel(item.name)}
+                      </div>
+                      <div className="my-1 h-px bg-gray-100" />
+                      {item.menuItems.map((menuItem) => (
+                        <Link
                           key={menuItem.href}
-                          className={cn(
-                            "flex cursor-pointer flex-col items-start gap-1 rounded-xl px-3 py-3",
-                            menuActive && "bg-blue-50 text-blue-700 focus:bg-blue-50 focus:text-blue-700"
-                          )}
-                          onSelect={() => router.push(menuItem.href)}
+                          href={menuItem.href}
+                          className="flex flex-col gap-1 rounded-xl px-3 py-3 transition hover:bg-blue-50 hover:text-blue-700"
                         >
                           <span className="font-medium">{menuItem.name}</span>
                           {menuItem.description ? (
-                            <span className="text-xs text-gray-500">{menuItem.description}</span>
+                            <span className="text-xs leading-5 text-gray-500">{menuItem.description}</span>
                           ) : null}
-                        </DropdownMenuItem>
-                      )
-                    })}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )
-            }
+                        </Link>
+                      ))}
+                    </div>
+                  </details>
+                )
+              }
 
-            return (
-              <Button
-                key={item.href}
-                variant="ghost"
-                className={cn(
-                  "h-9 rounded-full px-4 transition-all duration-200",
-                  isActive
-                    ? "bg-gray-900 font-medium text-white hover:bg-black hover:text-white"
-                    : "hover:bg-gray-100"
-                )}
-                asChild
-              >
-                <Link href={item.href} className="flex items-center space-x-2">
-                  <item.icon className="h-4 w-4" />
+              return (
+                <Link key={item.href} href={item.href} className={navButtonClass}>
+                  <NavBadge>{item.iconLabel}</NavBadge>
                   <span>{item.name}</span>
                 </Link>
-              </Button>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
 
-        <div className="flex items-center space-x-2">
-          {!mounted && <div className="h-9 w-20 animate-pulse rounded-full bg-gray-200" />}
-
-          {mounted && status === "loading" && (
-            <div className="h-9 w-20 animate-pulse rounded-full bg-gray-200" />
-          )}
-
-          {mounted && status === "unauthenticated" && !session && (
-            <>
-              <Button variant="ghost" className="h-9 rounded-full px-4" onClick={handleLogin}>
-                登录
-              </Button>
-              <Button variant="default" className="h-9 rounded-full px-4" asChild>
-                <Link href="/signup">注册</Link>
-              </Button>
-            </>
-          )}
-
-          {mounted && status === "authenticated" && session && (
-            <>
-              <Button variant="ghost" className="h-9 rounded-full px-4" asChild>
-                <Link href="/dashboard" className="flex items-center space-x-2">
-                  <UserCircle className="h-4 w-4" />
-                  <span>个人中心</span>
-                </Link>
-              </Button>
-              <Button variant="ghost" className="h-9 rounded-full px-4" onClick={() => signOut()}>
-                退出登录
-              </Button>
-            </>
-          )}
-        </div>
+        <NavBarAuthActions />
       </div>
     </nav>
   )
