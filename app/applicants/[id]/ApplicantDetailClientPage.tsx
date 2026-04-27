@@ -920,46 +920,52 @@ export default function ApplicantDetailClientPage({
         </Tabs>
       </div>
 
-      <CreateCaseDialog
-        open={createCaseOpen}
-        onOpenChange={setCreateCaseOpen}
-        detail={detail}
-        newCaseForm={newCaseForm}
-        setNewCaseForm={setNewCaseForm}
-        isReadOnlyViewer={isReadOnlyViewer}
-        canAssignCase={canAssignCase}
-        canEditApplicant={canEditApplicant}
-        creatingCase={creatingCase}
-        onCreateCase={createCase}
-      />
+      {createCaseOpen ? (
+        <CreateCaseDialog
+          open={createCaseOpen}
+          onOpenChange={setCreateCaseOpen}
+          detail={detail}
+          newCaseForm={newCaseForm}
+          setNewCaseForm={setNewCaseForm}
+          isReadOnlyViewer={isReadOnlyViewer}
+          canAssignCase={canAssignCase}
+          canEditApplicant={canEditApplicant}
+          creatingCase={creatingCase}
+          onCreateCase={createCase}
+        />
+      ) : null}
 
-      <MaterialPreviewDialog
-        preview={preview}
-        canEditApplicant={canEditApplicant}
-        onClose={closePreview}
-        onSelectExcelPreviewMode={(mode) => setPreview((prev) => ({ ...prev, excelPreviewMode: mode }))}
-        onEnableExcelEdit={() =>
-          setPreview((prev) => ({
-            ...prev,
-            excelEditMode: true,
-            excelPreviewMode: "table",
-          }))
-        }
-        onSaveExcelFromPreview={saveExcelFromPreview}
-        onCancelExcelEdit={cancelExcelEdit}
-        onSelectExcelSheet={selectExcelSheet}
-        onSetExcelCell={setExcelCell}
-        excelColumnMinWidthClass={excelColumnMinWidthClass}
-      />
+      {preview.open ? (
+        <MaterialPreviewDialog
+          preview={preview}
+          canEditApplicant={canEditApplicant}
+          onClose={closePreview}
+          onSelectExcelPreviewMode={(mode) => setPreview((prev) => ({ ...prev, excelPreviewMode: mode }))}
+          onEnableExcelEdit={() =>
+            setPreview((prev) => ({
+              ...prev,
+              excelEditMode: true,
+              excelPreviewMode: "table",
+            }))
+          }
+          onSaveExcelFromPreview={saveExcelFromPreview}
+          onCancelExcelEdit={cancelExcelEdit}
+          onSelectExcelSheet={selectExcelSheet}
+          onSetExcelCell={setExcelCell}
+          excelColumnMinWidthClass={excelColumnMinWidthClass}
+        />
+      ) : null}
 
-      <AuditDialog
-        auditDialog={auditDialog}
-        auditProgressSteps={AUDIT_PROGRESS_STEPS}
-        auditPhaseIndex={auditPhaseIndex}
-        canRunAutomation={canRunAutomation}
-        onClose={() => setAuditDialog(emptyAuditDialog)}
-        onAutoFix={autoFixUsVisaAuditIssues}
-      />
+      {auditDialog.open ? (
+        <AuditDialog
+          auditDialog={auditDialog}
+          auditProgressSteps={AUDIT_PROGRESS_STEPS}
+          auditPhaseIndex={auditPhaseIndex}
+          canRunAutomation={canRunAutomation}
+          onClose={() => setAuditDialog(emptyAuditDialog)}
+          onAutoFix={autoFixUsVisaAuditIssues}
+        />
+      ) : null}
     </div>
   )
 }
