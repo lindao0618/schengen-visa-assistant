@@ -38,6 +38,11 @@ const adminPages = [
     client: "app/admin/usa-cases/AdminUsaCasesClientPage.tsx",
     importPath: "./AdminUsaCasesClientPage",
   },
+  {
+    route: "app/admin/logs/page.tsx",
+    client: "app/admin/logs/AdminLogsClientPage.tsx",
+    importPath: "./AdminLogsClientPage",
+  },
 ]
 
 for (const page of adminPages) {
