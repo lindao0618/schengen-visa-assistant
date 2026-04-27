@@ -24,6 +24,11 @@ const workflowPages = [
     importPath: "./FranceBookingSuccessClientPage",
   },
   {
+    route: "app/schengen-visa/slot-booking/france/monitor/success/page.tsx",
+    client: "app/schengen-visa/slot-booking/france/monitor/success/FranceMonitorSuccessClientPage.tsx",
+    importPath: "./FranceMonitorSuccessClientPage",
+  },
+  {
     route: "app/schengen-visa/slot-booking/[country]/monitor/success/page.tsx",
     client: "app/schengen-visa/slot-booking/[country]/monitor/success/MonitorSuccessClientPage.tsx",
     importPath: "./MonitorSuccessClientPage",
