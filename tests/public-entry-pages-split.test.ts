@@ -28,6 +28,16 @@ const publicPages = [
     client: "app/apply/uk/UKVisaApplicationClientPage.tsx",
     importPath: "./UKVisaApplicationClientPage",
   },
+  {
+    route: "app/apply/japan/page.tsx",
+    client: "app/apply/japan/JapanVisaApplicationClientPage.tsx",
+    importPath: "./JapanVisaApplicationClientPage",
+  },
+  {
+    route: "app/apply/usa/page.tsx",
+    client: "app/apply/usa/USAVisaApplicationClientPage.tsx",
+    importPath: "./USAVisaApplicationClientPage",
+  },
 ]
 
 for (const page of publicPages) {
