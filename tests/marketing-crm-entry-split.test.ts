@@ -42,6 +42,41 @@ for (const page of publicStaticPages) {
   })
 }
 
+const publicLazyPages = [
+  {
+    route: "app/enterprise/page.tsx",
+    client: "app/enterprise/EnterpriseClientPage.tsx",
+    importPath: "./EnterpriseClientPage",
+  },
+  {
+    route: "app/docs/common-issues/page.tsx",
+    client: "app/docs/common-issues/CommonIssuesClientPage.tsx",
+    importPath: "./CommonIssuesClientPage",
+  },
+  {
+    route: "app/register/page.tsx",
+    client: "app/register/RegisterClientPage.tsx",
+    importPath: "./RegisterClientPage",
+  },
+]
+
+for (const page of publicLazyPages) {
+  test(`${page.route} lazy-loads its interactive public client`, () => {
+    const source = readSource(page.route)
+
+    assert.match(source, /dynamic\(/)
+    assert.match(source, new RegExp(`import\\(["']${page.importPath}["']\\)`))
+    assert.doesNotMatch(source, /useState/)
+    assert.doesNotMatch(source, /components\/ui\//)
+  })
+
+  test(`${page.client} keeps the interactive public implementation`, () => {
+    const source = readSource(page.client)
+
+    assert.match(source, /"use client"/)
+  })
+}
+
 test("apply route lazy-loads its heavy client page", () => {
   const source = readSource("app/apply/page.tsx")
 
