@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import type { ApplicantCrmRow } from "@/app/applicants/ApplicantsCrmClientPage"
+import type { ApplicantCrmRow } from "@/app/applicants/applicant-crm-types"
 
 function formatDate(value?: string | null) {
   if (!value) return "-"

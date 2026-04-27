@@ -37,3 +37,20 @@ test("applicant CRM table rendering lives in a memoized focused component", () =
   assert.match(tableSource, /rows\.map\(\(row\) =>/)
   assert.match(tableSource, /selectedApplicantIdSet/)
 })
+
+test("applicant CRM dashboard filters live in a focused component", () => {
+  const pageSource = readSource("app/applicants/ApplicantsCrmClientPage.tsx")
+  const dashboardSource = readSource("app/applicants/applicant-crm-dashboard-panel.tsx")
+  const typesSource = readSource("app/applicants/applicant-crm-types.ts")
+
+  assert.match(pageSource, /ApplicantCrmDashboardPanel/)
+  assert.doesNotMatch(pageSource, /function FilterGroup/)
+  assert.doesNotMatch(pageSource, /function QuickViewCard/)
+  assert.doesNotMatch(pageSource, /function StatCard/)
+  assert.match(dashboardSource, /memo\(function ApplicantCrmDashboardPanel/)
+  assert.match(dashboardSource, /function FilterGroup/)
+  assert.match(dashboardSource, /function QuickViewCard/)
+  assert.match(dashboardSource, /function StatCard/)
+  assert.match(typesSource, /export type ApplicantCrmRow/)
+  assert.match(typesSource, /export type QuickView/)
+})
