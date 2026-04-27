@@ -20,12 +20,24 @@ test("applicant detail route uses a lightweight lazy client entry", () => {
 test("applicant detail client keeps heavy page concerns in focused modules", () => {
   const source = readSource("app/applicants/[id]/ApplicantDetailClientPage.tsx")
 
-  assert.match(source, /useApplicantMaterialFiles/)
-  assert.match(source, /useMaterialPreviewController/)
+  assert.match(source, /ApplicantMaterialsSection/)
   assert.match(source, /ApplicantDetailFrame/)
+  assert.doesNotMatch(source, /useApplicantMaterialFiles/)
+  assert.doesNotMatch(source, /useMaterialPreviewController/)
+  assert.doesNotMatch(source, /useApplicantFileActions/)
   assert.doesNotMatch(source, /fetch\(`\/api\/applicants\/\$\{applicantId\}\/files`/)
   assert.doesNotMatch(source, /URL\.createObjectURL/)
   assert.doesNotMatch(source, /excelColumnMinWidthClass/)
+})
+
+test("applicant material section owns material-only hooks and dialogs", () => {
+  const source = readSource("app/applicants/[id]/detail/applicant-materials-section.tsx")
+
+  assert.match(source, /useApplicantMaterialFiles/)
+  assert.match(source, /useMaterialPreviewController/)
+  assert.match(source, /useApplicantFileActions/)
+  assert.match(source, /MaterialPreviewDialog/)
+  assert.match(source, /AuditDialog/)
 })
 
 test("material preview controller uses direct URLs for browser-native previews", () => {

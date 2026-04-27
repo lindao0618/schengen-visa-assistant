@@ -22,10 +22,7 @@ import { buildBasicForm, buildCaseForm, emptyApplicantCaseForm } from "@/app/app
 import { readJsonSafely } from "@/app/applicants/[id]/detail/json-response"
 import { buildApplicantProfileUpdatePayload } from "@/app/applicants/[id]/detail/profile-save"
 import { buildTlsAccountInfo, buildTlsAccountTemplateText } from "@/app/applicants/[id]/detail/tls-account"
-import { useApplicantFileActions } from "@/app/applicants/[id]/detail/use-applicant-file-actions"
 import { resolveApplicantDetailTab, useApplicantDetailController } from "@/app/applicants/[id]/detail/use-applicant-detail-controller"
-import { useApplicantMaterialFiles } from "@/app/applicants/[id]/detail/use-applicant-material-files"
-import { useMaterialPreviewController } from "@/app/applicants/[id]/detail/use-material-preview-controller"
 import {
   APPLICANT_CRM_LIST_CACHE_PREFIX,
   APPLICANT_CRM_SUMMARY_CACHE_PREFIX,
@@ -36,17 +33,11 @@ import {
   readClientCache,
 } from "@/lib/applicant-client-cache"
 import {
-  emptyAuditDialog,
   type ApplicantDetailResponse,
   type ApplicantDetailTab,
   type ApplicantProfileDetail,
   type VisaCaseRecord,
 } from "@/app/applicants/[id]/detail/types"
-
-const AuditDialog = dynamic(
-  () => import("@/app/applicants/[id]/detail/audit-dialog").then((mod) => mod.AuditDialog),
-  { ssr: false },
-)
 
 const CreateCaseDialog = dynamic(
   () => import("@/app/applicants/[id]/detail/create-case-dialog").then((mod) => mod.CreateCaseDialog),
@@ -63,13 +54,11 @@ const CasesTabContent = dynamic(
   { ssr: false },
 )
 
-const MaterialPreviewDialog = dynamic(
-  () => import("@/app/applicants/[id]/detail/material-preview-dialog").then((mod) => mod.MaterialPreviewDialog),
-  { ssr: false },
-)
-
-const MaterialsTab = dynamic(
-  () => import("@/app/applicants/[id]/detail/materials-tab").then((mod) => mod.MaterialsTab),
+const ApplicantMaterialsSection = dynamic(
+  () =>
+    import("@/app/applicants/[id]/detail/applicant-materials-section").then(
+      (mod) => mod.ApplicantMaterialsSection,
+    ),
   { ssr: false },
 )
 
@@ -77,8 +66,6 @@ const ProgressTab = dynamic(
   () => import("@/app/applicants/[id]/detail/progress-tab").then((mod) => mod.ProgressTab),
   { ssr: false },
 )
-
-const AUDIT_PROGRESS_STEPS = ["正在读取 Excel", "正在识别字段", "正在检查规则", "审核完成"]
 
 function persistSelectedApplicantCase(applicantId: string, caseId?: string | null) {
   if (typeof window === "undefined") return
@@ -159,58 +146,10 @@ export default function ApplicantDetailClientPage({
     [basicForm.schengenVisaCity, detail?.profile, tlsAccountCaseSource],
   )
   const tlsAccountTemplateText = useMemo(() => buildTlsAccountTemplateText(tlsAccountInfo), [tlsAccountInfo])
-  const auditPhaseIndex =
-    auditDialog.status === "running"
-      ? Math.min(auditDialog.phaseIndex ?? 0, AUDIT_PROGRESS_STEPS.length - 2)
-      : AUDIT_PROGRESS_STEPS.length - 1
-  const detailProfileId = detail?.profile.id || ""
-  const {
-    materialFiles,
-    setMaterialFiles,
-    materialFilesLoaded,
-    setMaterialFilesLoaded,
-    materialFilesLoading,
-    materialFilesError,
-    setMaterialFilesError,
-  } = useApplicantMaterialFiles({
-    applicantId,
-    activeTab,
-    detailProfileId,
-    setDetail,
-  })
-  const { openPreview, previewDialogControls } = useMaterialPreviewController({
-    applicantId,
-    canEditApplicant,
-    detail,
-    preview,
-    setDetail,
-    setMessage,
-    setPreview,
-    setAuditDialog,
-    invalidateApplicantCaches,
-    primeApplicantDetailCache,
-  })
 
   useEffect(() => {
     setActiveTab(defaultTab)
   }, [defaultTab])
-
-  useEffect(() => {
-    if (!auditDialog.open || auditDialog.status !== "running") return
-
-    const timers = [
-      window.setTimeout(() => {
-        setAuditDialog((prev) => (prev.open && prev.status === "running" ? { ...prev, phaseIndex: 1 } : prev))
-      }, 250),
-      window.setTimeout(() => {
-        setAuditDialog((prev) => (prev.open && prev.status === "running" ? { ...prev, phaseIndex: 2 } : prev))
-      }, 700),
-    ]
-
-    return () => {
-      for (const timer of timers) window.clearTimeout(timer)
-    }
-  }, [auditDialog.open, auditDialog.status, setAuditDialog])
 
   const loadDetail = useCallback(async () => {
     const cached = readClientCache<ApplicantDetailResponse>(detailCacheKey)
@@ -237,22 +176,6 @@ export default function ApplicantDetailClientPage({
       setLoading(false)
     }
   }, [applicantId, applyDetailPayload, detailCacheKey, primeApplicantDetailCache, setLoading, setMessage])
-
-  const { uploadFiles, autoFixUsVisaAuditIssues } = useApplicantFileActions({
-    applicantId,
-    canEditApplicant,
-    canRunAutomation,
-    auditDialog,
-    setAuditDialog,
-    setBasicForm,
-    setDetail,
-    setMaterialFiles,
-    setMaterialFilesLoaded,
-    setMaterialFilesError,
-    setMessage,
-    invalidateApplicantCaches,
-    loadDetail,
-  })
 
   useEffect(() => {
     void loadDetail()
@@ -428,8 +351,7 @@ export default function ApplicantDetailClientPage({
     return <ApplicantDetailErrorState message={message} />
   }
 
-  const visibleMaterialFiles = materialFilesLoaded ? materialFiles : detail.profile.files || materialFiles
-  const materialCount = Object.keys(visibleMaterialFiles).length
+  const materialCount = Object.keys(detail.profile.files || {}).length
   const selectedCaseSummary = selectedCase
     ? [selectedCase.visaType || selectedCase.caseType || "签证", selectedCase.mainStatus, selectedCase.subStatus]
         .filter(Boolean)
@@ -487,18 +409,24 @@ export default function ApplicantDetailClientPage({
             />
           ) : null}
 
-          {activeTab === "materials" ? (
-            <MaterialsTab
+          {activeTab === "materials" || preview.open || auditDialog.open ? (
+            <ApplicantMaterialsSection
               applicantId={applicantId}
-              applicantProfileId={detail.profile.id}
+              activeTab={activeTab}
+              detail={detail}
               selectedCaseId={selectedCase?.id}
-              files={visibleMaterialFiles}
-              filesLoading={materialFilesLoading}
-              filesError={materialFilesError}
               canEditApplicant={canEditApplicant}
               canRunAutomation={canRunAutomation}
-              onUpload={uploadFiles}
-              onPreview={openPreview}
+              preview={preview}
+              setPreview={setPreview}
+              auditDialog={auditDialog}
+              setAuditDialog={setAuditDialog}
+              setBasicForm={setBasicForm}
+              setDetail={setDetail}
+              setMessage={setMessage}
+              invalidateApplicantCaches={invalidateApplicantCaches}
+              primeApplicantDetailCache={primeApplicantDetailCache}
+              loadDetail={loadDetail}
             />
           ) : null}
 
@@ -526,24 +454,6 @@ export default function ApplicantDetailClientPage({
         />
       ) : null}
 
-      {preview.open ? (
-        <MaterialPreviewDialog
-          preview={preview}
-          canEditApplicant={canEditApplicant}
-          {...previewDialogControls}
-        />
-      ) : null}
-
-      {auditDialog.open ? (
-        <AuditDialog
-          auditDialog={auditDialog}
-          auditProgressSteps={AUDIT_PROGRESS_STEPS}
-          auditPhaseIndex={auditPhaseIndex}
-          canRunAutomation={canRunAutomation}
-          onClose={() => setAuditDialog(emptyAuditDialog)}
-          onAutoFix={autoFixUsVisaAuditIssues}
-        />
-      ) : null}
     </>
   )
 }
