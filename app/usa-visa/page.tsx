@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo } from "react"
+import dynamic from "next/dynamic"
 import { useSearchParams } from "next/navigation"
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -13,13 +14,49 @@ import {
   ApplicantProfileSelector,
 } from "@/components/applicant-profile-selector"
 import { usePrefetchApplicantDetail } from "@/hooks/use-prefetch-applicant-detail"
-import { PhotoChecker } from "./components/photo-checker"
-import { DS160Form } from "./components/ds160-form"
-import { SubmitDS160Form } from "./components/submit-ds160-form"
-import { RegisterAISForm } from "./components/register-ais-form"
-import { InterviewBriefForm } from "./components/interview-brief-form"
-import { TaskList } from "./components/task-list"
 import { UsVisaQuickStartCard } from "./components/us-visa-quick-start-card"
+
+const PhotoChecker = dynamic(() => import("./components/photo-checker").then((mod) => mod.PhotoChecker), {
+  ssr: false,
+  loading: () => <TabModuleLoading label="正在加载照片检测工具..." />,
+})
+
+const DS160Form = dynamic(() => import("./components/ds160-form").then((mod) => mod.DS160Form), {
+  ssr: false,
+  loading: () => <TabModuleLoading label="正在加载 DS-160 填表工具..." />,
+})
+
+const SubmitDS160Form = dynamic(() => import("./components/submit-ds160-form").then((mod) => mod.SubmitDS160Form), {
+  ssr: false,
+  loading: () => <TabModuleLoading label="正在加载 DS-160 提交工具..." />,
+})
+
+const RegisterAISForm = dynamic(() => import("./components/register-ais-form").then((mod) => mod.RegisterAISForm), {
+  ssr: false,
+  loading: () => <TabModuleLoading label="正在加载 AIS 注册工具..." />,
+})
+
+const InterviewBriefForm = dynamic(() => import("./components/interview-brief-form").then((mod) => mod.InterviewBriefForm), {
+  ssr: false,
+  loading: () => <TabModuleLoading label="正在加载面试必看生成工具..." />,
+})
+
+const TaskList = dynamic(() => import("./components/task-list").then((mod) => mod.TaskList), {
+  ssr: false,
+  loading: () => (
+    <div className="rounded-2xl border border-dashed border-gray-200 bg-white/70 p-4 text-sm text-gray-500">
+      正在加载任务列表...
+    </div>
+  ),
+})
+
+function TabModuleLoading({ label }: { label: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50/80 px-4 py-8 text-center text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-900/50">
+      {label}
+    </div>
+  )
+}
 
 export default function USAVisaPage() {
   const searchParams = useSearchParams()
