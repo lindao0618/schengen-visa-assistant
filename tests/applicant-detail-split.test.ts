@@ -54,6 +54,33 @@ test("basic detail tab defers full intake accordion logic", () => {
   assert.match(intakeSource, /\/intake\?scope=/)
 })
 
+test("cases detail tab keeps list and form logic in focused modules", () => {
+  const tabSource = readSource("app/applicants/[id]/detail/cases-tab-content.tsx")
+  const listSource = readSource("app/applicants/[id]/detail/case-list-panel.tsx")
+  const formSource = readSource("app/applicants/[id]/detail/case-detail-form.tsx")
+
+  assert.match(tabSource, /CaseSwitcherPanel/)
+  assert.match(tabSource, /CaseListPanel/)
+  assert.match(tabSource, /CaseDetailForm/)
+  assert.doesNotMatch(tabSource, /function BookingWindowRangeField/)
+  assert.doesNotMatch(tabSource, /function SlotTimeField/)
+  assert.doesNotMatch(tabSource, /SLOT_TIME_OPTIONS/)
+  assert.doesNotMatch(tabSource, /CRM_VISA_TYPE_OPTIONS/)
+  assert.doesNotMatch(tabSource, /FRANCE_TLS_CITY_OPTIONS/)
+
+  assert.match(listSource, /function CaseSwitcherPanel/)
+  assert.match(listSource, /function CaseListPanel/)
+  assert.match(listSource, /getPriorityVariant/)
+  assert.match(listSource, /getApplicantCrmVisaTypeLabel/)
+
+  assert.match(formSource, /function CaseDetailForm/)
+  assert.match(formSource, /function BookingWindowRangeField/)
+  assert.match(formSource, /function SlotTimeField/)
+  assert.match(formSource, /SLOT_TIME_OPTIONS/)
+  assert.match(formSource, /deriveApplicantCaseTypeFromVisaType/)
+  assert.match(formSource, /onSaveCase/)
+})
+
 test("material preview controller uses direct URLs for browser-native previews", () => {
   const source = readSource("app/applicants/[id]/detail/use-material-preview-controller.ts")
 
