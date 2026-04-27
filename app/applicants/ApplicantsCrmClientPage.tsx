@@ -42,7 +42,11 @@ import {
   readClientCache,
   writeClientCache,
 } from "@/lib/applicant-client-cache"
-import { type ApplicantDetailPrefetchSource, shouldPrefetchApplicantDetailJson } from "@/lib/applicant-list-prefetch"
+import {
+  type ApplicantDetailPrefetchSource,
+  shouldPrefetchApplicantDetailJson,
+  shouldPrefetchApplicantDetailRoute,
+} from "@/lib/applicant-list-prefetch"
 import {
   canAccessAdminPortal,
   canAssignCases,
@@ -357,7 +361,9 @@ export default function ApplicantsCrmClientPage() {
   const prefetchApplicantDetail = useCallback(
     (applicantId: string, source: ApplicantDetailPrefetchSource = "intent") => {
       if (!applicantId) return
-      router.prefetch(`/applicants/${applicantId}`)
+      if (shouldPrefetchApplicantDetailRoute({ applicantId, source })) {
+        router.prefetch(`/applicants/${applicantId}`)
+      }
       if (!shouldPrefetchApplicantDetailJson({ applicantId, source })) return
       void prefetchJsonIntoClientCache(getApplicantDetailCacheKey(applicantId), `/api/applicants/${applicantId}`, {
         ttlMs: APPLICANT_DETAIL_CACHE_TTL_MS,

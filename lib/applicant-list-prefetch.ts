@@ -9,3 +9,13 @@ export function shouldPrefetchApplicantDetailJson({
 }) {
   return Boolean(applicantId) && source !== "automatic"
 }
+
+export function shouldPrefetchApplicantDetailRoute({
+  applicantId,
+  source,
+}: {
+  applicantId?: string | null
+  source: ApplicantDetailPrefetchSource
+}) {
+  return Boolean(applicantId) && source !== "automatic"
+}
