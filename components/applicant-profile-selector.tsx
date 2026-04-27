@@ -1,12 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
 import {
   BriefcaseBusiness,
-  Check,
   ChevronsUpDown,
   Clock3,
   FolderOpen,
@@ -18,15 +18,6 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
-} from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   getApplicantCrmPriorityLabel,
@@ -58,8 +49,21 @@ import {
   type ApplicantDetailPrefetchSource,
   shouldPrefetchApplicantDetailJson,
 } from "@/lib/applicant-list-prefetch"
+import {
+  formatApplicantSelectorDateTime,
+  getApplicantPassportTail,
+} from "@/lib/applicant-profile-selector-view"
 import { formatFranceStatusLabel } from "@/lib/france-case-labels"
 import { cn } from "@/lib/utils"
+
+const ApplicantProfileSelectorCommand = dynamic(
+  () =>
+    import("@/components/applicant-profile-selector-command").then((mod) => mod.ApplicantProfileSelectorCommand),
+  {
+    ssr: false,
+    loading: () => <div className="px-4 py-5 text-sm text-gray-500">正在准备申请人搜索...</div>,
+  },
+)
 
 export interface ApplicantProfileSummary {
   id: string
@@ -146,21 +150,6 @@ interface ApplicantProfileSelectorProps {
 
 export { ACTIVE_APPLICANT_CASE_KEY, ACTIVE_APPLICANT_PROFILE_KEY }
 
-function formatDateTime(value?: string | null) {
-  if (!value) return "暂无更新"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "暂无更新"
-  return `更新于 ${date.toLocaleDateString("zh-CN")} ${date.toLocaleTimeString("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  })}`
-}
-
-function getPassportTail(profile: ApplicantSelectorOption) {
-  return profile.passportLast4 || profile.passportNumber?.slice(-4) || profile.usVisa?.passportNumber?.slice(-4) || ""
-}
-
 function readRecentIds() {
   if (typeof window === "undefined") return []
   try {
@@ -236,33 +225,6 @@ function inferApplicantBusinessTag(
   if (hasFrance) return "france"
   if (hasUk) return "uk"
   return null
-}
-
-function getApplicantBusinessTagBadge(tag: ApplicantSelectorOption["businessTag"]) {
-  switch (tag) {
-    case "both":
-      return {
-        label: "双办理",
-        className: "border-violet-200 bg-violet-50 text-violet-700",
-      }
-    case "usa":
-      return {
-        label: "美签",
-        className: "border-blue-200 bg-blue-50 text-blue-700",
-      }
-    case "france":
-      return {
-        label: "法签",
-        className: "border-amber-200 bg-amber-50 text-amber-700",
-      }
-    case "uk":
-      return {
-        label: "英签",
-        className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-      }
-    default:
-      return null
-  }
 }
 
 function caseMatchesScope(caseItem: ApplicantCaseOption, scope: ApplicantProfileSelectorScope) {
@@ -343,72 +305,6 @@ function getScopeHint(scope: ApplicantProfileSelectorScope) {
     default:
       return "申请人较多时，可直接搜索姓名、护照尾号、手机号或微信号。"
   }
-}
-
-function ApplicantOptionRow({
-  profile,
-  selected,
-}: {
-  profile: ApplicantSelectorOption
-  selected: boolean
-}) {
-  const secondaryParts = [
-    getApplicantCrmVisaTypeLabel(profile.visaType),
-    getApplicantCrmRegionLabel(profile.region),
-    getPassportTail(profile) ? `护照尾号 ${getPassportTail(profile)}` : "",
-  ].filter((item) => item && item !== "-")
-
-  const hasMaterials = Boolean(
-    profile.files?.usVisaDs160Excel ||
-      profile.files?.ds160Excel ||
-      profile.files?.usVisaPhoto ||
-      profile.files?.schengenExcel ||
-      profile.files?.franceExcel,
-  )
-
-  const businessTag = getApplicantBusinessTagBadge(profile.businessTag)
-
-  return (
-    <div className="group flex w-full items-start gap-3 rounded-2xl border border-transparent px-1 py-1 transition-colors">
-      <div
-        className={cn(
-          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors",
-          selected
-            ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-200"
-            : "border-gray-300 bg-white text-transparent",
-        )}
-      >
-        <Check className="h-3.5 w-3.5" />
-      </div>
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-gray-900">{profile.name || profile.label}</span>
-          {businessTag && (
-            <Badge variant="outline" className={cn("rounded-full px-2.5 py-0.5", businessTag.className)}>
-              {businessTag.label}
-            </Badge>
-          )}
-          {profile.usVisa?.aaCode && (
-            <Badge variant="outline" className="rounded-full border-blue-200 bg-blue-50 text-blue-700">
-              AA {profile.usVisa.aaCode}
-            </Badge>
-          )}
-          {hasMaterials && (
-            <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-700">
-              资料可复用
-            </Badge>
-          )}
-        </div>
-        {secondaryParts.length > 0 && <div className="text-xs text-gray-500">{secondaryParts.join(" · ")}</div>}
-        <div className="flex flex-wrap items-center gap-3 text-xs text-gray-400">
-          {profile.phone && <span>{profile.phone}</span>}
-          {!profile.phone && profile.email && <span>{profile.email}</span>}
-          {!profile.phone && !profile.email && profile.wechat && <span>微信 {profile.wechat}</span>}
-          <span>{formatDateTime(profile.updatedAt)}</span>
-        </div>
-      </div>
-    </div>
-  )
 }
 
 export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSelectorProps = {}) {
@@ -635,14 +531,13 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
     dispatchActiveApplicantCaseChange(selectedId, caseId)
   }
 
+  const activePassportTail = getApplicantPassportTail(activeProfile)
   const activeSummary = activeCase
     ? `${getCaseTitle(activeCase)} · ${getCaseSecondary(activeCase)}`
     : [
         getApplicantCrmVisaTypeLabel(activeProfile?.visaType),
         getApplicantCrmRegionLabel(activeProfile?.region),
-        getPassportTail(activeProfile || ({} as ApplicantSelectorOption))
-          ? `护照尾号 ${getPassportTail(activeProfile as ApplicantSelectorOption)}`
-          : "",
+        activePassportTail ? `护照尾号 ${activePassportTail}` : "",
       ]
         .filter((item) => item && item !== "-")
         .join(" · ")
@@ -687,7 +582,7 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
           {compactMode && activeProfile ? (
             <div className="flex flex-wrap gap-2 text-xs text-gray-500 [&>span]:rounded-full [&>span]:border [&>span]:border-slate-200 [&>span]:bg-white/85 [&>span]:px-2.5 [&>span]:py-1">
               <span className="rounded-full border border-slate-200 bg-white/85 px-2.5 py-1">{activeProfile.name || activeProfile.label}</span>
-              {getPassportTail(activeProfile) ? <span>护照尾号 {getPassportTail(activeProfile)}</span> : null}
+              {activePassportTail ? <span>护照尾号 {activePassportTail}</span> : null}
               {activeProfile.usVisa?.aaCode ? <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-blue-700">AA {activeProfile.usVisa.aaCode}</span> : null}
               {activeProfile.schengen?.country ? <span className="rounded-full border border-slate-200 bg-white/85 px-2.5 py-1">{activeProfile.schengen.country}</span> : null}
               {activeProfile.schengen?.city ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-700">{activeProfile.schengen.city}</span> : null}
@@ -724,93 +619,15 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
               className="w-[calc(100vw-2rem)] rounded-2xl border-slate-200 p-0 shadow-2xl shadow-slate-200/60 md:w-[480px]"
               align="end"
             >
-              <Command>
-                <CommandInput placeholder="搜索姓名、护照尾号、手机号或微信号..." />
-                <CommandList className="max-h-[420px]">
-                  <CommandEmpty>没有找到匹配的申请人</CommandEmpty>
-
-                  {recentProfiles.length > 0 && (
-                    <CommandGroup heading="最近使用">
-                      {recentProfiles.map((profile) => (
-                        <CommandItem
-                          key={`recent-${profile.id}`}
-                          value={[
-                            profile.name,
-                            profile.label,
-                            profile.phone,
-                            profile.email,
-                            profile.wechat,
-                            profile.passportNumber,
-                            getPassportTail(profile),
-                          ]
-                            .filter(Boolean)
-                            .join(" ")}
-                          onSelect={() => handleProfileChange(profile.id)}
-                          className="items-start px-3 py-3"
-                        >
-                          <ApplicantOptionRow profile={profile} selected={profile.id === selectedId} />
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  )}
-
-                  {mineProfiles.length > 0 && (
-                    <>
-                      {recentProfiles.length > 0 && <CommandSeparator />}
-                      <CommandGroup heading="我负责的">
-                        {mineProfiles.map((profile) => (
-                          <CommandItem
-                            key={`mine-${profile.id}`}
-                            value={[
-                              profile.name,
-                              profile.label,
-                              profile.phone,
-                              profile.email,
-                              profile.wechat,
-                              profile.passportNumber,
-                              getPassportTail(profile),
-                            ]
-                              .filter(Boolean)
-                              .join(" ")}
-                            onSelect={() => handleProfileChange(profile.id)}
-                            className="items-start px-3 py-3"
-                          >
-                            <ApplicantOptionRow profile={profile} selected={profile.id === selectedId} />
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </>
-                  )}
-
-                  {otherProfiles.length > 0 && (
-                    <>
-                      {(recentProfiles.length > 0 || mineProfiles.length > 0) && <CommandSeparator />}
-                      <CommandGroup heading="全部申请人">
-                        {otherProfiles.map((profile) => (
-                          <CommandItem
-                            key={`all-${profile.id}`}
-                            value={[
-                              profile.name,
-                              profile.label,
-                              profile.phone,
-                              profile.email,
-                              profile.wechat,
-                              profile.passportNumber,
-                              getPassportTail(profile),
-                            ]
-                              .filter(Boolean)
-                              .join(" ")}
-                            onSelect={() => handleProfileChange(profile.id)}
-                            className="items-start px-3 py-3"
-                          >
-                            <ApplicantOptionRow profile={profile} selected={profile.id === selectedId} />
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </>
-                  )}
-                </CommandList>
-              </Command>
+              {open ? (
+                <ApplicantProfileSelectorCommand
+                  recentProfiles={recentProfiles}
+                  mineProfiles={mineProfiles}
+                  otherProfiles={otherProfiles}
+                  selectedId={selectedId}
+                  onProfileChange={handleProfileChange}
+                />
+              ) : null}
             </PopoverContent>
           </Popover>
 
@@ -846,13 +663,13 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
           <div className="flex flex-wrap gap-2 text-xs text-gray-600 [&>span]:rounded-full [&>span]:border [&>span]:border-slate-200 [&>span]:bg-white [&>span]:px-3 [&>span]:py-1">
             <span>姓名: {activeProfile.name || activeProfile.label}</span>
             {activeProfile.usVisa?.aaCode && <span>AA 码: {activeProfile.usVisa.aaCode}</span>}
-            {getPassportTail(activeProfile) && <span>护照尾号: {getPassportTail(activeProfile)}</span>}
+            {activePassportTail && <span>护照尾号: {activePassportTail}</span>}
             {activeProfile.schengen?.country && <span>申根国家: {activeProfile.schengen.country}</span>}
             {activeProfile.schengen?.city && <span>TLS 递签城市: {activeProfile.schengen.city}</span>}
             {activeProfile.schengen?.fraNumber && <span>FRA Number: {activeProfile.schengen.fraNumber}</span>}
             <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-gray-400">
               <Clock3 className="h-3.5 w-3.5" />
-              {formatDateTime(activeProfile.updatedAt)}
+              {formatApplicantSelectorDateTime(activeProfile.updatedAt)}
             </span>
             {(viewerRole === "boss" || viewerRole === "supervisor") && (
               <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-violet-600">
