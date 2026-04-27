@@ -2,6 +2,7 @@
 
 import {
   type ReactNode,
+  startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -98,6 +99,9 @@ const CreateApplicantDialog = dynamic(
   () => import("@/app/applicants/create-applicant-dialog").then((module) => module.CreateApplicantDialog),
   { ssr: false },
 )
+
+const APPLICANT_CRM_INITIAL_VISIBLE_ROWS = 50
+const APPLICANT_CRM_VISIBLE_ROWS_STEP = 50
 
 type ApplicantCrmStatusOption = {
   value: string
@@ -573,6 +577,7 @@ export default function ApplicantsCrmClientPage() {
   const [batchActionMode, setBatchActionMode] = useState<BatchActionMode>(null)
   const [batchActionLoading, setBatchActionLoading] = useState(false)
   const [groupNameInput, setGroupNameInput] = useState("")
+  const [visibleRowLimit, setVisibleRowLimit] = useState(APPLICANT_CRM_INITIAL_VISIBLE_ROWS)
   const initialLoadRef = useRef(true)
   const deferredKeyword = useDeferredValue(keyword.trim())
   const requestQuery = useMemo(() => {
@@ -755,12 +760,17 @@ export default function ApplicantsCrmClientPage() {
       }),
     [quickView, rows, selectedGroups, session?.user?.id],
   )
-  const displayRowIds = useMemo(() => displayRows.map((row) => row.id), [displayRows])
+  const visibleRows = useMemo(
+    () => displayRows.slice(0, visibleRowLimit),
+    [displayRows, visibleRowLimit],
+  )
+  const displayRowIds = useMemo(() => visibleRows.map((row) => row.id), [visibleRows])
   const selectedVisibleCount = useMemo(
     () => displayRowIds.filter((id) => selectedApplicantIds.includes(id)).length,
     [displayRowIds, selectedApplicantIds],
   )
-  const allVisibleSelected = displayRows.length > 0 && selectedVisibleCount === displayRows.length
+  const allVisibleSelected = visibleRows.length > 0 && selectedVisibleCount === visibleRows.length
+  const hasMoreVisibleRows = visibleRows.length < displayRows.length
 
   const quickCards = useMemo(() => {
     const mineCount = rows.filter((row) => matchesQuickView(row, "mine", session?.user?.id)).length
@@ -880,6 +890,10 @@ export default function ApplicantsCrmClientPage() {
   }, [displayRows, prefetchApplicantDetail])
 
   useEffect(() => {
+    setVisibleRowLimit(APPLICANT_CRM_INITIAL_VISIBLE_ROWS)
+  }, [quickView, requestQuery, selectedGroups])
+
+  useEffect(() => {
     setSelectedApplicantIds((prev) => prev.filter((id) => rows.some((row) => row.id === id)))
   }, [rows])
 
@@ -955,6 +969,12 @@ export default function ApplicantsCrmClientPage() {
         return Array.from(new Set([...prev, ...displayRowIds]))
       }
       return prev.filter((id) => !displayRowIds.includes(id))
+    })
+  }
+
+  const showMoreRows = () => {
+    startTransition(() => {
+      setVisibleRowLimit((prev) => Math.min(prev + APPLICANT_CRM_VISIBLE_ROWS_STEP, displayRows.length))
     })
   }
 
@@ -1284,7 +1304,14 @@ export default function ApplicantsCrmClientPage() {
         <Card className="border-gray-200 bg-white/90">
           <CardHeader>
             <CardTitle>{"\u7533\u8bf7\u4eba\u5217\u8868"}</CardTitle>
-            <CardDescription>{"\u70b9\u51fb\u884c\u6216\u201c\u67e5\u770b\u8be6\u60c5\u201d\u8fdb\u5165\u7533\u8bf7\u4eba\u5de5\u4f5c\u53f0\u3002"}</CardDescription>
+            <CardDescription>
+              {"\u70b9\u51fb\u884c\u6216\u201c\u67e5\u770b\u8be6\u60c5\u201d\u8fdb\u5165\u7533\u8bf7\u4eba\u5de5\u4f5c\u53f0\u3002"}
+              {!loading && displayRows.length > 0 ? (
+                <span className="ml-2 text-gray-400">
+                  当前显示 {visibleRows.length} / {displayRows.length} 位
+                </span>
+              ) : null}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {canEditApplicants && selectedApplicantIds.length > 0 && (
@@ -1325,7 +1352,7 @@ export default function ApplicantsCrmClientPage() {
                       <SelectionToggleButton
                         checked={allVisibleSelected}
                         onClick={() => toggleSelectAllVisible(!allVisibleSelected)}
-                        label={allVisibleSelected ? "取消全选当前列表" : "全选当前列表"}
+                        label={allVisibleSelected ? "取消全选当前显示" : "全选当前显示"}
                       />
                     </TableHead>
                     <TableHead>{"\u7533\u8bf7\u4eba"}</TableHead>
@@ -1339,7 +1366,7 @@ export default function ApplicantsCrmClientPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {displayRows.map((row) => (
+                  {visibleRows.map((row) => (
                     <TableRow
                       key={row.id}
                       className={cn("cursor-pointer transition-colors", selectedApplicantIds.includes(row.id) && "bg-blue-50/60")}
@@ -1417,6 +1444,16 @@ export default function ApplicantsCrmClientPage() {
                 </TableBody>
               </Table>
             )}
+            {!loading && hasMoreVisibleRows ? (
+              <div className="mt-4 flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-200 bg-gray-50/80 p-4 text-center">
+                <div className="text-sm text-gray-500">
+                  当前显示 {visibleRows.length} / {displayRows.length} 位申请人
+                </div>
+                <Button type="button" variant="outline" onClick={showMoreRows}>
+                  加载更多申请人
+                </Button>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>
