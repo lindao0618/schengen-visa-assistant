@@ -173,6 +173,7 @@ export interface ApplicantCrmFilters {
   includeProfiles?: boolean
   includeProfileFiles?: boolean
   includeAvailableAssignees?: boolean
+  includeListMeta?: boolean
   limit?: number
   offset?: number
 }
@@ -759,6 +760,7 @@ export async function listApplicantCrmData(
   const includeProfiles = Boolean(filters.includeProfiles)
   const includeProfileFiles = Boolean(filters.includeProfileFiles)
   const includeAvailableAssignees = Boolean(filters.includeAvailableAssignees)
+  const includeListMeta = filters.includeListMeta ?? true
   const pageLimit = typeof filters.limit === "number" && filters.limit > 0 ? filters.limit : undefined
   const pageOffset = pageLimit && typeof filters.offset === "number" && filters.offset > 0 ? filters.offset : 0
   const caseListTakeLimit = getApplicantCrmCaseListTakeLimit({ includeStats, includeSelectorCases })
@@ -804,8 +806,8 @@ export async function listApplicantCrmData(
     if (!matchesArrayFilter(row.priority, priorities)) return false
     return true
   })
-  const quickCounts = buildApplicantCrmQuickCounts(filteredRows, userId)
-  const groupOptions = buildApplicantCrmGroupOptions(filteredRows)
+  const quickCounts = includeListMeta ? buildApplicantCrmQuickCounts(filteredRows, userId) : undefined
+  const groupOptions = includeListMeta ? buildApplicantCrmGroupOptions(filteredRows) : undefined
   const displayRows = filteredRows.filter((row) => {
     if (!matchesArrayFilter(row.groupName, groups)) return false
     if (!matchesApplicantCrmQuickView(row, quickView, userId)) return false

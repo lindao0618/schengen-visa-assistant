@@ -12,6 +12,7 @@ type ApplicantCrmListSearchParamsInput = {
   quickView: QuickView
   limit: number
   offset: number
+  includeListMeta: boolean
 }
 
 function appendValues(params: URLSearchParams, key: string, values: string[]) {
@@ -31,6 +32,7 @@ export function buildApplicantCrmListSearchParams({
   quickView,
   limit,
   offset,
+  includeListMeta,
 }: ApplicantCrmListSearchParamsInput) {
   const params = new URLSearchParams()
   const trimmedKeyword = keyword.trim()
@@ -45,6 +47,7 @@ export function buildApplicantCrmListSearchParams({
   params.set("offset", String(Math.max(0, offset)))
   params.set("includeProfiles", "0")
   params.set("includeProfileFiles", "0")
+  params.set("includeListMeta", includeListMeta ? "1" : "0")
   return params.toString()
 }
 

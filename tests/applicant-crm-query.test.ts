@@ -12,6 +12,7 @@ test("applicant CRM list query omits profile payloads by default", () => {
   assert.equal(filters.includeStats, false)
   assert.equal(filters.includeSelectorCases, false)
   assert.equal(filters.includeAvailableAssignees, false)
+  assert.equal(filters.includeListMeta, true)
 })
 
 test("applicant CRM list query only includes profile payloads when explicitly requested", () => {
@@ -81,4 +82,10 @@ test("applicant CRM list query validates quick view filters", () => {
   assert.equal(buildApplicantCrmFiltersFromSearchParams(new URLSearchParams("quickView=today")).quickView, "today")
   assert.equal(buildApplicantCrmFiltersFromSearchParams(new URLSearchParams("quickView=all")).quickView, undefined)
   assert.equal(buildApplicantCrmFiltersFromSearchParams(new URLSearchParams("quickView=unknown")).quickView, undefined)
+})
+
+test("applicant CRM list query can skip list metadata for append-only pages", () => {
+  const filters = buildApplicantCrmFiltersFromSearchParams(new URLSearchParams("includeListMeta=0"))
+
+  assert.equal(filters.includeListMeta, false)
 })

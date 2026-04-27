@@ -2,7 +2,12 @@ import type { ApplicantCrmFilters } from "@/lib/applicant-crm"
 
 type ApplicantCrmIncludeDefaults = Pick<
   ApplicantCrmFilters,
-  "includeStats" | "includeSelectorCases" | "includeProfiles" | "includeProfileFiles" | "includeAvailableAssignees"
+  | "includeStats"
+  | "includeSelectorCases"
+  | "includeProfiles"
+  | "includeProfileFiles"
+  | "includeAvailableAssignees"
+  | "includeListMeta"
 >
 
 const APPLICANT_CRM_MAX_PAGE_LIMIT = 200
@@ -70,6 +75,7 @@ export function buildApplicantCrmFiltersFromSearchParams(
       "includeAvailableAssignees",
       Boolean(defaults.includeAvailableAssignees),
     ),
+    includeListMeta: getBooleanFlag(searchParams, "includeListMeta", defaults.includeListMeta ?? true),
     limit,
     offset,
   }

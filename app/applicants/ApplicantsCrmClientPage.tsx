@@ -180,6 +180,7 @@ export default function ApplicantsCrmClientPage() {
         quickView,
         limit: APPLICANT_CRM_PAGE_SIZE,
         offset,
+        includeListMeta: offset === 0,
       }),
     [
       deferredKeyword,
@@ -215,8 +216,12 @@ export default function ApplicantsCrmClientPage() {
       startTransition(() => {
         setRows((prev) => mergeApplicantCrmPageRows(prev, nextRows, mode))
         setPagination(data?.pagination)
-        setQuickCounts(data?.quickCounts || EMPTY_QUICK_COUNTS)
-        setGroupOptions(data?.groupOptions || [])
+        if (mode === "replace" || data?.quickCounts) {
+          setQuickCounts(data?.quickCounts || EMPTY_QUICK_COUNTS)
+        }
+        if (mode === "replace" || data?.groupOptions) {
+          setGroupOptions(data?.groupOptions || [])
+        }
       })
     },
     [],

@@ -33,6 +33,7 @@ test("applicant CRM client list query sends server pagination and filters", () =
     quickView: "mine",
     limit: APPLICANT_CRM_PAGE_SIZE,
     offset: 50,
+    includeListMeta: true,
   })
   const params = new URLSearchParams(query)
 
@@ -44,6 +45,7 @@ test("applicant CRM client list query sends server pagination and filters", () =
   assert.deepEqual(params.getAll("visaTypes"), ["france-schengen"])
   assert.equal(params.get("includeProfiles"), "0")
   assert.equal(params.get("includeProfileFiles"), "0")
+  assert.equal(params.get("includeListMeta"), "1")
 })
 
 test("applicant CRM client list query omits all quick view", () => {
@@ -57,12 +59,32 @@ test("applicant CRM client list query omits all quick view", () => {
     quickView: "all",
     limit: APPLICANT_CRM_PAGE_SIZE,
     offset: 0,
+    includeListMeta: true,
   })
   const params = new URLSearchParams(query)
 
   assert.equal(params.get("quickView"), null)
   assert.equal(params.get("limit"), String(APPLICANT_CRM_PAGE_SIZE))
   assert.equal(params.get("offset"), "0")
+})
+
+test("applicant CRM load more query can skip list metadata", () => {
+  const query = buildApplicantCrmListSearchParams({
+    keyword: "",
+    selectedVisaTypes: [],
+    selectedStatuses: [],
+    selectedRegions: [],
+    selectedPriorities: [],
+    selectedGroups: [],
+    quickView: "all",
+    limit: APPLICANT_CRM_PAGE_SIZE,
+    offset: 100,
+    includeListMeta: false,
+  })
+  const params = new URLSearchParams(query)
+
+  assert.equal(params.get("includeListMeta"), "0")
+  assert.equal(params.get("offset"), "100")
 })
 
 test("applicant CRM page rows replace or append with id de-duplication", () => {
