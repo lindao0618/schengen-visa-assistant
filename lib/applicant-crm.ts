@@ -18,6 +18,7 @@ import {
   normalizeApplicantCrmRegion,
   normalizeApplicantCrmVisaType,
 } from "@/lib/applicant-crm-labels"
+import { getApplicantCrmCaseListTakeLimit } from "@/lib/applicant-crm-list-options"
 import {
   DEFAULT_FRANCE_CASE_MAIN_STATUS,
   DEFAULT_FRANCE_CASE_SUB_STATUS,
@@ -740,6 +741,7 @@ export async function listApplicantCrmData(
   const includeProfiles = Boolean(filters.includeProfiles)
   const includeProfileFiles = Boolean(filters.includeProfileFiles)
   const includeAvailableAssignees = Boolean(filters.includeAvailableAssignees)
+  const caseListTakeLimit = getApplicantCrmCaseListTakeLimit({ includeStats, includeSelectorCases })
 
   const applicants = await prisma.applicantProfile.findMany({
     where: buildApplicantAccessWhere(userId, viewerRole),
@@ -750,6 +752,7 @@ export async function listApplicantCrmData(
         where: buildCaseAccessWhere(userId, viewerRole),
         orderBy: [{ isActive: "desc" }, { updatedAt: "desc" }],
         select: applicantCrmVisaCaseListSelect,
+        ...(caseListTakeLimit ? { take: caseListTakeLimit } : {}),
       },
     },
   })

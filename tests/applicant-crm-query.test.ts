@@ -2,6 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 
 import { buildApplicantCrmFiltersFromSearchParams } from "../lib/applicant-crm-query"
+import { getApplicantCrmCaseListTakeLimit } from "../lib/applicant-crm-list-options"
 
 test("applicant CRM list query omits profile payloads by default", () => {
   const filters = buildApplicantCrmFiltersFromSearchParams(new URLSearchParams())
@@ -45,4 +46,10 @@ test("applicant CRM list query normalizes keyword and multi-select filters", () 
   assert.equal(filters.keyword, "Alice")
   assert.deepEqual(filters.visaTypes, ["france-schengen", "usa"])
   assert.deepEqual(filters.regions, ["uk", "cn"])
+})
+
+test("applicant CRM list limits nested cases unless full case payload is needed", () => {
+  assert.equal(getApplicantCrmCaseListTakeLimit({}), 1)
+  assert.equal(getApplicantCrmCaseListTakeLimit({ includeStats: true }), undefined)
+  assert.equal(getApplicantCrmCaseListTakeLimit({ includeSelectorCases: true }), undefined)
 })
