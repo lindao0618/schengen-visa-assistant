@@ -20,6 +20,11 @@ import {
 } from "@/lib/applicant-crm-labels"
 import { getApplicantCrmCaseListTakeLimit } from "@/lib/applicant-crm-list-options"
 import {
+  buildApplicantCrmGroupOptions,
+  buildApplicantCrmQuickCounts,
+  matchesApplicantCrmQuickView,
+} from "@/lib/applicant-crm-list-meta"
+import {
   DEFAULT_FRANCE_CASE_MAIN_STATUS,
   DEFAULT_FRANCE_CASE_SUB_STATUS,
   FRANCE_CASE_TYPE,
@@ -499,31 +504,6 @@ function matchesArrayFilter(value: string | null | undefined, selected: string[]
   return selected.includes(value)
 }
 
-const applicantCrmActionableStatuses = new Set([
-  "pending_payment",
-  "preparing_docs",
-  "reviewing",
-  "docs_ready",
-  "tls_processing",
-  "slot_booked",
-  "exception",
-])
-
-function matchesQuickViewFilter(row: ApplicantCrmRow, quickView: ApplicantCrmFilters["quickView"], userId: string) {
-  switch (quickView) {
-    case "mine":
-      return row.assignee?.id === userId || (!row.assignee && row.owner.id === userId)
-    case "review":
-      return row.currentStatusKey === "reviewing" || row.currentStatusKey === "docs_ready"
-    case "exception":
-      return row.currentStatusKey === "exception"
-    case "today":
-      return applicantCrmActionableStatuses.has(row.currentStatusKey)
-    default:
-      return true
-  }
-}
-
 function mapSelectorCase(caseRecord: ApplicantWithCasesRecord["visaCases"][number]) {
   return {
     id: caseRecord.id,
@@ -824,9 +804,11 @@ export async function listApplicantCrmData(
     if (!matchesArrayFilter(row.priority, priorities)) return false
     return true
   })
+  const quickCounts = buildApplicantCrmQuickCounts(filteredRows, userId)
+  const groupOptions = buildApplicantCrmGroupOptions(filteredRows)
   const displayRows = filteredRows.filter((row) => {
     if (!matchesArrayFilter(row.groupName, groups)) return false
-    if (!matchesQuickViewFilter(row, quickView, userId)) return false
+    if (!matchesApplicantCrmQuickView(row, quickView, userId)) return false
     return true
   })
   const paginatedDisplayRows = pageLimit ? displayRows.slice(pageOffset, pageOffset + pageLimit) : displayRows
@@ -870,6 +852,8 @@ export async function listApplicantCrmData(
     profiles,
     rows: paginatedDisplayRows,
     pagination,
+    quickCounts,
+    groupOptions,
     stats,
     filterOptions,
     availableAssignees,
