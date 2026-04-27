@@ -54,6 +54,10 @@ import {
   readStoredApplicantCaseId,
   writeStoredApplicantCaseId,
 } from "@/lib/applicant-selection-storage"
+import {
+  type ApplicantDetailPrefetchSource,
+  shouldPrefetchApplicantDetailJson,
+} from "@/lib/applicant-list-prefetch"
 import { formatFranceStatusLabel } from "@/lib/france-case-labels"
 import { cn } from "@/lib/utils"
 
@@ -480,20 +484,25 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
     [scope],
   )
 
-  const prefetchActiveApplicantDetail = useCallback(() => {
-    if (!activeProfile?.id) return
-    const href = `/applicants/${activeProfile.id}?tab=materials`
-    router.prefetch(href)
-    void prefetchJsonIntoClientCache(
-      getApplicantDetailCacheKey(activeProfile.id, "active"),
-      `/api/applicants/${activeProfile.id}?view=active`,
-      {
-        ttlMs: APPLICANT_DETAIL_CACHE_TTL_MS,
-      },
-    ).catch(() => {
-      // Ignore background prefetch failures.
-    })
-  }, [activeProfile?.id, router])
+  const prefetchActiveApplicantDetail = useCallback(
+    (source: ApplicantDetailPrefetchSource = "intent") => {
+      if (!activeProfile?.id) return
+      const href = `/applicants/${activeProfile.id}?tab=materials`
+      router.prefetch(href)
+      if (!shouldPrefetchApplicantDetailJson({ applicantId: activeProfile.id, source })) return
+
+      void prefetchJsonIntoClientCache(
+        getApplicantDetailCacheKey(activeProfile.id, "active"),
+        `/api/applicants/${activeProfile.id}?view=active`,
+        {
+          ttlMs: APPLICANT_DETAIL_CACHE_TTL_MS,
+        },
+      ).catch(() => {
+        // Ignore background prefetch failures.
+      })
+    },
+    [activeProfile?.id, router],
+  )
 
   useEffect(() => {
     const load = async () => {
@@ -517,10 +526,6 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
 
     void load()
   }, [applySelectorData])
-
-  useEffect(() => {
-    prefetchActiveApplicantDetail()
-  }, [prefetchActiveApplicantDetail])
 
   useEffect(() => {
     if (!selectedId) {
@@ -669,15 +674,15 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
     >
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="space-y-2">
-            <div className="flex items-center gap-2.5">
-              <div className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/90">
-                Active
-              </div>
-              <div className="text-sm font-semibold text-gray-900">{getScopeTitle(scope)}</div>
-              <Badge variant="outline" className={cn("border-gray-200 bg-gray-50 text-gray-600", compactMode && "hidden")}>
-                支持搜索切换
-              </Badge>
+          <div className="flex items-center gap-2.5">
+            <div className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold tracking-[0.16em] text-white/90">
+              当前办理
             </div>
+            <div className="text-sm font-semibold text-gray-900">{getScopeTitle(scope)}</div>
+            <Badge variant="outline" className={cn("border-gray-200 bg-gray-50 text-gray-600", compactMode && "hidden")}>
+              {scopedProfiles.length} 个档案
+            </Badge>
+          </div>
           <div className={cn("max-w-xl text-xs leading-6 text-gray-500", compactMode && "hidden")}>{getScopeHint(scope)}</div>
           {compactMode && activeProfile ? (
             <div className="flex flex-wrap gap-2 text-xs text-gray-500 [&>span]:rounded-full [&>span]:border [&>span]:border-slate-200 [&>span]:bg-white/85 [&>span]:px-2.5 [&>span]:py-1">
@@ -697,11 +702,11 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
                 variant="outline"
                 role="combobox"
                 aria-expanded={open}
-                  className={cn(
-                    "h-auto w-full justify-between gap-3 rounded-2xl border-slate-200 bg-white/90 px-4 py-3 text-left shadow-sm transition-all hover:bg-white hover:shadow-md md:w-[480px]",
-                    compactMode && "md:w-[440px]",
-                  )}
-                >
+                className={cn(
+                  "h-auto w-full justify-between gap-3 rounded-2xl border-slate-200 bg-white/90 px-4 py-3 text-left shadow-sm transition-all hover:bg-white hover:shadow-md md:w-[480px]",
+                  compactMode && "md:w-[440px]",
+                )}
+              >
                 <div className="min-w-0 space-y-1">
                   <div className="truncate text-sm font-semibold text-gray-900">
                     {activeProfile ? activeProfile.name || activeProfile.label : "选择申请人档案"}
@@ -715,7 +720,10 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
               </Button>
             </PopoverTrigger>
 
-            <PopoverContent className="w-[480px] rounded-2xl border-slate-200 p-0 shadow-2xl shadow-slate-200/60" align="end">
+            <PopoverContent
+              className="w-[calc(100vw-2rem)] rounded-2xl border-slate-200 p-0 shadow-2xl shadow-slate-200/60 md:w-[480px]"
+              align="end"
+            >
               <Command>
                 <CommandInput placeholder="搜索姓名、护照尾号、手机号或微信号..." />
                 <CommandList className="max-h-[420px]">
@@ -813,9 +821,13 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
               title={canEditApplicants ? "编辑当前档案" : "查看当前档案"}
               asChild
             >
-              <Link href={`/applicants/${activeProfile.id}?tab=materials`} onMouseEnter={prefetchActiveApplicantDetail}>
+              <Link
+                href={`/applicants/${activeProfile.id}?tab=materials`}
+                onFocus={() => prefetchActiveApplicantDetail("intent")}
+                onMouseEnter={() => prefetchActiveApplicantDetail("intent")}
+              >
                 <PencilLine className="mr-2 h-4 w-4" />
-                编辑当前档案
+                {canEditApplicants ? "编辑档案" : "查看档案"}
               </Link>
             </Button>
           )}
