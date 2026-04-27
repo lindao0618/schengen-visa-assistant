@@ -18,7 +18,7 @@ export function resolveApplicantPreviewMode(filename: string, mime: string): Pre
   if (/\.(docx|doc)$/.test(lowerName) || lowerMime.includes("wordprocessingml")) {
     return "word"
   }
-  if (lowerMime.startsWith("image/")) {
+  if (lowerMime.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(lowerName)) {
     return "image"
   }
   if (/\.(pdf)$/.test(lowerName) || lowerMime.includes("pdf")) {

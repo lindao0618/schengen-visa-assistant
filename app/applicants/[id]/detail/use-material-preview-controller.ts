@@ -18,6 +18,7 @@ import {
   excelColumnMinWidthClass,
   extractExcelSheetRows,
   parseUsVisaExcelPreviewSections,
+  resolveApplicantPreviewMode,
   updateExcelPreviewCell,
 } from "./material-preview"
 import { emptyPreview } from "./types"
@@ -238,8 +239,9 @@ export function useMaterialPreviewController({
       try {
         const fileHref = `/api/applicants/${applicantId}/files/${slot}`
         const filename = (meta.originalName || slot).toLowerCase()
-        if (filename.endsWith(".pdf")) {
-          setPreview((prev) => ({ ...prev, loading: false, kind: "pdf", objectUrl: fileHref }))
+        const previewMode = resolveApplicantPreviewMode(filename, "")
+        if (previewMode === "pdf" || previewMode === "image") {
+          setPreview((prev) => ({ ...prev, loading: false, kind: previewMode, objectUrl: fileHref }))
           return
         }
         const response = await fetch(fileHref, { credentials: "include" })

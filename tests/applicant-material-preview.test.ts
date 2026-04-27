@@ -27,6 +27,7 @@ test("resolveApplicantPreviewMode 识别 Word、Excel 和图片", () => {
     "excel",
   )
   assert.equal(resolveApplicantPreviewMode("face.png", "image/png"), "image")
+  assert.equal(resolveApplicantPreviewMode("passport-photo.jpg", ""), "image")
   assert.equal(resolveApplicantPreviewMode("note.txt", "text/plain"), "text")
 })
 

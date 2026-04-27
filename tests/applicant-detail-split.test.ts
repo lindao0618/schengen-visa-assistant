@@ -27,3 +27,16 @@ test("applicant detail client keeps heavy page concerns in focused modules", () 
   assert.doesNotMatch(source, /URL\.createObjectURL/)
   assert.doesNotMatch(source, /excelColumnMinWidthClass/)
 })
+
+test("material preview controller uses direct URLs for browser-native previews", () => {
+  const source = readSource("app/applicants/[id]/detail/use-material-preview-controller.ts")
+
+  const modeIndex = source.indexOf("resolveApplicantPreviewMode")
+  const fetchIndex = source.indexOf("fetch(fileHref")
+
+  assert.notEqual(modeIndex, -1)
+  assert.notEqual(fetchIndex, -1)
+  assert.ok(modeIndex < fetchIndex)
+  assert.match(source, /previewMode === "pdf"/)
+  assert.match(source, /previewMode === "image"/)
+})
