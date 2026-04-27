@@ -173,3 +173,10 @@ export function updateExcelPreviewCell(
     excelDirty: true,
   }
 }
+
+export function excelColumnMinWidthClass(cellIndex: number) {
+  if (cellIndex === 0) return "min-w-[min(22rem,34vw)]"
+  if (cellIndex === 1) return "min-w-[min(15rem,24vw)]"
+  if (cellIndex === 2) return "min-w-[min(12rem,20vw)]"
+  return "min-w-[7rem]"
+}

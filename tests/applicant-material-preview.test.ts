@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 
 import {
   cloneTableRows,
+  excelColumnMinWidthClass,
   getInitialExcelSheetName,
   parseUsVisaExcelPreviewSections,
   resolveApplicantPreviewMode,
@@ -89,4 +90,11 @@ test("updateExcelPreviewCell 忽略非 Excel 预览", () => {
   const prev = { ...emptyPreview, kind: "text" as const }
 
   assert.equal(updateExcelPreviewCell(prev, 0, 0, "不会写入"), prev)
+})
+
+test("excelColumnMinWidthClass 返回材料预览表格列宽", () => {
+  assert.equal(excelColumnMinWidthClass(0), "min-w-[min(22rem,34vw)]")
+  assert.equal(excelColumnMinWidthClass(1), "min-w-[min(15rem,24vw)]")
+  assert.equal(excelColumnMinWidthClass(2), "min-w-[min(12rem,20vw)]")
+  assert.equal(excelColumnMinWidthClass(3), "min-w-[7rem]")
 })
