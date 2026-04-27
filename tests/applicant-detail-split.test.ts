@@ -74,11 +74,31 @@ test("cases detail tab keeps list and form logic in focused modules", () => {
   assert.match(listSource, /getApplicantCrmVisaTypeLabel/)
 
   assert.match(formSource, /function CaseDetailForm/)
-  assert.match(formSource, /function BookingWindowRangeField/)
-  assert.match(formSource, /function SlotTimeField/)
-  assert.match(formSource, /SLOT_TIME_OPTIONS/)
+  assert.match(formSource, /case-date-fields/)
   assert.match(formSource, /deriveApplicantCaseTypeFromVisaType/)
   assert.match(formSource, /onSaveCase/)
+})
+
+test("case date and slot fields are shared by create and edit forms", () => {
+  const sharedSource = readSource("app/applicants/[id]/detail/case-date-fields.tsx")
+  const createDialogSource = readSource("app/applicants/[id]/detail/create-case-dialog.tsx")
+  const formSource = readSource("app/applicants/[id]/detail/case-detail-form.tsx")
+
+  assert.match(sharedSource, /function BookingWindowRangeField/)
+  assert.match(sharedSource, /function SlotTimeField/)
+  assert.match(sharedSource, /SLOT_TIME_OPTIONS/)
+  assert.match(sharedSource, /splitBookingWindow/)
+  assert.match(sharedSource, /mergeDateTimeLocal/)
+
+  assert.match(createDialogSource, /case-date-fields/)
+  assert.doesNotMatch(createDialogSource, /function BookingWindowRangeField/)
+  assert.doesNotMatch(createDialogSource, /function SlotTimeField/)
+  assert.doesNotMatch(createDialogSource, /SLOT_TIME_OPTIONS/)
+
+  assert.match(formSource, /case-date-fields/)
+  assert.doesNotMatch(formSource, /function BookingWindowRangeField/)
+  assert.doesNotMatch(formSource, /function SlotTimeField/)
+  assert.doesNotMatch(formSource, /SLOT_TIME_OPTIONS/)
 })
 
 test("material preview controller uses direct URLs for browser-native previews", () => {
