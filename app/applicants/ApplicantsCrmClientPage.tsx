@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react"
+import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
@@ -90,9 +91,13 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Textarea } from "@/components/ui/textarea"
+import type { CreateApplicantForm } from "@/app/applicants/create-applicant-dialog"
+
+const CreateApplicantDialog = dynamic(
+  () => import("@/app/applicants/create-applicant-dialog").then((module) => module.CreateApplicantDialog),
+  { ssr: false },
+)
 
 type ApplicantCrmStatusOption = {
   value: string
@@ -160,21 +165,6 @@ type ApplicantsAssigneesResponse = {
     role: string
   }>
   error?: string
-}
-
-type CreateApplicantForm = {
-  name: string
-  phone: string
-  email: string
-  wechat: string
-  passportNumber: string
-  note: string
-  createFirstCase: boolean
-  visaTypes: string[]
-  applyRegion: string
-  priority: string
-  travelDate: string
-  assignedToUserId: string
 }
 
 type FilterTone = "visa" | "status" | "region" | "priority"
@@ -338,13 +328,6 @@ function getApplicantCrmStatusLabel(statusKey: string, fallbackLabel?: string) {
 
 function toggleValue(list: string[], value: string) {
   return list.includes(value) ? list.filter((item) => item !== value) : [...list, value]
-}
-
-function toggleVisaTypeSelection(list: string[], value: string) {
-  if (list.includes(value)) {
-    return list.filter((item) => item !== value)
-  }
-  return [...list, value]
 }
 
 function matchesQuickView(row: ApplicantCrmRow, quickView: QuickView, currentUserId?: string) {
@@ -1495,215 +1478,19 @@ export default function ApplicantsCrmClientPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>{"\u65b0\u5efa\u7533\u8bf7\u4eba"}</DialogTitle>
-            <DialogDescription>{"\u5148\u5efa\u7acb\u7533\u8bf7\u4eba\u6863\u6848\u3002\u5982\u679c\u9700\u8981\uff0c\u53ef\u4ee5\u540c\u65f6\u4e3a\u540c\u4e00\u7533\u8bf7\u4eba\u521b\u5efa\u4e00\u4e2a\u6216\u591a\u4e2a Case\u3002"}</DialogDescription>
-          </DialogHeader>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2 md:col-span-2">
-              <Label>{"\u59d3\u540d"}</Label>
-              <Input
-                value={createForm.name}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, name: event.target.value }))}
-                placeholder={"\u4f8b\u5982\uff1a\u674e\u5c1a\u8015"}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{"\u624b\u673a\u53f7"}</Label>
-              <Input
-                value={createForm.phone}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, phone: event.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{"\u90ae\u7bb1"}</Label>
-              <Input
-                value={createForm.email}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, email: event.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{"\u5fae\u4fe1"}</Label>
-              <Input
-                value={createForm.wechat}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, wechat: event.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{"\u62a4\u7167\u53f7"}</Label>
-              <Input
-                value={createForm.passportNumber}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, passportNumber: event.target.value }))}
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label>{"\u5907\u6ce8"}</Label>
-              <Textarea
-                value={createForm.note}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, note: event.target.value }))}
-                rows={4}
-              />
-            </div>
-            <div className="space-y-4 rounded-2xl border border-gray-200 bg-gray-50/80 p-4 md:col-span-2">
-              <label className="flex items-start gap-3 text-sm text-gray-700">
-                <input
-                  type="checkbox"
-                  className="mt-1 h-4 w-4 rounded border-gray-300"
-                  checked={createForm.createFirstCase}
-                  onChange={(event) =>
-                    setCreateForm((prev) => ({
-                      ...prev,
-                      createFirstCase: event.target.checked,
-                    }))
-                  }
-                />
-                <span>
-                  <span className="block font-medium text-gray-900">{"\u521b\u5efa\u540e\u7acb\u5373\u5efa\u7acb\u6848\u4ef6"}</span>
-                  <span className="mt-1 block text-xs text-gray-500">
-                    {"\u5efa\u6863\u540e\u53ef\u4ee5\u7acb\u5373\u8fdb\u5165\u529e\u7406\u6d41\u7a0b\u3002\u53ef\u540c\u65f6\u9009\u62e9\u591a\u4e2a\u7b7e\u8bc1\u7c7b\u578b\uff0c\u7cfb\u7edf\u4f1a\u4e3a\u540c\u4e00\u7533\u8bf7\u4eba\u521b\u5efa\u591a\u4e2a Case\u3002"}
-                </span>
-                </span>
-              </label>
-
-              {createForm.createFirstCase ? (
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-3">
-                    <Label>{"\u7b7e\u8bc1\u7c7b\u578b"}</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {CRM_VISA_TYPE_OPTIONS.map((option) => {
-                        const active = createForm.visaTypes.includes(option.value)
-                        return (
-                          <button
-                            key={`${option.value}-create-case`}
-                            type="button"
-                            onClick={() =>
-                              setCreateForm((prev) => ({
-                                ...prev,
-                                visaTypes: toggleVisaTypeSelection(prev.visaTypes, option.value),
-                              }))
-                            }
-                            className={cn(
-                              "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-all",
-                              active
-                                ? "border-blue-700 bg-blue-700 text-white shadow-sm shadow-blue-200"
-                                : "border-blue-100 bg-blue-50/70 text-blue-900 hover:border-blue-300 hover:bg-blue-100",
-                            )}
-                          >
-                            <span className={cn("h-2 w-2 rounded-full", active ? "bg-white/90" : "bg-blue-400")} />
-                            {option.label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                    <p className="text-xs text-gray-500">{"\u53ef\u540c\u65f6\u52fe\u9009\u591a\u4e2a\u7b7e\u8bc1\u7c7b\u578b\uff0c\u7cfb\u7edf\u4f1a\u81ea\u52a8\u4e3a\u540c\u4e00\u7533\u8bf7\u4eba\u521b\u5efa\u591a\u4e2a\u6848\u4ef6\u3002"}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{"\u5730\u533a"}</Label>
-                    <Select
-                      value={createForm.applyRegion}
-                      onValueChange={(value) =>
-                        setCreateForm((prev) => ({
-                          ...prev,
-                          applyRegion: value,
-                        }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={"\u9009\u62e9\u5730\u533a"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CRM_REGION_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{"\u4f18\u5148\u7ea7"}</Label>
-                    <Select
-                      value={createForm.priority}
-                      onValueChange={(value) =>
-                        setCreateForm((prev) => ({
-                          ...prev,
-                          priority: value,
-                        }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={"\u9009\u62e9\u4f18\u5148\u7ea7"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CRM_PRIORITY_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{"\u51fa\u884c\u65f6\u95f4"}</Label>
-                    <Input
-                      type="date"
-                      value={createForm.travelDate}
-                      onChange={(event) =>
-                        setCreateForm((prev) => ({
-                          ...prev,
-                          travelDate: event.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                  {canAssign ? (
-                    <div className="space-y-2 md:col-span-2">
-                      <Label>{"\u5206\u914d\u7ed9\u8c01"}</Label>
-                      <Select
-                        disabled={assigneesLoading}
-                        value={createForm.assignedToUserId || "__unset__"}
-                        onValueChange={(value) =>
-                          setCreateForm((prev) => ({
-                            ...prev,
-                            assignedToUserId: value === "__unset__" ? "" : value,
-                          }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={"\u6682\u4e0d\u5206\u914d"} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__unset__">{"\u6682\u4e0d\u5206\u914d"}</SelectItem>
-                          {availableAssignees.map((option) => (
-                            <SelectItem key={option.id} value={option.id}>
-                              {(option.name || option.email) + ` (${getAppRoleLabel(option.role)})`}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {assigneesLoading ? (
-                        <p className="text-xs text-gray-500">{"\u6b63\u5728\u52a0\u8f7d\u53ef\u5206\u914d\u6210\u5458\u2026"}</p>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
-                {"\u53d6\u6d88"}
-            </Button>
-            <Button onClick={() => void createApplicant()} disabled={creating}>
-              {creating ? "\u521b\u5efa\u4e2d..." : "\u521b\u5efa\u5e76\u8fdb\u5165\u8be6\u60c5"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {createDialogOpen ? (
+        <CreateApplicantDialog
+          open={createDialogOpen}
+          onOpenChange={setCreateDialogOpen}
+          createForm={createForm}
+          setCreateForm={setCreateForm}
+          canAssign={canAssign}
+          assigneesLoading={assigneesLoading}
+          availableAssignees={availableAssignees}
+          creating={creating}
+          onCreateApplicant={() => void createApplicant()}
+        />
+      ) : null}
     </div>
   )
 }
