@@ -23,6 +23,21 @@ const adminPages = [
     client: "app/admin/tasks/AdminTasksClientPage.tsx",
     importPath: "./AdminTasksClientPage",
   },
+  {
+    route: "app/admin/documents/page.tsx",
+    client: "app/admin/documents/AdminDocumentsClientPage.tsx",
+    importPath: "./AdminDocumentsClientPage",
+  },
+  {
+    route: "app/admin/france-cases/page.tsx",
+    client: "app/admin/france-cases/AdminFranceCasesClientPage.tsx",
+    importPath: "./AdminFranceCasesClientPage",
+  },
+  {
+    route: "app/admin/usa-cases/page.tsx",
+    client: "app/admin/usa-cases/AdminUsaCasesClientPage.tsx",
+    importPath: "./AdminUsaCasesClientPage",
+  },
 ]
 
 for (const page of adminPages) {
