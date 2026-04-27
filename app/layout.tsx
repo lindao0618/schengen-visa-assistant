@@ -1,9 +1,8 @@
 import type React from "react"
 import { Inter } from "next/font/google"
 import { NavBar } from "@/components/nav-bar"
-import { ThemeProvider } from "@/components/theme-provider"
 import { Providers } from "@/components/providers"
-import { Toaster } from "@/components/ui/sonner";
+import { LazyToaster } from "@/components/lazy-toaster"
 import "./globals.css"
 
 const inter = Inter({
@@ -27,15 +26,13 @@ export default function RootLayout({
       </head>
       <body className={`${inter.className} min-h-screen bg-white text-gray-900 antialiased overflow-x-hidden`}>
         <Providers>
-          <ThemeProvider>
           <div className="relative flex min-h-screen flex-col">
             <NavBar />
             <main className="flex-1">
               {children}
             </main>
           </div>
-          <Toaster richColors closeButton />
-          </ThemeProvider>
+          <LazyToaster richColors closeButton />
         </Providers>
       </body>
     </html>
