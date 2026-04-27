@@ -53,3 +53,24 @@ test("applicant CRM list limits nested cases unless full case payload is needed"
   assert.equal(getApplicantCrmCaseListTakeLimit({ includeStats: true }), undefined)
   assert.equal(getApplicantCrmCaseListTakeLimit({ includeSelectorCases: true }), undefined)
 })
+
+test("applicant CRM list query parses optional pagination", () => {
+  const filters = buildApplicantCrmFiltersFromSearchParams(new URLSearchParams("limit=25&offset=50"))
+
+  assert.equal(filters.limit, 25)
+  assert.equal(filters.offset, 50)
+})
+
+test("applicant CRM list query clamps unsafe pagination values", () => {
+  const filters = buildApplicantCrmFiltersFromSearchParams(new URLSearchParams("limit=999&offset=-10"))
+
+  assert.equal(filters.limit, 200)
+  assert.equal(filters.offset, 0)
+})
+
+test("applicant CRM list query ignores pagination without a valid limit", () => {
+  const filters = buildApplicantCrmFiltersFromSearchParams(new URLSearchParams("limit=0&offset=20"))
+
+  assert.equal(filters.limit, undefined)
+  assert.equal(filters.offset, undefined)
+})

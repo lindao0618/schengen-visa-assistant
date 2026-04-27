@@ -166,6 +166,8 @@ export interface ApplicantCrmFilters {
   includeProfiles?: boolean
   includeProfileFiles?: boolean
   includeAvailableAssignees?: boolean
+  limit?: number
+  offset?: number
 }
 
 export interface ApplicantCrmRow {
@@ -202,6 +204,13 @@ export interface ApplicantCrmStats {
   activeCaseCount: number
   exceptionCaseCount: number
   updatedLast7DaysCount: number
+}
+
+export interface ApplicantCrmPagination {
+  totalRows: number
+  limit: number
+  offset: number
+  hasMore: boolean
 }
 
 export interface ApplicantCaseSummary {
@@ -741,6 +750,8 @@ export async function listApplicantCrmData(
   const includeProfiles = Boolean(filters.includeProfiles)
   const includeProfileFiles = Boolean(filters.includeProfileFiles)
   const includeAvailableAssignees = Boolean(filters.includeAvailableAssignees)
+  const pageLimit = typeof filters.limit === "number" && filters.limit > 0 ? filters.limit : undefined
+  const pageOffset = pageLimit && typeof filters.offset === "number" && filters.offset > 0 ? filters.offset : 0
   const caseListTakeLimit = getApplicantCrmCaseListTakeLimit({ includeStats, includeSelectorCases })
 
   const applicants = await prisma.applicantProfile.findMany({
@@ -784,6 +795,15 @@ export async function listApplicantCrmData(
     if (!matchesArrayFilter(row.priority, priorities)) return false
     return true
   })
+  const paginatedRows = pageLimit ? filteredRows.slice(pageOffset, pageOffset + pageLimit) : filteredRows
+  const pagination: ApplicantCrmPagination | undefined = pageLimit
+    ? {
+        totalRows: filteredRows.length,
+        limit: pageLimit,
+        offset: pageOffset,
+        hasMore: pageOffset + pageLimit < filteredRows.length,
+      }
+    : undefined
 
   const profiles = includeProfiles
     ? includeProfileFiles
@@ -814,7 +834,8 @@ export async function listApplicantCrmData(
 
   return {
     profiles,
-    rows: filteredRows,
+    rows: paginatedRows,
+    pagination,
     stats,
     filterOptions,
     availableAssignees,
