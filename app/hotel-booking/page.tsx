@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { HotelBookingForm } from "./HotelBookingForm"
+import { HotelBookingFormLoader } from "./HotelBookingFormLoader"
 
 export const metadata: Metadata = {
   title: "酒店自动预订 | Booking.com",
@@ -15,7 +15,7 @@ export default function HotelBookingPage() {
           自动在 Booking.com 登录、搜索城市酒店、筛选无需预付款房型、填写入住人信息并完成预订，最终输出预订确认单。
         </p>
       </div>
-      <HotelBookingForm />
+      <HotelBookingFormLoader />
     </div>
   )
 }

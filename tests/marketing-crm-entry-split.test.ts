@@ -77,6 +77,27 @@ for (const page of publicLazyPages) {
   })
 }
 
+test("hotel booking route lazy-loads its booking form", () => {
+  const pageSource = readSource("app/hotel-booking/page.tsx")
+  const loaderSource = readSource("app/hotel-booking/HotelBookingFormLoader.tsx")
+
+  assert.match(pageSource, /HotelBookingFormLoader/)
+  assert.doesNotMatch(pageSource, /import \{ HotelBookingForm \} from ["']\.\/HotelBookingForm["']/)
+  assert.match(loaderSource, /"use client"/)
+  assert.match(loaderSource, /dynamic\(/)
+  assert.match(loaderSource, /import\(["']\.\/HotelBookingForm["']\)/)
+})
+
+test("services hotel booking route renders as a server-only static page", () => {
+  const source = readSource("app/services/hotel-booking/page.tsx")
+
+  assert.doesNotMatch(source, /"use client"/)
+  assert.doesNotMatch(source, /components\/ui\//)
+  assert.doesNotMatch(source, /lucide-react/)
+  assert.ok(source.includes("Booking.com"))
+  assert.ok(source.includes("/material-customization"))
+})
+
 test("apply route lazy-loads its heavy client page", () => {
   const source = readSource("app/apply/page.tsx")
 
