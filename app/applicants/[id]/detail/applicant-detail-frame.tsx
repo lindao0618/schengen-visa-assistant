@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react"
 import Link from "next/link"
-import { ArrowLeft, BriefcaseBusiness, FileText, RefreshCw, ShieldCheck, Trash2 } from "lucide-react"
+import { ArrowLeft, BriefcaseBusiness, FileText, History, RefreshCw, ShieldCheck, Trash2, UserRound } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -11,6 +11,33 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getAppRoleLabel } from "@/lib/access-control"
 
 import type { ApplicantDetailTab } from "./types"
+
+const APPLICANT_DETAIL_TABS: Array<{
+  value: ApplicantDetailTab
+  label: string
+  helper: string
+}> = [
+  {
+    value: "basic",
+    label: "基础信息",
+    helper: "客户资料与签证基础字段",
+  },
+  {
+    value: "cases",
+    label: "签证 Case",
+    helper: "状态、预约与指派",
+  },
+  {
+    value: "materials",
+    label: "材料文档",
+    helper: "上传、预览与归档",
+  },
+  {
+    value: "progress",
+    label: "进度与日志",
+    helper: "状态流转和提醒记录",
+  },
+]
 
 type ApplicantDetailFrameProps = {
   children: ReactNode
@@ -145,11 +172,17 @@ export function ApplicantDetailFrame({
         ) : null}
 
         <Tabs key={defaultTab} value={activeTab} onValueChange={onTabChange} className="space-y-5">
-          <TabsList className="grid h-auto w-full grid-cols-4 rounded-2xl border border-slate-200 bg-white/90 p-1.5 shadow-sm backdrop-blur">
-            <ApplicantTabTrigger value="basic" label="档案" />
-            <ApplicantTabTrigger value="cases" label="Case" />
-            <ApplicantTabTrigger value="materials" label="材料" />
-            <ApplicantTabTrigger value="progress" label="进度" />
+          <TabsList className="sticky top-[72px] z-10 grid h-auto w-full grid-cols-2 gap-2 rounded-[1.5rem] border border-slate-200 bg-white/95 p-2 shadow-lg shadow-slate-200/60 backdrop-blur lg:grid-cols-4">
+            {APPLICANT_DETAIL_TABS.map((tab) => (
+              <ApplicantTabTrigger
+                key={tab.value}
+                value={tab.value}
+                label={tab.label}
+                helper={tab.helper}
+                icon={getApplicantTabIcon(tab.value)}
+                count={getApplicantTabCount(tab.value, caseCount, materialCount)}
+              />
+            ))}
           </TabsList>
 
           {children}
@@ -159,13 +192,54 @@ export function ApplicantDetailFrame({
   )
 }
 
-function ApplicantTabTrigger({ value, label }: { value: ApplicantDetailTab; label: string }) {
+function getApplicantTabIcon(value: ApplicantDetailTab) {
+  if (value === "basic") return <UserRound className="h-4 w-4" />
+  if (value === "cases") return <BriefcaseBusiness className="h-4 w-4" />
+  if (value === "materials") return <FileText className="h-4 w-4" />
+  return <History className="h-4 w-4" />
+}
+
+function getApplicantTabCount(value: ApplicantDetailTab, caseCount: number, materialCount: number) {
+  if (value === "cases") return `${caseCount} 个`
+  if (value === "materials") return `${materialCount} 份`
+  if (value === "progress") return "日志"
+  return "CRM"
+}
+
+function ApplicantTabTrigger({
+  value,
+  label,
+  helper,
+  icon,
+  count,
+}: {
+  value: ApplicantDetailTab
+  label: string
+  helper: string
+  icon: ReactNode
+  count: string
+}) {
   return (
     <TabsTrigger
       value={value}
-      className="h-11 w-full rounded-xl border border-transparent bg-transparent text-sm font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 data-[state=active]:!border-slate-300 data-[state=active]:!bg-white data-[state=active]:!text-slate-950 data-[state=active]:shadow-sm"
+      className="group h-auto min-h-[76px] w-full items-stretch justify-start rounded-2xl border border-transparent bg-transparent px-3 py-3 text-left transition hover:bg-slate-50 hover:text-slate-700 data-[state=active]:!border-slate-300 data-[state=active]:!bg-slate-950 data-[state=active]:!text-white data-[state=active]:shadow-lg data-[state=active]:shadow-slate-300/50"
     >
-      {label}
+      <span className="flex w-full items-start justify-between gap-3">
+        <span className="flex min-w-0 gap-3">
+          <span className="mt-0.5 rounded-xl bg-slate-100 p-2 text-slate-600 transition group-data-[state=active]:bg-white/15 group-data-[state=active]:text-white">
+            {icon}
+          </span>
+          <span className="min-w-0 space-y-1">
+            <span className="block truncate text-sm font-semibold">{label}</span>
+            <span className="block truncate text-xs font-normal text-slate-500 group-data-[state=active]:text-white/70">
+              {helper}
+            </span>
+          </span>
+        </span>
+        <span className="shrink-0 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-500 group-data-[state=active]:border-white/20 group-data-[state=active]:bg-white/10 group-data-[state=active]:text-white">
+          {count}
+        </span>
+      </span>
     </TabsTrigger>
   )
 }

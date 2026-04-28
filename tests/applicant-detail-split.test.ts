@@ -96,6 +96,17 @@ test("applicant detail shared form chrome is scan-friendly", () => {
   assert.match(basicSource, /min-h-\[132px\]/)
 })
 
+test("applicant detail frame exposes a sticky stage navigation rail", () => {
+  const frameSource = readSource("app/applicants/[id]/detail/applicant-detail-frame.tsx")
+
+  assert.match(frameSource, /APPLICANT_DETAIL_TABS/)
+  assert.match(frameSource, /sticky top-\[72px\]/)
+  assert.match(frameSource, /签证 Case/)
+  assert.match(frameSource, /材料文档/)
+  assert.match(frameSource, /进度与日志/)
+  assert.match(frameSource, /count/)
+})
+
 test("cases detail tab keeps list and form logic in focused modules", () => {
   const tabSource = readSource("app/applicants/[id]/detail/cases-tab-content.tsx")
   const listSource = readSource("app/applicants/[id]/detail/case-list-panel.tsx")
