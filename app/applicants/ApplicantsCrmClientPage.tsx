@@ -10,18 +10,9 @@ import {
   useState,
 } from "react"
 import dynamic from "next/dynamic"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
-import {
-  FolderPlus,
-  RefreshCw,
-  Shield,
-  Trash2,
-  UserPlus,
-} from "lucide-react"
 
-import { cn } from "@/lib/utils"
 import {
   APPLICANT_CRM_ASSIGNEES_CACHE_TTL_MS,
   APPLICANT_CRM_SUMMARY_CACHE_PREFIX,
@@ -55,7 +46,6 @@ import {
   getAppRoleLabel,
   normalizeAppRole,
 } from "@/lib/access-control"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -69,7 +59,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import type { CreateApplicantForm } from "@/app/applicants/create-applicant-dialog"
+import { ApplicantCrmBatchToolbar } from "@/app/applicants/applicant-crm-batch-toolbar"
 import { ApplicantCrmDashboardPanel } from "@/app/applicants/applicant-crm-dashboard-panel"
+import { ApplicantCrmPageHeader } from "@/app/applicants/applicant-crm-page-header"
 import { ApplicantCrmRowsTable } from "@/app/applicants/applicant-crm-rows-table"
 import {
   APPLICANT_CRM_PAGE_SIZE,
@@ -667,46 +659,16 @@ export default function ApplicantsCrmClientPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white px-4 py-8">
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
-                {"\u5458\u5de5\u5de5\u4f5c\u53f0"}
-              </Badge>
-              {canReadAll && (
-                <Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-700">
-                  {`${getAppRoleLabel(viewerRole)}视角可查看团队数据`}
-                </Badge>
-              )}
-            </div>
-            <div className="space-y-1">
-              <h1 className="text-3xl font-semibold text-gray-900">{"\u7533\u8bf7\u4eba CRM \u5de5\u4f5c\u53f0"}</h1>
-              <p className="text-sm text-gray-500">
-                {"\u5728\u8fd9\u91cc\u8ddf\u8fdb\u7533\u8bf7\u4eba\u3001\u6848\u4ef6\u3001\u6750\u6599\u4e0e\u81ea\u52a8\u5316\u6d41\u7a0b\uff1b\u8001\u677f\u548c\u4e3b\u7ba1\u53ef\u4ece\u540e\u53f0\u67e5\u770b\u5168\u5c40\u6570\u636e\u4e0e\u5f02\u5e38\u3002"}
-              </p>
-          </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {canOpenAdmin && (
-              <Button variant="outline" asChild>
-                <Link href="/admin">
-                  <Shield className="mr-2 h-4 w-4" />
-                  {"\u7ba1\u7406\u540e\u53f0"}
-                </Link>
-              </Button>
-            )}
-            <Button variant="outline" onClick={refreshCrmDashboard} disabled={refreshing || summaryLoading}>
-              <RefreshCw className={cn("mr-2 h-4 w-4", (refreshing || summaryLoading) && "animate-spin")} />
-              {"\u5237\u65b0\u6570\u636e"}
-            </Button>
-            {canEditApplicants ? (
-              <Button onClick={() => setCreateDialogOpen(true)}>
-                <UserPlus className="mr-2 h-4 w-4" />
-                {"\u65b0\u5efa\u7533\u8bf7\u4eba"}
-              </Button>
-            ) : null}
-          </div>
-        </div>
+        <ApplicantCrmPageHeader
+          canOpenAdmin={canOpenAdmin}
+          canReadAll={canReadAll}
+          canEditApplicants={canEditApplicants}
+          viewerRoleLabel={getAppRoleLabel(viewerRole)}
+          refreshing={refreshing}
+          summaryLoading={summaryLoading}
+          onRefresh={refreshCrmDashboard}
+          onCreateApplicant={() => setCreateDialogOpen(true)}
+        />
 
         {message && (
           <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
@@ -751,32 +713,16 @@ export default function ApplicantsCrmClientPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {canEditApplicants && selectedApplicantIds.length > 0 && (
-              <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-blue-100 bg-blue-50/80 p-4 lg:flex-row lg:items-center lg:justify-between">
-                <div className="space-y-1">
-                  <div className="text-sm font-semibold text-blue-900">已选中 {selectedApplicantIds.length} 位申请人</div>
-                  <div className="text-xs text-blue-700">可以直接设置分组、清空分组，或批量删除。</div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" onClick={openSetGroupDialog} disabled={batchActionLoading}>
-                    <FolderPlus className="mr-2 h-4 w-4" />
-                    设置分组
-                  </Button>
-                  <Button type="button" variant="outline" onClick={clearGroupForSelected} disabled={batchActionLoading}>
-                    清空分组
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    onClick={() => setBatchActionMode("delete")}
-                    disabled={batchActionLoading}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    批量删除
-                  </Button>
-                </div>
-              </div>
-            )}
+            {canEditApplicants ? (
+              <ApplicantCrmBatchToolbar
+                selectedCount={selectedApplicantIds.length}
+                batchActionLoading={batchActionLoading}
+                onSetGroup={openSetGroupDialog}
+                onClearGroup={clearGroupForSelected}
+                onDelete={() => setBatchActionMode("delete")}
+                onClearSelection={() => setSelectedApplicantIds([])}
+              />
+            ) : null}
             {loading ? (
               <div className="flex h-48 items-center justify-center">
                 <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-gray-900" />
