@@ -40,6 +40,24 @@ test("applicant material section owns material-only hooks and dialogs", () => {
   assert.match(source, /AuditDialog/)
 })
 
+test("materials tab keeps upload grids and overview chrome in focused modules", () => {
+  const tabSource = readSource("app/applicants/[id]/detail/materials-tab.tsx")
+  const gridSource = readSource("app/applicants/[id]/detail/material-upload-grid.tsx")
+  const overviewSource = readSource("app/applicants/[id]/detail/materials-overview-bar.tsx")
+
+  assert.match(tabSource, /MaterialsOverviewBar/)
+  assert.match(tabSource, /UploadGrid/)
+  assert.doesNotMatch(tabSource, /function UploadGrid/)
+  assert.match(gridSource, /export function UploadGrid/)
+  assert.match(gridSource, /usVisaUploadedSlots/)
+  assert.match(gridSource, /schengenSubmissionSlots/)
+  assert.match(overviewSource, /sticky/)
+  assert.match(overviewSource, /已归档/)
+  assert.match(overviewSource, /美签/)
+  assert.match(overviewSource, /申根/)
+  assert.match(overviewSource, /自动化/)
+})
+
 test("basic detail tab defers full intake accordion logic", () => {
   const basicSource = readSource("app/applicants/[id]/detail/basic-tab-content.tsx")
   const intakeSource = readSource("app/applicants/[id]/detail/parsed-intake-accordion.tsx")
