@@ -8,30 +8,35 @@ function readSource(path: string) {
 }
 
 test("applicant CRM list loads applicants in server-side pages", () => {
-  const source = readSource("app/applicants/ApplicantsCrmClientPage.tsx")
+  const pageSource = readSource("app/applicants/ApplicantsCrmClientPage.tsx")
+  const listPanelSource = readSource("app/applicants/applicant-crm-list-panel.tsx")
 
-  assert.match(source, /APPLICANT_CRM_PAGE_SIZE/)
-  assert.match(source, /const \[pagination, setPagination\] = useState/)
-  assert.match(source, /buildApplicantCrmListSearchParams/)
-  assert.match(source, /loadMoreApplicants/)
-  assert.doesNotMatch(source, /displayRows\.slice\(0, visibleRowLimit\)/)
-  assert.match(source, /visibleRows\.map\(\(row\) =>/)
-  assert.match(source, /加载更多申请人/)
+  assert.match(pageSource, /APPLICANT_CRM_PAGE_SIZE/)
+  assert.match(pageSource, /const \[pagination, setPagination\] = useState/)
+  assert.match(pageSource, /buildApplicantCrmListSearchParams/)
+  assert.match(pageSource, /loadMoreApplicants/)
+  assert.match(pageSource, /ApplicantCrmListPanel/)
+  assert.doesNotMatch(pageSource, /displayRows\.slice\(0, visibleRowLimit\)/)
+  assert.match(pageSource, /visibleRows\.map\(\(row\) =>/)
+  assert.match(listPanelSource, /加载更多申请人/)
 })
 
 test("applicant CRM selection applies to currently rendered rows", () => {
-  const source = readSource("app/applicants/ApplicantsCrmClientPage.tsx")
+  const pageSource = readSource("app/applicants/ApplicantsCrmClientPage.tsx")
+  const listPanelSource = readSource("app/applicants/applicant-crm-list-panel.tsx")
 
-  assert.match(source, /displayRowIds = useMemo\(\(\) => visibleRows\.map\(\(row\) => row\.id\), \[visibleRows\]\)/)
-  assert.match(source, /当前显示/)
-  assert.doesNotMatch(source, /displayRows\.map\(\(row\) =>/)
+  assert.match(pageSource, /displayRowIds = useMemo\(\(\) => visibleRows\.map\(\(row\) => row\.id\), \[visibleRows\]\)/)
+  assert.match(listPanelSource, /当前显示/)
+  assert.doesNotMatch(pageSource, /displayRows\.map\(\(row\) =>/)
 })
 
 test("applicant CRM table rendering lives in a memoized focused component", () => {
   const pageSource = readSource("app/applicants/ApplicantsCrmClientPage.tsx")
+  const listPanelSource = readSource("app/applicants/applicant-crm-list-panel.tsx")
   const tableSource = readSource("app/applicants/applicant-crm-rows-table.tsx")
 
-  assert.match(pageSource, /ApplicantCrmRowsTable/)
+  assert.doesNotMatch(pageSource, /ApplicantCrmRowsTable/)
+  assert.match(listPanelSource, /ApplicantCrmRowsTable/)
   assert.doesNotMatch(pageSource, /import \{ Table/)
   assert.doesNotMatch(pageSource, /visibleRows\.map\(\(row\) => \(/)
   assert.match(tableSource, /memo\(function ApplicantCrmRowsTable/)

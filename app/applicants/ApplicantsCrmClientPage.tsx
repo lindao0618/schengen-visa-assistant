@@ -47,7 +47,6 @@ import {
   normalizeAppRole,
 } from "@/lib/access-control"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -59,10 +58,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import type { CreateApplicantForm } from "@/app/applicants/create-applicant-dialog"
-import { ApplicantCrmBatchToolbar } from "@/app/applicants/applicant-crm-batch-toolbar"
 import { ApplicantCrmDashboardPanel } from "@/app/applicants/applicant-crm-dashboard-panel"
+import { ApplicantCrmListPanel } from "@/app/applicants/applicant-crm-list-panel"
 import { ApplicantCrmPageHeader } from "@/app/applicants/applicant-crm-page-header"
-import { ApplicantCrmRowsTable } from "@/app/applicants/applicant-crm-rows-table"
 import {
   APPLICANT_CRM_PAGE_SIZE,
   buildApplicantCrmListSearchParams,
@@ -523,10 +521,6 @@ export default function ApplicantsCrmClientPage() {
     })
   }
 
-  const showMoreRows = () => {
-    void loadMoreApplicants()
-  }
-
   const resetBatchActionState = () => {
     setBatchActionMode(null)
     setBatchActionLoading(false)
@@ -700,56 +694,29 @@ export default function ApplicantsCrmClientPage() {
           onClearFilters={clearFilters}
         />
 
-        <Card className="border-gray-200 bg-white/90">
-          <CardHeader>
-            <CardTitle>{"\u7533\u8bf7\u4eba\u5217\u8868"}</CardTitle>
-            <CardDescription>
-              {"\u70b9\u51fb\u884c\u6216\u201c\u67e5\u770b\u8be6\u60c5\u201d\u8fdb\u5165\u7533\u8bf7\u4eba\u5de5\u4f5c\u53f0\u3002"}
-              {!loading && displayRows.length > 0 ? (
-                <span className="ml-2 text-gray-400">
-                  当前显示 {visibleRows.length} / {totalDisplayRows} 位
-                </span>
-              ) : null}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {canEditApplicants ? (
-              <ApplicantCrmBatchToolbar
-                selectedCount={selectedApplicantIds.length}
-                batchActionLoading={batchActionLoading}
-                onSetGroup={openSetGroupDialog}
-                onClearGroup={clearGroupForSelected}
-                onDelete={() => setBatchActionMode("delete")}
-                onClearSelection={() => setSelectedApplicantIds([])}
-              />
-            ) : null}
-            {loading ? (
-              <div className="flex h-48 items-center justify-center">
-                <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-gray-900" />
-              </div>
-            ) : (
-              <ApplicantCrmRowsTable
-                rows={visibleRows}
-                selectedApplicantIds={selectedApplicantIds}
-                allVisibleSelected={allVisibleSelected}
-                onToggleAllVisible={toggleSelectAllVisible}
-                onToggleApplicant={toggleApplicantSelection}
-                onOpenApplicant={openApplicantDetail}
-                onPrefetchApplicant={prefetchApplicantDetail}
-              />
-            )}
-            {!loading && hasMoreVisibleRows ? (
-              <div className="mt-4 flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-200 bg-gray-50/80 p-4 text-center">
-                <div className="text-sm text-gray-500">
-                  当前显示 {visibleRows.length} / {totalDisplayRows} 位申请人
-                </div>
-                <Button type="button" variant="outline" onClick={showMoreRows} disabled={loadingMore}>
-                  {loadingMore ? "加载中..." : "加载更多申请人"}
-                </Button>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
+        <ApplicantCrmListPanel
+          rows={visibleRows}
+          selectedApplicantIds={selectedApplicantIds}
+          allVisibleSelected={allVisibleSelected}
+          canEditApplicants={canEditApplicants}
+          loading={loading}
+          loadingMore={loadingMore}
+          hasMoreVisibleRows={hasMoreVisibleRows}
+          totalDisplayRows={totalDisplayRows}
+          hasFilters={hasFilters}
+          batchActionLoading={batchActionLoading}
+          onToggleAllVisible={toggleSelectAllVisible}
+          onToggleApplicant={toggleApplicantSelection}
+          onOpenApplicant={openApplicantDetail}
+          onPrefetchApplicant={prefetchApplicantDetail}
+          onSetGroup={openSetGroupDialog}
+          onClearGroup={clearGroupForSelected}
+          onDelete={() => setBatchActionMode("delete")}
+          onClearSelection={() => setSelectedApplicantIds([])}
+          onLoadMore={() => void loadMoreApplicants()}
+          onClearFilters={clearFilters}
+          onCreateApplicant={() => setCreateDialogOpen(true)}
+        />
       </div>
 
       <Dialog
