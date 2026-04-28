@@ -57,3 +57,13 @@ for (const page of publicPages) {
     assert.match(source, /useState/)
   })
 }
+
+test("app/feedback/page.tsx renders as a server-only feedback hub", () => {
+  const source = readSource("app/feedback/page.tsx")
+
+  assert.doesNotMatch(source, /"use client"/)
+  assert.doesNotMatch(source, /useState/)
+  assert.match(source, /href:\s*"\/material-review"/)
+  assert.match(source, /href:\s*"\/docs\/common-issues"/)
+  assert.match(source, /反馈/)
+})
