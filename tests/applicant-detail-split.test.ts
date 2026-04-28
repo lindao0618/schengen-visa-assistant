@@ -123,6 +123,25 @@ test("applicant detail frame includes a right-side specialist work rail", () => 
   assert.match(railSource, /sticky top-\[184px\]/)
 })
 
+test("applicant detail workspace uses a calm blue-neutral palette", () => {
+  const frameSource = readSource("app/applicants/[id]/detail/applicant-detail-frame.tsx")
+  const railSource = readSource("app/applicants/[id]/detail/applicant-detail-work-rail.tsx")
+  const caseListSource = readSource("app/applicants/[id]/detail/case-list-panel.tsx")
+  const caseCommandSource = readSource("app/applicants/[id]/detail/case-command-bar.tsx")
+  const detailUiSource = readSource("app/applicants/[id]/detail/detail-ui.tsx")
+
+  assert.match(frameSource, /data-\[state=active\]:!bg-\[linear-gradient\(135deg,_#eff6ff,_#ffffff\)\]/)
+  assert.doesNotMatch(frameSource, /data-\[state=active\]:!bg-slate-950/)
+  assert.match(railSource, /bg-\[linear-gradient\(135deg,_#f8fbff,_#eef6ff\)\]/)
+  assert.doesNotMatch(railSource, /bg-slate-950/)
+  assert.doesNotMatch(railSource, /border-amber-200/)
+  assert.match(caseListSource, /border-blue-200/)
+  assert.doesNotMatch(caseListSource, /#f59e0b/)
+  assert.doesNotMatch(caseCommandSource, /bg-amber-500/)
+  assert.match(caseCommandSource, /bg-blue-600/)
+  assert.match(detailUiSource, /rail: "from-blue-500 to-sky-300"/)
+})
+
 test("cases detail tab keeps list and form logic in focused modules", () => {
   const tabSource = readSource("app/applicants/[id]/detail/cases-tab-content.tsx")
   const listSource = readSource("app/applicants/[id]/detail/case-list-panel.tsx")

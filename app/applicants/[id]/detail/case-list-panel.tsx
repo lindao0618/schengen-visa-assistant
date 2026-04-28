@@ -43,8 +43,8 @@ export function CaseSwitcherPanel({
             className={[
               "rounded-full border px-4 py-2 text-sm font-semibold shadow-sm transition-all",
               selectedCaseId === item.id
-                ? "border-amber-500 bg-amber-500 text-white"
-                : "border-amber-200 bg-white text-amber-900 hover:border-amber-300 hover:bg-amber-50",
+                ? "border-blue-600 bg-blue-600 text-white"
+                : "border-blue-200 bg-white text-blue-900 hover:border-blue-300 hover:bg-blue-50",
             ].join(" ")}
           >
             {getApplicantCrmVisaTypeLabel(item.visaType || item.caseType)}
@@ -72,13 +72,13 @@ export function CaseListPanel({
   return (
     <Section title="Case 列表" description="一个申请人可以挂多个 Case。当前激活中的 France Case 会驱动法签自动化和提醒。" tone="amber">
       <div className="space-y-3">
-        <Button onClick={onOpenCreateCase} disabled={!canEditApplicant} className="w-full rounded-2xl bg-amber-500 text-white hover:bg-amber-600">
+        <Button onClick={onOpenCreateCase} disabled={!canEditApplicant} className="w-full rounded-2xl bg-blue-600 text-white hover:bg-blue-700">
           <Plus className="mr-2 h-4 w-4" />
           新建 Case
         </Button>
 
         {cases.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/70 p-4 text-sm text-amber-800">当前还没有 Case，先创建一个再继续。</div>
+          <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50/70 p-4 text-sm text-blue-800">当前还没有 Case，先创建一个再继续。</div>
         ) : (
           cases.map((item) => (
             <button
@@ -88,8 +88,8 @@ export function CaseListPanel({
               className={[
                 "w-full rounded-2xl border p-4 text-left shadow-sm transition-all",
                 selectedCaseId === item.id
-                  ? "border-amber-500 bg-[linear-gradient(135deg,_#f59e0b,_#d97706)] text-white"
-                  : "border-amber-200 bg-white hover:border-amber-300 hover:bg-amber-50/60",
+                  ? "border-blue-300 bg-[linear-gradient(135deg,_#eff6ff,_#ffffff)] text-blue-950 shadow-blue-100"
+                  : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/50",
               ].join(" ")}
             >
               <div className="flex items-start justify-between gap-3">

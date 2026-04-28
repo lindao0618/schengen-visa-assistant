@@ -45,10 +45,10 @@ export function Section({
       rail: "from-emerald-600 to-teal-400",
     },
     amber: {
-      card: "border-amber-200 bg-[linear-gradient(180deg,_#ffffff,_#fffbeb)]",
-      title: "text-amber-950",
-      desc: "text-amber-700/80",
-      rail: "from-amber-500 to-orange-400",
+      card: "border-blue-200 bg-[linear-gradient(180deg,_#ffffff,_#f8fbff)]",
+      title: "text-blue-950",
+      desc: "text-slate-600",
+      rail: "from-blue-500 to-sky-300",
     },
   } as const
 

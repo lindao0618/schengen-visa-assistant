@@ -56,26 +56,26 @@ export function ApplicantDetailWorkRail({
   return (
     <aside className="order-first xl:order-none">
       <div className="sticky top-[184px] space-y-4">
-        <section className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white/95 shadow-xl shadow-slate-200/70 backdrop-blur">
-          <div className="bg-slate-950 px-4 py-4 text-white">
+        <section className="overflow-hidden rounded-[1.75rem] border border-blue-100 bg-white/95 shadow-xl shadow-blue-100/60 backdrop-blur">
+          <div className="bg-[linear-gradient(135deg,_#f8fbff,_#eef6ff)] px-4 py-4 text-slate-950">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-white/50">专员操作台</div>
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-500">专员操作台</div>
                 <div className="mt-1 truncate text-lg font-semibold">{applicantTitle || "申请人"}</div>
               </div>
-              <Badge variant={canEditApplicant ? "success" : "outline"} className={canEditApplicant ? "" : "border-white/20 bg-white/10 text-white"}>
+              <Badge variant={canEditApplicant ? "success" : "outline"} className={canEditApplicant ? "" : "border-slate-200 bg-white text-slate-500"}>
                 {isReadOnlyViewer || !canEditApplicant ? "只读" : "可编辑"}
               </Badge>
             </div>
           </div>
 
           <div className="space-y-4 p-4">
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
-              <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-amber-950">
+            <div className="rounded-2xl border border-blue-100 bg-blue-50/80 p-3">
+              <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-blue-950">
                 <ShieldCheck className="h-4 w-4" />
                 下一步建议
               </div>
-              <p className="text-xs leading-5 text-amber-800">{buildNextStep(activeTab)}</p>
+              <p className="text-xs leading-5 text-blue-800">{buildNextStep(activeTab)}</p>
             </div>
 
             <div className="space-y-2">
@@ -132,14 +132,14 @@ function RailAction({
       onClick={onClick}
       className={[
         "flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-3 text-left transition",
-        active ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-200" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
+        active ? "border-blue-200 bg-blue-50 text-blue-950 shadow-lg shadow-blue-100/70" : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/40",
       ].join(" ")}
     >
       <span className="min-w-0">
         <span className="block truncate text-sm font-semibold">{label}</span>
-        <span className={["mt-0.5 block truncate text-xs", active ? "text-white/65" : "text-slate-500"].join(" ")}>{helper}</span>
+        <span className={["mt-0.5 block truncate text-xs", active ? "text-blue-700" : "text-slate-500"].join(" ")}>{helper}</span>
       </span>
-      <span className={["shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold", active ? "bg-white/10 text-white" : "bg-slate-100 text-slate-500"].join(" ")}>{count}</span>
+      <span className={["shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold", active ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"].join(" ")}>{count}</span>
     </button>
   )
 }

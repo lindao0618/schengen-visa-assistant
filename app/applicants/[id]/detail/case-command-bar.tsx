@@ -39,11 +39,11 @@ export function CaseCommandBar({
   const statusLabel = formatCaseStatus(selectedCase.mainStatus, selectedCase.subStatus, selectedCase.caseType)
 
   return (
-    <div className="sticky top-[260px] lg:top-[184px] z-20 rounded-2xl border border-amber-200 bg-white/95 p-4 shadow-lg shadow-amber-100/60 backdrop-blur">
+    <div className="sticky top-[260px] lg:top-[184px] z-20 rounded-2xl border border-blue-200 bg-white/95 p-4 shadow-lg shadow-blue-100/60 backdrop-blur">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary" className="bg-amber-100 text-amber-900">
+            <Badge variant="secondary" className="bg-blue-100 text-blue-900">
               {caseTypeLabel}
             </Badge>
             <Badge variant={getPriorityVariant(caseForm.priority)}>
@@ -76,7 +76,7 @@ export function CaseCommandBar({
           type="button"
           onClick={() => void onSaveCase()}
           disabled={savingCase || !canEditApplicant}
-          className="rounded-2xl bg-amber-500 text-white hover:bg-amber-600 xl:min-w-[150px]"
+          className="rounded-2xl bg-blue-600 text-white hover:bg-blue-700 xl:min-w-[150px]"
         >
           <Save className="mr-2 h-4 w-4" />
           {savingCase ? "保存中..." : "保存当前 Case"}

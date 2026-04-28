@@ -54,7 +54,7 @@ export function CaseDetailForm({
       tone="amber"
     >
       {!selectedCase ? (
-        <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/70 p-6 text-sm text-amber-800">请选择左侧的 Case。</div>
+        <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50/70 p-6 text-sm text-blue-800">请选择左侧的 Case。</div>
       ) : (
         <div className="space-y-5">
           <CaseCommandBar
@@ -247,10 +247,10 @@ export function CaseDetailForm({
           </div>
 
           {caseForm.caseType === "france-schengen" ? (
-            <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/80 p-4">
+            <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50/70 p-4">
               <div className="mb-3">
-                <div className="text-sm font-semibold text-amber-950">slot 信息</div>
-                <div className="text-xs text-amber-800/70">单独维护递签时间，方便直接查看和提取。</div>
+                <div className="text-sm font-semibold text-blue-950">slot 信息</div>
+                <div className="text-xs text-blue-800/70">单独维护递签时间，方便直接查看和提取。</div>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <SlotTimeField value={caseForm.slotTime} onChange={(value) => setCaseForm((prev) => ({ ...prev, slotTime: value }))} disabled={isReadOnlyViewer} />

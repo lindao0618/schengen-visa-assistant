@@ -114,7 +114,7 @@ export function ApplicantDetailFrame({
   onCopyText,
 }: ApplicantDetailFrameProps) {
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#dbeafe,_transparent_34rem),radial-gradient(circle_at_top_right,_#dcfce7,_transparent_30rem),linear-gradient(180deg,_#f8fafc,_#ffffff)] px-4 py-7">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#e0f2fe,_transparent_34rem),radial-gradient(circle_at_top_right,_#e2e8f0,_transparent_30rem),linear-gradient(180deg,_#f8fafc,_#ffffff)] px-4 py-7">
       <div className="mx-auto max-w-7xl space-y-5">
         <header className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
           <div className="pointer-events-none absolute inset-y-0 right-0 w-1/2 bg-[radial-gradient(circle_at_top_right,_rgba(14,165,233,0.16),_transparent_24rem)]" />
@@ -254,21 +254,21 @@ function ApplicantTabTrigger({
   return (
     <TabsTrigger
       value={value}
-      className="group h-auto min-h-[76px] w-full items-stretch justify-start rounded-2xl border border-transparent bg-transparent px-3 py-3 text-left transition hover:bg-slate-50 hover:text-slate-700 data-[state=active]:!border-slate-300 data-[state=active]:!bg-slate-950 data-[state=active]:!text-white data-[state=active]:shadow-lg data-[state=active]:shadow-slate-300/50"
+      className="group h-auto min-h-[76px] w-full items-stretch justify-start rounded-2xl border border-transparent bg-transparent px-3 py-3 text-left transition hover:bg-slate-50 hover:text-slate-700 data-[state=active]:!border-blue-200 data-[state=active]:!bg-[linear-gradient(135deg,_#eff6ff,_#ffffff)] data-[state=active]:!text-blue-950 data-[state=active]:shadow-lg data-[state=active]:shadow-blue-100"
     >
       <span className="flex w-full items-start justify-between gap-3">
         <span className="flex min-w-0 gap-3">
-          <span className="mt-0.5 rounded-xl bg-slate-100 p-2 text-slate-600 transition group-data-[state=active]:bg-white/15 group-data-[state=active]:text-white">
+          <span className="mt-0.5 rounded-xl bg-slate-100 p-2 text-slate-600 transition group-data-[state=active]:bg-blue-600 group-data-[state=active]:text-white">
             {icon}
           </span>
           <span className="min-w-0 space-y-1">
             <span className="block truncate text-sm font-semibold">{label}</span>
-            <span className="block truncate text-xs font-normal text-slate-500 group-data-[state=active]:text-white/70">
+            <span className="block truncate text-xs font-normal text-slate-500 group-data-[state=active]:text-blue-700">
               {helper}
             </span>
           </span>
         </span>
-        <span className="shrink-0 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-500 group-data-[state=active]:border-white/20 group-data-[state=active]:bg-white/10 group-data-[state=active]:text-white">
+        <span className="shrink-0 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-500 group-data-[state=active]:border-blue-200 group-data-[state=active]:bg-blue-50 group-data-[state=active]:text-blue-700">
           {count}
         </span>
       </span>
