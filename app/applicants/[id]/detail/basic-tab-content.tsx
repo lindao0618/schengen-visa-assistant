@@ -2,13 +2,13 @@
 
 import { type Dispatch, type SetStateAction } from "react"
 import dynamic from "next/dynamic"
-import { Save } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TabsContent } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { BasicProfileCommandBar } from "@/app/applicants/[id]/detail/basic-profile-command-bar"
 import type { ApplicantProfileDetail, BasicFormState } from "@/app/applicants/[id]/detail/types"
 import { FRANCE_TLS_CITY_OPTIONS } from "@/lib/france-tls-city"
 import { Section, Field, ReadOnlyField } from "@/app/applicants/[id]/detail/detail-ui"
@@ -53,6 +53,19 @@ export function BasicTabContent({
 
   return (
     <TabsContent value="basic" className="space-y-6">
+      <BasicProfileCommandBar
+        name={basicForm.name}
+        phone={basicForm.phone}
+        email={basicForm.email}
+        wechat={basicForm.wechat}
+        passportNumber={basicForm.passportNumber}
+        passportLast4={profile.passportLast4}
+        isReadOnlyViewer={isReadOnlyViewer}
+        canEditApplicant={canEditApplicant}
+        savingProfile={savingProfile}
+        onSaveProfile={onSaveProfile}
+      />
+
       <Section title="CRM 基本信息" description="申请人主实体信息，后续搜索和 CRM 列表会优先使用这里的字段。" tone="slate">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <Field label="申请人姓名" value={basicForm.name} onChange={(value) => setBasicForm((prev) => ({ ...prev, name: value }))} disabled={isReadOnlyViewer} />
@@ -76,6 +89,7 @@ export function BasicTabContent({
             onChange={(event) => setBasicForm((prev) => ({ ...prev, note: event.target.value }))}
             placeholder="记录客户沟通、特殊说明或内部备注"
             disabled={isReadOnlyViewer}
+            className="min-h-[132px] rounded-2xl border-slate-200 bg-white shadow-inner shadow-slate-100/60 focus-visible:ring-slate-300"
           />
         </div>
       </Section>
@@ -169,13 +183,6 @@ export function BasicTabContent({
           emptyMessage="还没有可用的申根 intake。上传申根 Excel 后，这里会自动出现完整结构化信息。"
         />
       </Section>
-
-      <div className="flex justify-end">
-        <Button onClick={() => void onSaveProfile()} disabled={savingProfile || !canEditApplicant} className="rounded-2xl bg-slate-900 text-white hover:bg-slate-800">
-          <Save className="mr-2 h-4 w-4" />
-          {savingProfile ? "保存中..." : "保存申请人"}
-        </Button>
-      </div>
     </TabsContent>
   )
 }

@@ -72,6 +72,30 @@ test("basic detail tab defers full intake accordion logic", () => {
   assert.match(intakeSource, /\/intake\?scope=/)
 })
 
+test("basic detail tab exposes a sticky profile command bar for frequent saves", () => {
+  const basicSource = readSource("app/applicants/[id]/detail/basic-tab-content.tsx")
+  const commandBarSource = readSource("app/applicants/[id]/detail/basic-profile-command-bar.tsx")
+
+  assert.match(basicSource, /BasicProfileCommandBar/)
+  assert.match(commandBarSource, /sticky/)
+  assert.match(commandBarSource, /保存基础资料/)
+  assert.match(commandBarSource, /联系方式/)
+  assert.match(commandBarSource, /护照/)
+  assert.match(commandBarSource, /只读/)
+  assert.match(commandBarSource, /savingProfile/)
+})
+
+test("applicant detail shared form chrome is scan-friendly", () => {
+  const uiSource = readSource("app/applicants/[id]/detail/detail-ui.tsx")
+  const basicSource = readSource("app/applicants/[id]/detail/basic-tab-content.tsx")
+
+  assert.match(uiSource, /function FieldShell/)
+  assert.match(uiSource, /rounded-\[1\.75rem\]/)
+  assert.match(uiSource, /tracking-\[0\.12em\]/)
+  assert.match(uiSource, /focus-visible:ring-slate-300/)
+  assert.match(basicSource, /min-h-\[132px\]/)
+})
+
 test("cases detail tab keeps list and form logic in focused modules", () => {
   const tabSource = readSource("app/applicants/[id]/detail/cases-tab-content.tsx")
   const listSource = readSource("app/applicants/[id]/detail/case-list-panel.tsx")
