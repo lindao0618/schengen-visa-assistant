@@ -134,6 +134,16 @@ test("applicant detail page defers case artifact metadata until a case is select
   assert.match(crmSource, /mapCaseSummary\(item, \{ includeActivity: false \}\)/)
 })
 
+test("applicant detail case list query skips activity history rows by default", () => {
+  const crmSource = readSource("lib/applicant-crm.ts")
+  const detailStart = crmSource.indexOf("export async function getApplicantCrmDetail")
+  const activeDetailStart = crmSource.indexOf("export async function getApplicantActiveDetail")
+  const detailSource = crmSource.slice(detailStart, activeDetailStart)
+
+  assert.match(detailSource, /statusHistory:\s*{\s*orderBy:\s*{\s*createdAt:\s*"desc"\s*},\s*take:\s*0,\s*}/)
+  assert.match(detailSource, /reminderLogs:\s*{\s*orderBy:\s*{\s*triggeredAt:\s*"desc"\s*},\s*take:\s*0,\s*}/)
+})
+
 test("material preview controller uses direct URLs for browser-native previews", () => {
   const source = readSource("app/applicants/[id]/detail/use-material-preview-controller.ts")
 

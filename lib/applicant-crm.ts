@@ -989,7 +989,7 @@ export async function getApplicantCrmDetail(
       },
       statusHistory: {
         orderBy: { createdAt: "desc" },
-        take: 1,
+        take: 0,
       },
       reminderLogs: {
         orderBy: { triggeredAt: "desc" },
