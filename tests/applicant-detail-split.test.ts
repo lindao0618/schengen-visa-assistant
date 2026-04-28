@@ -144,6 +144,14 @@ test("applicant detail case list query skips activity history rows by default", 
   assert.match(detailSource, /reminderLogs:\s*{\s*orderBy:\s*{\s*triggeredAt:\s*"desc"\s*},\s*take:\s*0,\s*}/)
 })
 
+test("applicant detail page can hydrate from active detail cache before full refresh", () => {
+  const pageSource = readSource("app/applicants/[id]/ApplicantDetailClientPage.tsx")
+
+  assert.match(pageSource, /getApplicantDetailCacheKey\(applicantId,\s*"active"\)/)
+  assert.match(pageSource, /readClientCache<ApplicantDetailResponse>\(activeDetailCacheKey\)/)
+  assert.match(pageSource, /readClientCache<ApplicantDetailResponse>\(detailCacheKey\)\s*\?\?/)
+})
+
 test("material preview controller uses direct URLs for browser-native previews", () => {
   const source = readSource("app/applicants/[id]/detail/use-material-preview-controller.ts")
 

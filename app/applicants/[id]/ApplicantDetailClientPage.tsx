@@ -30,6 +30,7 @@ import {
   FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX,
   clearClientCache,
   clearClientCacheByPrefix,
+  getApplicantDetailCacheKey,
   readClientCache,
 } from "@/lib/applicant-client-cache"
 import {
@@ -133,6 +134,7 @@ export default function ApplicantDetailClientPage({
   const defaultTab = useMemo(() => {
     return resolveApplicantDetailTab(searchParams.get("tab"))
   }, [searchParams])
+  const activeDetailCacheKey = useMemo(() => getApplicantDetailCacheKey(applicantId, "active"), [applicantId])
   const [activeTab, setActiveTab] = useState<ApplicantDetailTab>(defaultTab)
   const [assigneesRequested, setAssigneesRequested] = useState(false)
   const [assigneesLoading, setAssigneesLoading] = useState(false)
@@ -156,7 +158,9 @@ export default function ApplicantDetailClientPage({
   }, [defaultTab])
 
   const loadDetail = useCallback(async () => {
-    const cached = readClientCache<ApplicantDetailResponse>(detailCacheKey)
+    const cached =
+      readClientCache<ApplicantDetailResponse>(detailCacheKey) ??
+      readClientCache<ApplicantDetailResponse>(activeDetailCacheKey)
     if (cached) {
       applyDetailPayload(cached)
       setAssigneesRequested((cached.availableAssignees?.length ?? 0) > 0)
@@ -183,7 +187,15 @@ export default function ApplicantDetailClientPage({
     } finally {
       setLoading(false)
     }
-  }, [applicantId, applyDetailPayload, detailCacheKey, primeApplicantDetailCache, setLoading, setMessage])
+  }, [
+    activeDetailCacheKey,
+    applicantId,
+    applyDetailPayload,
+    detailCacheKey,
+    primeApplicantDetailCache,
+    setLoading,
+    setMessage,
+  ])
 
   const loadAvailableAssignees = useCallback(async () => {
     if (!canAssignCase || assigneesRequested || assigneesLoading) return
