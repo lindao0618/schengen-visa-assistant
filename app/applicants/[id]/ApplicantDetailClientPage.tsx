@@ -33,6 +33,7 @@ import {
   readClientCache,
 } from "@/lib/applicant-client-cache"
 import {
+  type AssigneeOption,
   type ApplicantDetailResponse,
   type ApplicantDetailTab,
   type ApplicantProfileDetail,
@@ -133,6 +134,8 @@ export default function ApplicantDetailClientPage({
     return resolveApplicantDetailTab(searchParams.get("tab"))
   }, [searchParams])
   const [activeTab, setActiveTab] = useState<ApplicantDetailTab>(defaultTab)
+  const [assigneesRequested, setAssigneesRequested] = useState(false)
+  const [assigneesLoading, setAssigneesLoading] = useState(false)
   const selectedFranceCase = useMemo(
     () => resolveSelectedFranceCase(detail?.cases || [], selectedCase),
     [detail?.cases, selectedCase],
@@ -155,6 +158,7 @@ export default function ApplicantDetailClientPage({
     const cached = readClientCache<ApplicantDetailResponse>(detailCacheKey)
     if (cached) {
       applyDetailPayload(cached)
+      setAssigneesRequested((cached.availableAssignees?.length ?? 0) > 0)
       setLoading(false)
     } else {
       setLoading(true)
@@ -168,6 +172,7 @@ export default function ApplicantDetailClientPage({
 
       primeApplicantDetailCache(data)
       applyDetailPayload(data)
+      setAssigneesRequested((data.availableAssignees?.length ?? 0) > 0)
     } catch (error) {
       if (!cached) {
         setMessage(error instanceof Error ? error.message : "加载申请人详情失败")
@@ -177,9 +182,48 @@ export default function ApplicantDetailClientPage({
     }
   }, [applicantId, applyDetailPayload, detailCacheKey, primeApplicantDetailCache, setLoading, setMessage])
 
+  const loadAvailableAssignees = useCallback(async () => {
+    if (!canAssignCase || assigneesRequested || assigneesLoading) return
+
+    setAssigneesRequested(true)
+    setAssigneesLoading(true)
+    try {
+      const response = await fetch("/api/applicants/assignees", { cache: "no-store" })
+      const data = await readJsonSafely<{ availableAssignees?: AssigneeOption[]; error?: string }>(response)
+      if (!response.ok) {
+        throw new Error(data?.error || "加载分配人员失败")
+      }
+
+      const availableAssignees = Array.isArray(data?.availableAssignees) ? data.availableAssignees : []
+      setDetail((prev) => {
+        if (!prev) return prev
+        const nextDetail = { ...prev, availableAssignees }
+        primeApplicantDetailCache(nextDetail)
+        return nextDetail
+      })
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "加载分配人员失败")
+    } finally {
+      setAssigneesLoading(false)
+    }
+  }, [
+    assigneesLoading,
+    assigneesRequested,
+    canAssignCase,
+    primeApplicantDetailCache,
+    setDetail,
+    setMessage,
+  ])
+
   useEffect(() => {
     void loadDetail()
   }, [loadDetail])
+
+  useEffect(() => {
+    if (activeTab === "cases" || createCaseOpen) {
+      void loadAvailableAssignees()
+    }
+  }, [activeTab, createCaseOpen, loadAvailableAssignees])
 
   useEffect(() => {
     setCaseForm(buildCaseForm(selectedCase, emptyApplicantCaseForm))

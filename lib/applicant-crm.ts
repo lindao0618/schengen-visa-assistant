@@ -958,7 +958,12 @@ async function loadCaseRecord(
   })
 }
 
-export async function getApplicantCrmDetail(userId: string, role: string | undefined, applicantProfileId: string) {
+export async function getApplicantCrmDetail(
+  userId: string,
+  role: string | undefined,
+  applicantProfileId: string,
+  options: { includeAvailableAssignees?: boolean } = {},
+) {
   const [profile, viewerRole] = await Promise.all([
     getApplicantProfile(userId, applicantProfileId, role),
     resolveViewerRole(userId, role),
@@ -993,7 +998,8 @@ export async function getApplicantCrmDetail(userId: string, role: string | undef
     },
   })
 
-  const availableAssignees = canAssignCases(viewerRole)
+  const includeAvailableAssignees = options.includeAvailableAssignees ?? true
+  const availableAssignees = includeAvailableAssignees && canAssignCases(viewerRole)
     ? await prisma.user.findMany({
         where: buildAssignableUserWhere(),
         orderBy: [{ role: "asc" }, { createdAt: "asc" }],

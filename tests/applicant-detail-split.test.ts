@@ -101,6 +101,22 @@ test("case date and slot fields are shared by create and edit forms", () => {
   assert.doesNotMatch(formSource, /SLOT_TIME_OPTIONS/)
 })
 
+test("applicant detail page defers assignee loading until case editing", () => {
+  const pageSource = readSource("app/applicants/[id]/ApplicantDetailClientPage.tsx")
+  const routeSource = readSource("app/api/applicants/[id]/route.ts")
+  const crmSource = readSource("lib/applicant-crm.ts")
+
+  assert.match(pageSource, /\/api\/applicants\/assignees/)
+  assert.match(pageSource, /activeTab === "cases" \|\| createCaseOpen/)
+  assert.doesNotMatch(pageSource, /\/api\/applicants\/\$\{applicantId\}\?includeAssignees=1/)
+
+  assert.match(routeSource, /shouldIncludeApplicantDetailAssignees/)
+  assert.match(routeSource, /includeAvailableAssignees/)
+
+  assert.match(crmSource, /includeAvailableAssignees/)
+  assert.match(crmSource, /includeAvailableAssignees\s+&&\s+canAssignCases/)
+})
+
 test("material preview controller uses direct URLs for browser-native previews", () => {
   const source = readSource("app/applicants/[id]/detail/use-material-preview-controller.ts")
 
