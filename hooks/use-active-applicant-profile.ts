@@ -147,11 +147,18 @@ export function useActiveApplicantProfile() {
     void load()
     const onStorage = () => void load()
     const onCustom = () => void load()
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void load()
+      }
+    }
     const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return
       void load()
     }, 15000)
     window.addEventListener("storage", onStorage)
     window.addEventListener("focus", onStorage)
+    window.addEventListener("visibilitychange", onVisibilityChange)
     window.addEventListener("active-applicant-profile-changed", onCustom as EventListener)
     window.addEventListener("active-applicant-profile-refresh", onCustom as EventListener)
     window.addEventListener("active-applicant-case-changed", onCustom as EventListener)
@@ -159,6 +166,7 @@ export function useActiveApplicantProfile() {
       window.clearInterval(intervalId)
       window.removeEventListener("storage", onStorage)
       window.removeEventListener("focus", onStorage)
+      window.removeEventListener("visibilitychange", onVisibilityChange)
       window.removeEventListener("active-applicant-profile-changed", onCustom as EventListener)
       window.removeEventListener("active-applicant-profile-refresh", onCustom as EventListener)
       window.removeEventListener("active-applicant-case-changed", onCustom as EventListener)
