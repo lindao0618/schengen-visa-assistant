@@ -1,4 +1,5 @@
 import type React from "react"
+import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import { NavBar } from "@/components/nav-bar"
 import { Providers } from "@/components/providers"
@@ -39,8 +40,13 @@ export default function RootLayout({
   )
 }
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "签证助手 - 您的一站式签证申请平台",
   description: "提供美国签证、申根签证等多国签证申请服务和材料审核",
-  generator: "v0.dev"
-};
+  generator: "v0.dev",
+  icons: {
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+    apple: "/placeholder-logo.png",
+  },
+}

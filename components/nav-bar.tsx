@@ -77,25 +77,25 @@ function getMenuLabel(itemName: string) {
 
 function NavBadge({ children }: { children: string }) {
   return (
-    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-gray-900 px-1.5 text-[10px] font-black leading-none text-white">
+    <span className="flex h-5 min-w-5 items-center justify-center rounded-full border border-blue-100 bg-blue-50 px-1.5 text-[10px] font-black leading-none text-blue-700 shadow-sm shadow-blue-100/60">
       {children}
     </span>
   )
 }
 
 const navButtonClass =
-  "inline-flex h-9 items-center gap-2 rounded-full px-4 text-sm font-medium text-gray-700 transition hover:bg-gray-100 hover:text-gray-950"
+  "inline-flex h-9 items-center gap-2 rounded-full border border-transparent px-4 text-sm font-medium text-slate-700 transition hover:border-blue-100 hover:bg-blue-50 hover:text-blue-800"
 
 export function NavBar() {
   return (
-    <nav className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/80">
+    <nav className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 shadow-[0_12px_40px_-28px_rgba(15,23,42,0.45)] backdrop-blur supports-[backdrop-filter]:bg-white/85">
       <div className="container flex h-14 items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-2">
           <Link href="/" className="mr-4 flex shrink-0 items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-900 text-sm font-black text-white">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[linear-gradient(135deg,_#2563eb,_#38bdf8)] text-sm font-black text-white shadow-lg shadow-blue-100">
               签
             </div>
-            <span className="bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-lg font-bold text-transparent">
+            <span className="bg-gradient-to-r from-slate-950 via-blue-900 to-sky-700 bg-clip-text text-lg font-bold text-transparent">
               签证助手
             </span>
           </Link>
@@ -110,11 +110,11 @@ export function NavBar() {
                       <span>{item.name}</span>
                       <span className="text-xs text-gray-400 transition group-open:rotate-180">⌄</span>
                     </summary>
-                    <div className="absolute left-0 top-11 z-50 w-72 rounded-2xl border border-gray-200 bg-white p-2 shadow-xl">
-                      <div className="px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                    <div className="absolute left-0 top-11 z-50 w-72 rounded-2xl border border-blue-100 bg-white p-2 shadow-xl shadow-blue-100/70">
+                      <div className="px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                         {getMenuLabel(item.name)}
                       </div>
-                      <div className="my-1 h-px bg-gray-100" />
+                      <div className="my-1 h-px bg-blue-50" />
                       {item.menuItems.map((menuItem) => (
                         <Link
                           key={menuItem.href}
@@ -123,7 +123,7 @@ export function NavBar() {
                         >
                           <span className="font-medium">{menuItem.name}</span>
                           {menuItem.description ? (
-                            <span className="text-xs leading-5 text-gray-500">{menuItem.description}</span>
+                            <span className="text-xs leading-5 text-slate-500">{menuItem.description}</span>
                           ) : null}
                         </Link>
                       ))}
