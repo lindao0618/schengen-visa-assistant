@@ -3,7 +3,11 @@ import { getServerSession } from "next-auth"
 
 import { canWriteApplicants } from "@/lib/access-control"
 import { applicantWriteForbiddenResponse } from "@/lib/access-control-response"
-import { resolveApplicantDetailView, shouldIncludeApplicantDetailAssignees } from "@/lib/applicant-detail-view"
+import {
+  resolveApplicantDetailView,
+  shouldIncludeApplicantDetailAssignees,
+  shouldIncludeApplicantDetailCaseArtifacts,
+} from "@/lib/applicant-detail-view"
 import { handleApplicantProfileApiError } from "@/lib/applicant-profile-api-error"
 import { getApplicantActiveDetail, getApplicantCrmDetail } from "@/lib/applicant-crm"
 import { authOptions } from "@/lib/auth"
@@ -20,11 +24,13 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     const detailView = resolveApplicantDetailView(request.nextUrl.searchParams)
     const includeAvailableAssignees = shouldIncludeApplicantDetailAssignees(request.nextUrl.searchParams)
+    const includeCaseArtifacts = shouldIncludeApplicantDetailCaseArtifacts(request.nextUrl.searchParams)
     const detail =
       detailView === "active"
         ? await getApplicantActiveDetail(session.user.id, session.user.role, params.id)
         : await getApplicantCrmDetail(session.user.id, session.user.role, params.id, {
             includeAvailableAssignees,
+            includeCaseArtifacts,
           })
 
     if (!detail) {

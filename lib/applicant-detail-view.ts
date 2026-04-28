@@ -17,3 +17,12 @@ export function shouldIncludeApplicantDetailAssignees(
   const value = typeof input === "string" ? input : input.get("includeAssignees")
   return value === "1" || value === "true"
 }
+
+export function shouldIncludeApplicantDetailCaseArtifacts(
+  input: URLSearchParams | string | null | undefined,
+) {
+  if (!input) return false
+
+  const value = typeof input === "string" ? input : input.get("includeCaseArtifacts")
+  return value === "1" || value === "true"
+}

@@ -1,7 +1,11 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 
-import { resolveApplicantDetailView, shouldIncludeApplicantDetailAssignees } from "../lib/applicant-detail-view"
+import {
+  resolveApplicantDetailView,
+  shouldIncludeApplicantDetailAssignees,
+  shouldIncludeApplicantDetailCaseArtifacts,
+} from "../lib/applicant-detail-view"
 
 test("defaults to full applicant detail view", () => {
   assert.equal(resolveApplicantDetailView(null), "full")
@@ -25,4 +29,13 @@ test("applicant detail assignees are opt-in for heavier case editing views", () 
   assert.equal(shouldIncludeApplicantDetailAssignees(new URLSearchParams("includeAssignees=true")), true)
   assert.equal(shouldIncludeApplicantDetailAssignees(new URLSearchParams("includeAssignees=0")), false)
   assert.equal(shouldIncludeApplicantDetailAssignees("1"), true)
+})
+
+test("applicant detail case artifacts are opt-in because they can hit storage per case", () => {
+  assert.equal(shouldIncludeApplicantDetailCaseArtifacts(null), false)
+  assert.equal(shouldIncludeApplicantDetailCaseArtifacts(new URLSearchParams()), false)
+  assert.equal(shouldIncludeApplicantDetailCaseArtifacts(new URLSearchParams("includeCaseArtifacts=1")), true)
+  assert.equal(shouldIncludeApplicantDetailCaseArtifacts(new URLSearchParams("includeCaseArtifacts=true")), true)
+  assert.equal(shouldIncludeApplicantDetailCaseArtifacts(new URLSearchParams("includeCaseArtifacts=0")), false)
+  assert.equal(shouldIncludeApplicantDetailCaseArtifacts("true"), true)
 })

@@ -962,7 +962,7 @@ export async function getApplicantCrmDetail(
   userId: string,
   role: string | undefined,
   applicantProfileId: string,
-  options: { includeAvailableAssignees?: boolean } = {},
+  options: { includeAvailableAssignees?: boolean; includeCaseArtifacts?: boolean } = {},
 ) {
   const [profile, viewerRole] = await Promise.all([
     getApplicantProfile(userId, applicantProfileId, role),
@@ -999,6 +999,7 @@ export async function getApplicantCrmDetail(
   })
 
   const includeAvailableAssignees = options.includeAvailableAssignees ?? true
+  const includeCaseArtifacts = options.includeCaseArtifacts ?? true
   const availableAssignees = includeAvailableAssignees && canAssignCases(viewerRole)
     ? await prisma.user.findMany({
         where: buildAssignableUserWhere(),
@@ -1010,7 +1011,9 @@ export async function getApplicantCrmDetail(
 
   return {
     profile: omitApplicantProfileFiles(profile),
-    cases: await Promise.all(cases.map((item) => mapCaseSummaryWithArtifacts(item, { includeActivity: false }))),
+    cases: includeCaseArtifacts
+      ? await Promise.all(cases.map((item) => mapCaseSummaryWithArtifacts(item, { includeActivity: false })))
+      : cases.map((item) => mapCaseSummary(item, { includeActivity: false })),
     activeCaseId: cases.find((item) => item.isActive)?.id ?? cases[0]?.id ?? null,
     availableAssignees,
   } satisfies ApplicantCrmDetail

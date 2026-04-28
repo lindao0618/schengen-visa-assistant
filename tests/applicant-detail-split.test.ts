@@ -117,6 +117,23 @@ test("applicant detail page defers assignee loading until case editing", () => {
   assert.match(crmSource, /includeAvailableAssignees\s+&&\s+canAssignCases/)
 })
 
+test("applicant detail page defers case artifact metadata until a case is selected", () => {
+  const pageSource = readSource("app/applicants/[id]/ApplicantDetailClientPage.tsx")
+  const routeSource = readSource("app/api/applicants/[id]/route.ts")
+  const crmSource = readSource("lib/applicant-crm.ts")
+
+  assert.match(pageSource, /loadSelectedCaseArtifacts/)
+  assert.match(pageSource, /\/api\/cases\/\$\{caseId\}/)
+  assert.match(pageSource, /activeTab === "cases"/)
+
+  assert.match(routeSource, /shouldIncludeApplicantDetailCaseArtifacts/)
+  assert.match(routeSource, /includeCaseArtifacts/)
+
+  assert.match(crmSource, /includeCaseArtifacts/)
+  assert.match(crmSource, /mapCaseSummaryWithArtifacts/)
+  assert.match(crmSource, /mapCaseSummary\(item, \{ includeActivity: false \}\)/)
+})
+
 test("material preview controller uses direct URLs for browser-native previews", () => {
   const source = readSource("app/applicants/[id]/detail/use-material-preview-controller.ts")
 

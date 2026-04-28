@@ -136,6 +136,7 @@ export default function ApplicantDetailClientPage({
   const [activeTab, setActiveTab] = useState<ApplicantDetailTab>(defaultTab)
   const [assigneesRequested, setAssigneesRequested] = useState(false)
   const [assigneesLoading, setAssigneesLoading] = useState(false)
+  const [caseArtifactRequests, setCaseArtifactRequests] = useState<Record<string, true>>({})
   const selectedFranceCase = useMemo(
     () => resolveSelectedFranceCase(detail?.cases || [], selectedCase),
     [detail?.cases, selectedCase],
@@ -159,6 +160,7 @@ export default function ApplicantDetailClientPage({
     if (cached) {
       applyDetailPayload(cached)
       setAssigneesRequested((cached.availableAssignees?.length ?? 0) > 0)
+      setCaseArtifactRequests({})
       setLoading(false)
     } else {
       setLoading(true)
@@ -173,6 +175,7 @@ export default function ApplicantDetailClientPage({
       primeApplicantDetailCache(data)
       applyDetailPayload(data)
       setAssigneesRequested((data.availableAssignees?.length ?? 0) > 0)
+      setCaseArtifactRequests({})
     } catch (error) {
       if (!cached) {
         setMessage(error instanceof Error ? error.message : "加载申请人详情失败")
@@ -215,6 +218,32 @@ export default function ApplicantDetailClientPage({
     setMessage,
   ])
 
+  const loadSelectedCaseArtifacts = useCallback(async (caseId: string) => {
+    if (!caseId || caseArtifactRequests[caseId]) return
+
+    setCaseArtifactRequests((prev) => ({ ...prev, [caseId]: true }))
+    try {
+      const response = await fetch(`/api/cases/${caseId}`, { cache: "no-store" })
+      const data = await readJsonSafely<{ case?: VisaCaseRecord; error?: string }>(response)
+      if (!response.ok || !data?.case) {
+        throw new Error(data?.error || "加载案件详情失败")
+      }
+
+      const hydratedCase = data.case
+      setDetail((prev) => {
+        if (!prev) return prev
+        const nextDetail = {
+          ...prev,
+          cases: prev.cases.map((item) => (item.id === hydratedCase.id ? hydratedCase : item)),
+        }
+        primeApplicantDetailCache(nextDetail)
+        return nextDetail
+      })
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "加载案件详情失败")
+    }
+  }, [caseArtifactRequests, primeApplicantDetailCache, setDetail, setMessage])
+
   useEffect(() => {
     void loadDetail()
   }, [loadDetail])
@@ -224,6 +253,11 @@ export default function ApplicantDetailClientPage({
       void loadAvailableAssignees()
     }
   }, [activeTab, createCaseOpen, loadAvailableAssignees])
+
+  useEffect(() => {
+    if (activeTab !== "cases" || !selectedCaseId) return
+    void loadSelectedCaseArtifacts(selectedCaseId)
+  }, [activeTab, loadSelectedCaseArtifacts, selectedCaseId])
 
   useEffect(() => {
     setCaseForm(buildCaseForm(selectedCase, emptyApplicantCaseForm))
