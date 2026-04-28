@@ -340,6 +340,24 @@ export default function ApplicantDetailClientPage({
     }
   }
 
+  const copyRailValue = async (label: string, value?: string | null) => {
+    const normalizedValue = value?.trim()
+    if (!normalizedValue) {
+      setMessage(`${label}暂未填写`)
+      return
+    }
+
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+        throw new Error("当前浏览器不支持自动复制")
+      }
+      await navigator.clipboard.writeText(normalizedValue)
+      setMessage(`${label}已复制`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : `复制${label}失败`)
+    }
+  }
+
   const deleteApplicant = async () => {
     if (!canEditApplicant) {
       setMessage("当前角色为只读，不能删除申请人")
@@ -454,6 +472,11 @@ export default function ApplicantDetailClientPage({
         activeTab={activeTab}
         defaultTab={defaultTab}
         applicantTitle={detail.profile.name || detail.profile.label}
+        phone={detail.profile.phone}
+        email={detail.profile.email}
+        wechat={detail.profile.wechat}
+        passportNumber={detail.profile.passportNumber}
+        passportLast4={detail.profile.passportLast4}
         viewerRole={normalizedViewerRole}
         isReadOnlyViewer={isReadOnlyViewer}
         caseCount={detail.cases.length}
@@ -465,6 +488,7 @@ export default function ApplicantDetailClientPage({
         onTabChange={(value) => setActiveTab(resolveApplicantDetailTab(value))}
         onRefresh={loadDetail}
         onDeleteApplicant={deleteApplicant}
+        onCopyText={copyRailValue}
       >
           {activeTab === "basic" ? (
             <BasicTabContent

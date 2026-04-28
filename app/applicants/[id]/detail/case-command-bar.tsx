@@ -39,7 +39,7 @@ export function CaseCommandBar({
   const statusLabel = formatCaseStatus(selectedCase.mainStatus, selectedCase.subStatus, selectedCase.caseType)
 
   return (
-    <div className="sticky top-3 z-20 rounded-2xl border border-amber-200 bg-white/95 p-4 shadow-lg shadow-amber-100/60 backdrop-blur">
+    <div className="sticky top-[260px] lg:top-[184px] z-20 rounded-2xl border border-amber-200 bg-white/95 p-4 shadow-lg shadow-amber-100/60 backdrop-blur">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">

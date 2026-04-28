@@ -107,6 +107,22 @@ test("applicant detail frame exposes a sticky stage navigation rail", () => {
   assert.match(frameSource, /count/)
 })
 
+test("applicant detail frame includes a right-side specialist work rail", () => {
+  const pageSource = readSource("app/applicants/[id]/ApplicantDetailClientPage.tsx")
+  const frameSource = readSource("app/applicants/[id]/detail/applicant-detail-frame.tsx")
+  const railSource = readSource("app/applicants/[id]/detail/applicant-detail-work-rail.tsx")
+
+  assert.match(pageSource, /copyRailValue/)
+  assert.match(frameSource, /ApplicantDetailWorkRail/)
+  assert.match(frameSource, /xl:grid-cols-\[minmax\(0,1fr\)_320px\]/)
+  assert.match(railSource, /专员操作台/)
+  assert.match(railSource, /客户联系/)
+  assert.match(railSource, /下一步建议/)
+  assert.match(railSource, /打开材料文档/)
+  assert.match(railSource, /查看进度与日志/)
+  assert.match(railSource, /sticky top-\[184px\]/)
+})
+
 test("cases detail tab keeps list and form logic in focused modules", () => {
   const tabSource = readSource("app/applicants/[id]/detail/cases-tab-content.tsx")
   const listSource = readSource("app/applicants/[id]/detail/case-list-panel.tsx")
@@ -143,6 +159,14 @@ test("case detail form exposes a sticky command bar for high-frequency actions",
   assert.match(commandBarSource, /当前案件/)
   assert.match(commandBarSource, /onSaveCase/)
   assert.match(commandBarSource, /formatFranceStatusLabel/)
+})
+
+test("detail sticky action bars sit below the stage navigation", () => {
+  const basicCommandBarSource = readSource("app/applicants/[id]/detail/basic-profile-command-bar.tsx")
+  const caseCommandBarSource = readSource("app/applicants/[id]/detail/case-command-bar.tsx")
+
+  assert.match(basicCommandBarSource, /top-\[260px\] lg:top-\[184px\]/)
+  assert.match(caseCommandBarSource, /top-\[260px\] lg:top-\[184px\]/)
 })
 
 test("case date and slot fields are shared by create and edit forms", () => {

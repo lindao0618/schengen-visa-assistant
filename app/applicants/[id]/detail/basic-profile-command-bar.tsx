@@ -42,7 +42,7 @@ export function BasicProfileCommandBar({
   const accessLabel = isReadOnlyViewer || !canEditApplicant ? "只读查看" : "可编辑"
 
   return (
-    <div className="sticky top-3 z-20 overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white/95 shadow-xl shadow-slate-200/70 backdrop-blur">
+    <div className="sticky top-[260px] lg:top-[184px] z-20 overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white/95 shadow-xl shadow-slate-200/70 backdrop-blur">
       <div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-slate-950 via-sky-500 to-emerald-500" />
       <div className="flex flex-col gap-4 p-4 pl-5 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0 space-y-3">

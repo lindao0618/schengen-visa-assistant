@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getAppRoleLabel } from "@/lib/access-control"
+import { ApplicantDetailWorkRail } from "@/app/applicants/[id]/detail/applicant-detail-work-rail"
 
 import type { ApplicantDetailTab } from "./types"
 
@@ -44,6 +45,11 @@ type ApplicantDetailFrameProps = {
   activeTab: ApplicantDetailTab
   defaultTab: ApplicantDetailTab
   applicantTitle: string
+  phone?: string | null
+  email?: string | null
+  wechat?: string | null
+  passportNumber?: string | null
+  passportLast4?: string | null
   viewerRole?: string | null
   isReadOnlyViewer: boolean
   caseCount: number
@@ -55,6 +61,7 @@ type ApplicantDetailFrameProps = {
   onTabChange: (value: string) => void
   onRefresh: () => void | Promise<void>
   onDeleteApplicant: () => void | Promise<void>
+  onCopyText: (label: string, value?: string | null) => void | Promise<void>
 }
 
 export function ApplicantDetailLoadingState() {
@@ -88,6 +95,11 @@ export function ApplicantDetailFrame({
   activeTab,
   defaultTab,
   applicantTitle,
+  phone,
+  email,
+  wechat,
+  passportNumber,
+  passportLast4,
   viewerRole,
   isReadOnlyViewer,
   caseCount,
@@ -99,6 +111,7 @@ export function ApplicantDetailFrame({
   onTabChange,
   onRefresh,
   onDeleteApplicant,
+  onCopyText,
 }: ApplicantDetailFrameProps) {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#dbeafe,_transparent_34rem),radial-gradient(circle_at_top_right,_#dcfce7,_transparent_30rem),linear-gradient(180deg,_#f8fafc,_#ffffff)] px-4 py-7">
@@ -185,7 +198,26 @@ export function ApplicantDetailFrame({
             ))}
           </TabsList>
 
-          {children}
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
+            <div className="min-w-0">{children}</div>
+            <ApplicantDetailWorkRail
+              activeTab={activeTab}
+              applicantTitle={applicantTitle}
+              phone={phone}
+              email={email}
+              wechat={wechat}
+              passportNumber={passportNumber}
+              passportLast4={passportLast4}
+              selectedCaseSummary={selectedCaseSummary}
+              caseCount={caseCount}
+              materialCount={materialCount}
+              canEditApplicant={canEditApplicant}
+              isReadOnlyViewer={isReadOnlyViewer}
+              onTabChange={(value) => onTabChange(value)}
+              onRefresh={onRefresh}
+              onCopyText={onCopyText}
+            />
+          </div>
         </Tabs>
       </div>
     </div>
