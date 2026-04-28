@@ -69,7 +69,7 @@ export default function USAVisaClientPage() {
 
   const applicantProfileId = searchParams.get("applicantProfileId")?.trim() || ""
   const caseId = searchParams.get("caseId")?.trim() || ""
-  usePrefetchApplicantDetail(applicantProfileId, { view: "active" })
+  usePrefetchApplicantDetail(applicantProfileId, { view: "active", auto: true })
 
   useEffect(() => {
     if (typeof window === "undefined" || !applicantProfileId) return

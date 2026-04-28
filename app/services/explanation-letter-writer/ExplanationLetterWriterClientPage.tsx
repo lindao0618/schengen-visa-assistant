@@ -38,7 +38,6 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useActiveApplicantProfile } from '@/hooks/use-active-applicant-profile'
-import { usePrefetchApplicantDetail } from '@/hooks/use-prefetch-applicant-detail'
 import { cn } from '@/lib/utils'
 
 const MaterialTaskList = dynamic(
@@ -216,7 +215,6 @@ const labelByValue = (options: Option[], value: string) => options.find((item) =
 export default function ExplanationLetterWriterClientPage() {
   const router = useRouter()
   const activeApplicant = useActiveApplicantProfile()
-  usePrefetchApplicantDetail(activeApplicant?.id, { view: "active" })
   const [isLoading, setIsLoading] = useState(false)
   const [taskIds, setTaskIds] = useState<string[]>([])
   const [excelSummary, setExcelSummary] = useState<ExplanationExcelSummary | null>(null)

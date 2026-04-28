@@ -11,11 +11,12 @@ import {
 
 export function usePrefetchApplicantDetail(
   applicantId?: string | null,
-  options?: { tab?: string; view?: "full" | "active" },
+  options?: { tab?: string; view?: "full" | "active"; auto?: boolean },
 ) {
   const router = useRouter()
   const tab = options?.tab || "materials"
   const view = options?.view || "full"
+  const auto = options?.auto ?? false
 
   const prefetchApplicantDetail = useCallback(
     (targetApplicantId?: string | null) => {
@@ -35,8 +36,9 @@ export function usePrefetchApplicantDetail(
   )
 
   useEffect(() => {
+    if (!auto) return
     prefetchApplicantDetail(applicantId)
-  }, [applicantId, prefetchApplicantDetail])
+  }, [applicantId, auto, prefetchApplicantDetail])
 
   return prefetchApplicantDetail
 }

@@ -32,7 +32,6 @@ import { AuthPromptProvider, useAuthPrompt } from "@/app/usa-visa/contexts/AuthP
 import { ApplicantProfileSelector } from "@/components/applicant-profile-selector"
 import { FranceCaseProgressCard } from "@/components/france-case-progress-card"
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
-import { usePrefetchApplicantDetail } from "@/hooks/use-prefetch-applicant-detail"
 import {
   FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX,
   FRANCE_AUTOMATION_PROFILES_CACHE_TTL_MS,
@@ -346,7 +345,6 @@ function FranceAutomationContent() {
   const { showLoginPrompt } = useAuthPrompt()
   const { data: session } = useSession()
   const activeApplicant = useActiveApplicantProfile()
-  usePrefetchApplicantDetail(activeApplicant?.id, { view: "active" })
   const [profiles, setProfiles] = useState<ApplicantProfileOption[]>([])
   const viewerCacheScope = useMemo(
     () => `${session?.user?.id || "anon"}:${session?.user?.role || ""}`,

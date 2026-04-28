@@ -45,7 +45,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
-import { usePrefetchApplicantDetail } from "@/hooks/use-prefetch-applicant-detail"
 import { toItineraryEnglishCity, toItineraryEnglishCountry } from "@/lib/itinerary-location"
 import { cn } from "@/lib/utils"
 
@@ -645,7 +644,6 @@ function ItineraryForm({
 export default function MaterialCustomizationClientPage() {
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null)
   const activeApplicant = useActiveApplicantProfile()
-  usePrefetchApplicantDetail(activeApplicant?.id, { view: "active" })
 
   const handleServiceSelect = (service: MaterialService) => {
     if (service.actionType === "form" && service.id === "itinerary") {
