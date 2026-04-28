@@ -79,6 +79,19 @@ test("cases detail tab keeps list and form logic in focused modules", () => {
   assert.match(formSource, /onSaveCase/)
 })
 
+test("case detail form exposes a sticky command bar for high-frequency actions", () => {
+  const formSource = readSource("app/applicants/[id]/detail/case-detail-form.tsx")
+  const commandBarSource = readSource("app/applicants/[id]/detail/case-command-bar.tsx")
+
+  assert.match(formSource, /CaseCommandBar/)
+  assert.match(commandBarSource, /sticky/)
+  assert.match(commandBarSource, /保存当前 Case/)
+  assert.match(commandBarSource, /当前状态/)
+  assert.match(commandBarSource, /当前案件/)
+  assert.match(commandBarSource, /onSaveCase/)
+  assert.match(commandBarSource, /formatFranceStatusLabel/)
+})
+
 test("case date and slot fields are shared by create and edit forms", () => {
   const sharedSource = readSource("app/applicants/[id]/detail/case-date-fields.tsx")
   const createDialogSource = readSource("app/applicants/[id]/detail/create-case-dialog.tsx")

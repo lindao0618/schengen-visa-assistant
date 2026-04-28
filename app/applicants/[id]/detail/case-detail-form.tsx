@@ -1,11 +1,11 @@
 "use client"
 
 import type { Dispatch, SetStateAction } from "react"
-import { Save } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { CaseCommandBar } from "@/app/applicants/[id]/detail/case-command-bar"
 import { BookingWindowRangeField, SlotTimeField } from "@/app/applicants/[id]/detail/case-date-fields"
 import type { AssigneeOption, CaseFormState, VisaCaseRecord } from "@/app/applicants/[id]/detail/types"
 import {
@@ -57,6 +57,14 @@ export function CaseDetailForm({
         <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/70 p-6 text-sm text-amber-800">请选择左侧的 Case。</div>
       ) : (
         <div className="space-y-5">
+          <CaseCommandBar
+            selectedCase={selectedCase}
+            caseForm={caseForm}
+            canEditApplicant={canEditApplicant}
+            savingCase={savingCase}
+            onSaveCase={onSaveCase}
+          />
+
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <ReadOnlyField label="Case ID" value={selectedCase.id} />
             <ReadOnlyField label="当前状态" value={formatCaseStatus(selectedCase.mainStatus, selectedCase.subStatus, selectedCase.caseType)} />
@@ -267,13 +275,6 @@ export function CaseDetailForm({
               </div>
             </div>
           ) : null}
-
-          <div className="flex justify-end">
-            <Button onClick={() => void onSaveCase()} disabled={savingCase || !canEditApplicant} className="rounded-2xl bg-amber-500 text-white hover:bg-amber-600">
-              <Save className="mr-2 h-4 w-4" />
-              {savingCase ? "保存中..." : "保存 Case"}
-            </Button>
-          </div>
         </div>
       )}
     </Section>
