@@ -1,5 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
+import path from "node:path"
 
 import {
   getApplicantMaterialFilesHandoffKey,
@@ -110,5 +112,18 @@ test("getApplicantMaterialFilesHandoffKey is scoped by applicant id", () => {
   assert.equal(
     getApplicantMaterialFilesHandoffKey("applicant-123"),
     "applicant-material-files:handoff:applicant-123",
+  )
+})
+
+test("material file fetch effect does not abort itself when loading state changes", () => {
+  const source = readFileSync(
+    path.join(process.cwd(), "app", "applicants", "[id]", "detail", "use-applicant-material-files.ts"),
+    "utf8",
+  )
+
+  assert.match(source, /materialFilesLoadingRef\.current/)
+  assert.doesNotMatch(
+    source,
+    /\[activeTab, applicantId, detailProfileId, materialFilesLoaded, materialFilesLoading, setDetail\]/,
   )
 })

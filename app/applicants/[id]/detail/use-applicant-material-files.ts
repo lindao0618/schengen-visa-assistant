@@ -1,7 +1,7 @@
 "use client"
 
 import type { Dispatch, SetStateAction } from "react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import {
   getApplicantMaterialFilesHandoffKey,
@@ -28,8 +28,10 @@ export function useApplicantMaterialFiles({
   const [materialFilesLoaded, setMaterialFilesLoaded] = useState(false)
   const [materialFilesLoading, setMaterialFilesLoading] = useState(false)
   const [materialFilesError, setMaterialFilesError] = useState("")
+  const materialFilesLoadingRef = useRef(false)
 
   useEffect(() => {
+    materialFilesLoadingRef.current = false
     setMaterialFiles({})
     setMaterialFilesLoaded(false)
     setMaterialFilesError("")
@@ -85,7 +87,7 @@ export function useApplicantMaterialFiles({
       !shouldFetchApplicantMaterialFiles({
         activeTab,
         hasFilesLoaded: materialFilesLoaded,
-        loading: materialFilesLoading,
+        loading: materialFilesLoadingRef.current,
       })
     ) {
       return
@@ -94,6 +96,7 @@ export function useApplicantMaterialFiles({
     let cancelled = false
     const controller = new AbortController()
     const timeoutId = window.setTimeout(() => controller.abort(), 15_000)
+    materialFilesLoadingRef.current = true
     setMaterialFilesLoading(true)
     setMaterialFilesError("")
 
@@ -137,6 +140,7 @@ export function useApplicantMaterialFiles({
       })
       .finally(() => {
         window.clearTimeout(timeoutId)
+        materialFilesLoadingRef.current = false
         if (!cancelled) {
           setMaterialFilesLoading(false)
         }
@@ -144,10 +148,11 @@ export function useApplicantMaterialFiles({
 
     return () => {
       cancelled = true
+      materialFilesLoadingRef.current = false
       controller.abort()
       window.clearTimeout(timeoutId)
     }
-  }, [activeTab, applicantId, detailProfileId, materialFilesLoaded, materialFilesLoading, setDetail])
+  }, [activeTab, applicantId, detailProfileId, materialFilesLoaded, setDetail])
 
   return {
     materialFiles,
