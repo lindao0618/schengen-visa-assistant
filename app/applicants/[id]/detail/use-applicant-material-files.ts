@@ -3,7 +3,10 @@
 import type { Dispatch, SetStateAction } from "react"
 import { useEffect, useState } from "react"
 
-import { shouldFetchApplicantMaterialFiles } from "@/lib/applicant-material-files"
+import {
+  getApplicantMaterialFilesHandoffKey,
+  shouldFetchApplicantMaterialFiles,
+} from "@/lib/applicant-material-files"
 
 import { readJsonSafely } from "./json-response"
 import type { ApplicantDetailResponse, ApplicantDetailTab, ApplicantMaterialFiles } from "./types"
@@ -31,6 +34,50 @@ export function useApplicantMaterialFiles({
     setMaterialFilesLoaded(false)
     setMaterialFilesError("")
   }, [detailProfileId])
+
+  useEffect(() => {
+    if (!applicantId || !detailProfileId || activeTab !== "materials") return
+
+    const handoffKey = getApplicantMaterialFilesHandoffKey(applicantId)
+    let rawFiles = ""
+    try {
+      rawFiles = window.sessionStorage.getItem(handoffKey) || ""
+      if (rawFiles) window.sessionStorage.removeItem(handoffKey)
+    } catch {
+      return
+    }
+
+    if (!rawFiles) return
+
+    let nextFiles: ApplicantMaterialFiles = {}
+    try {
+      const parsed = JSON.parse(rawFiles)
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        nextFiles = parsed as ApplicantMaterialFiles
+      }
+    } catch {
+      return
+    }
+
+    if (Object.keys(nextFiles).length === 0) return
+
+    setMaterialFiles(nextFiles)
+    setMaterialFilesError("")
+    setDetail((prev) =>
+      prev?.profile.id === detailProfileId
+        ? {
+            ...prev,
+            profile: {
+              ...prev.profile,
+              files: {
+                ...(prev.profile.files || {}),
+                ...nextFiles,
+              },
+            },
+          }
+        : prev,
+    )
+  }, [activeTab, applicantId, detailProfileId, setDetail])
 
   useEffect(() => {
     if (!detailProfileId) return

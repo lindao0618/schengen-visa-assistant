@@ -63,6 +63,10 @@ import { ApplicantCrmListPanel } from "@/app/applicants/applicant-crm-list-panel
 import { ApplicantCrmPageHeader } from "@/app/applicants/applicant-crm-page-header"
 import { shouldShowInitialMaterialUploadPrompt } from "@/lib/applicant-initial-material-upload"
 import {
+  getApplicantMaterialFilesHandoffKey,
+  type ApplicantMaterialFileMap,
+} from "@/lib/applicant-material-files"
+import {
   APPLICANT_CRM_PAGE_SIZE,
   buildApplicantCrmListSearchParams,
   mergeApplicantCrmPageRows,
@@ -450,13 +454,23 @@ export default function ApplicantsCrmClientPage() {
   )
 
   const finishInitialMaterialUpload = useCallback(
-    async (applicantId: string, completion: "skip" | "uploaded" = "skip") => {
+    async (
+      applicantId: string,
+      completion: "skip" | "uploaded" = "skip",
+      uploadedFiles: ApplicantMaterialFileMap = {},
+    ) => {
       clearClientCache(getApplicantDetailCacheKey(applicantId))
       clearClientCache(getApplicantDetailCacheKey(applicantId, "active"))
       clearClientCacheByPrefix(APPLICANT_CRM_LIST_CACHE_PREFIX)
       clearClientCacheByPrefix(FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX)
 
       if (completion === "uploaded") {
+        if (Object.keys(uploadedFiles).length > 0) {
+          window.sessionStorage.setItem(
+            getApplicantMaterialFilesHandoffKey(applicantId),
+            JSON.stringify(uploadedFiles),
+          )
+        }
         await prefetchJsonIntoClientCache(getApplicantDetailCacheKey(applicantId), `/api/applicants/${applicantId}`, {
           ttlMs: APPLICANT_DETAIL_CACHE_TTL_MS,
           force: true,
@@ -843,7 +857,9 @@ export default function ApplicantsCrmClientPage() {
           applicantId={initialUploadPrompt.applicantId}
           applicantName={initialUploadPrompt.applicantName}
           visaTypes={initialUploadPrompt.visaTypes}
-          onFinish={(completion) => finishInitialMaterialUpload(initialUploadPrompt.applicantId, completion)}
+          onFinish={(completion, uploadedFiles) =>
+            finishInitialMaterialUpload(initialUploadPrompt.applicantId, completion, uploadedFiles)
+          }
         />
       ) : null}
     </div>

@@ -2,6 +2,8 @@ import test from "node:test"
 import assert from "node:assert/strict"
 
 import {
+  getApplicantMaterialFilesHandoffKey,
+  selectVisibleApplicantMaterialFiles,
   shouldFetchApplicantMaterialFiles,
   shouldShowApplicantMaterialFilesLoading,
 } from "../lib/applicant-material-files"
@@ -65,5 +67,48 @@ test("shouldShowApplicantMaterialFilesLoading only blocks when no visible files 
       visibleFileCount: 0,
     }),
     false,
+  )
+})
+
+test("selectVisibleApplicantMaterialFiles prefers freshly uploaded files before remote sync finishes", () => {
+  const freshFiles = {
+    schengenExcel: {
+      originalName: "胡天珂-预计出行明天晚上.xlsx",
+      uploadedAt: "2026-04-29T04:27:28.103Z",
+    },
+  }
+
+  assert.deepEqual(
+    selectVisibleApplicantMaterialFiles({
+      materialFiles: freshFiles,
+      materialFilesLoaded: false,
+      detailFiles: {},
+    }),
+    freshFiles,
+  )
+})
+
+test("selectVisibleApplicantMaterialFiles falls back to detail files before material request completes", () => {
+  const detailFiles = {
+    usVisaPhoto: {
+      originalName: "photo.jpg",
+      uploadedAt: "2026-04-29T04:27:28.103Z",
+    },
+  }
+
+  assert.deepEqual(
+    selectVisibleApplicantMaterialFiles({
+      materialFiles: {},
+      materialFilesLoaded: false,
+      detailFiles,
+    }),
+    detailFiles,
+  )
+})
+
+test("getApplicantMaterialFilesHandoffKey is scoped by applicant id", () => {
+  assert.equal(
+    getApplicantMaterialFilesHandoffKey("applicant-123"),
+    "applicant-material-files:handoff:applicant-123",
   )
 })

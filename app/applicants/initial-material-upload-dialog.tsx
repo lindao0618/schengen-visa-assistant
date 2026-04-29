@@ -16,13 +16,21 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { getInitialMaterialUploadSlots } from "@/lib/applicant-initial-material-upload"
+import type { ApplicantMaterialFileMap } from "@/lib/applicant-material-files"
+
+type InitialMaterialUploadResponse = {
+  profile?: {
+    files?: ApplicantMaterialFileMap
+  }
+  error?: string
+}
 
 type InitialMaterialUploadDialogProps = {
   open: boolean
   applicantId: string
   applicantName: string
   visaTypes: string[]
-  onFinish: (completion: "skip" | "uploaded") => void | Promise<void>
+  onFinish: (completion: "skip" | "uploaded", files?: ApplicantMaterialFileMap) => void | Promise<void>
 }
 
 export function InitialMaterialUploadDialog({
@@ -66,11 +74,11 @@ export function InitialMaterialUploadDialog({
         body: formData,
         credentials: "include",
       })
-      const data = await response.json().catch(() => null)
+      const data = (await response.json().catch(() => null)) as InitialMaterialUploadResponse | null
       if (!response.ok) {
         throw new Error(data?.error || "上传材料失败")
       }
-      await onFinish("uploaded")
+      await onFinish("uploaded", data?.profile?.files || {})
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "上传材料失败")
     } finally {

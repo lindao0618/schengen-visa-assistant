@@ -4,6 +4,8 @@ import type { Dispatch, SetStateAction } from "react"
 import { useEffect } from "react"
 import dynamic from "next/dynamic"
 
+import { selectVisibleApplicantMaterialFiles } from "@/lib/applicant-material-files"
+
 import { emptyAuditDialog } from "./types"
 import { useApplicantFileActions } from "./use-applicant-file-actions"
 import { useApplicantMaterialFiles } from "./use-applicant-material-files"
@@ -129,7 +131,11 @@ export function ApplicantMaterialsSection({
     }
   }, [auditDialog.open, auditDialog.status, setAuditDialog])
 
-  const visibleMaterialFiles = materialFilesLoaded ? materialFiles : detail.profile.files || materialFiles
+  const visibleMaterialFiles = selectVisibleApplicantMaterialFiles({
+    materialFiles,
+    materialFilesLoaded,
+    detailFiles: detail.profile.files,
+  })
   const auditPhaseIndex =
     auditDialog.status === "running"
       ? Math.min(auditDialog.phaseIndex ?? 0, AUDIT_PROGRESS_STEPS.length - 2)

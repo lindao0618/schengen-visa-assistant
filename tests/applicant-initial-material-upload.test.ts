@@ -42,5 +42,7 @@ test("initial material upload refreshes applicant detail cache before opening ma
 
   assert.match(pageSource, /prefetchJsonIntoClientCache\(\s*getApplicantDetailCacheKey\(applicantId\)/)
   assert.match(pageSource, /force:\s*true/)
-  assert.match(dialogSource, /await\s+onFinish\("uploaded"\)/)
+  assert.match(dialogSource, /await\s+onFinish\("uploaded",\s*data\?\.profile\?\.files\s*\|\|\s*\{\}\)/)
+  assert.match(pageSource, /getApplicantMaterialFilesHandoffKey\(applicantId\)/)
+  assert.match(pageSource, /sessionStorage\.setItem/)
 })
