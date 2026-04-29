@@ -61,6 +61,23 @@ class UsAisRegisterCliTest(unittest.TestCase):
 
         self.assertIn("Email has already been taken", message)
 
+    def test_detects_ais_signin_url(self):
+        self.assertTrue(
+            us_ais_register_cli._is_ais_signin_url("https://ais.usvisa-info.com/en-gb/niv/users/sign_in")
+        )
+        self.assertFalse(us_ais_register_cli._is_ais_signin_url("https://ais.usvisa-info.com/en-gb/niv/signup"))
+
+    def test_detects_existing_account_login_failure_text(self):
+        message = us_ais_register_cli._detect_known_login_failure_text(
+            """
+            Sign In
+            Invalid email or password.
+            I have read and understood the Privacy Policy and the Terms of Use
+            """
+        )
+
+        self.assertIn("Invalid email or password", message)
+
 
 if __name__ == "__main__":
     unittest.main()

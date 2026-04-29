@@ -52,7 +52,8 @@ async function runAisRegisterInBackground(
   password: string,
   sendActivationEmail: boolean,
   extraEmail: string,
-  testMode: boolean
+  testMode: boolean,
+  loginExisting: boolean
 ): Promise<void> {
   const pythonRuntime = getPythonRuntimeCommand()
   const scriptPath = path.join(process.cwd(), 'services', 'us-ais-register', 'us_ais_register_cli.py')
@@ -66,8 +67,10 @@ async function runAisRegisterInBackground(
   if (!sendActivationEmail) args.push('--no-email')
   if (extraEmail) args.push('--extra-email', extraEmail)
   if (testMode) args.push('--test-mode')
+  if (loginExisting) args.push('--login-existing')
 
   const prefix = excelFileName ? `[${excelFileName}] ` : ''
+  const operationLabel = loginExisting ? '一键到支付页' : '注册'
   let stdout = ''
   let stderr = ''
   let progressBuffer = ''
@@ -160,7 +163,7 @@ async function runAisRegisterInBackground(
         await updateTask(taskId, {
           status: 'completed',
           progress: 100,
-          message: prefix + (data.message || 'AIS 账号注册完成'),
+          message: prefix + (data.message || (loginExisting ? 'AIS 已推进到支付页' : 'AIS 账号注册完成')),
           result: {
             success: true,
             email: data.email,
@@ -198,7 +201,7 @@ async function runAisRegisterInBackground(
         await updateTask(taskId, {
           status: 'failed',
           progress: 0,
-          message: prefix + '注册失败',
+          message: prefix + `${operationLabel}失败`,
           error: `${data.error || `退出码 ${code}`}${lastStepHint}`,
           result: {
             success: false,
@@ -216,7 +219,7 @@ async function runAisRegisterInBackground(
       await updateTask(taskId, {
         status: 'failed',
         progress: 0,
-        message: prefix + '解析结果失败',
+        message: prefix + `${operationLabel}结果解析失败`,
         error: (stdout || `退出码 ${code}`) + detail,
         result: {
           debugLogs: debugLogs.slice(-60),
@@ -263,6 +266,9 @@ export async function POST(request: NextRequest) {
     const caseId = (formData.get('caseId') as string | null)?.trim() || ''
     const applicantProfile = applicantProfileId ? await getApplicantProfile(session.user.id, applicantProfileId) : null
     const testMode = formData.get('test_mode') === 'true'
+    const loginExisting =
+      formData.get('login_existing') === 'true' ||
+      formData.get('mode') === 'login-existing'
 
     const excelFiles: File[] = []
     const raw = formData.getAll('excel')
@@ -301,7 +307,8 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < excelFiles.length; i++) {
       const file = excelFiles[i]
       const name = file.name || `data_${i + 1}.xlsx`
-      const task = await createTask(session.user.id, 'register-ais', `AIS 注册 · ${name}`, {
+      const taskTitle = loginExisting ? `AIS 到支付页 · ${name}` : `AIS 注册 · ${name}`
+      const task = await createTask(session.user.id, 'register-ais', taskTitle, {
         applicantProfileId: applicantProfileId || undefined,
         caseId: caseId || undefined,
         applicantName: applicantProfile?.name || applicantProfile?.label,
@@ -328,7 +335,8 @@ export async function POST(request: NextRequest) {
         password,
         sendActivationEmail,
         extraEmail,
-        testMode
+        testMode,
+        loginExisting
       ).catch((err) => {
         console.error('[AIS] Background task error:', err)
         void updateTask(task.task_id, { status: 'failed', progress: 0, message: '注册失败', error: String(err) })

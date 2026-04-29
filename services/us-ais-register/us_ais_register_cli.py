@@ -19,6 +19,7 @@ import pandas as pd
 from playwright.sync_api import sync_playwright
 
 AIS_BASE_URL = "https://ais.usvisa-info.com/en-gb/niv/information/niv_questions"
+AIS_SIGN_IN_URL = "https://ais.usvisa-info.com/en-gb/niv/users/sign_in"
 DEFAULT_PASSWORD = "Visa202520252025!"
 
 
@@ -32,6 +33,11 @@ def _is_ais_signup_url(url: str) -> bool:
         or "/new_user" in u
         or "signup" in u and "/niv/" in u
     )
+
+
+def _is_ais_signin_url(url: str) -> bool:
+    u = (url or "").lower()
+    return "/users/sign_in" in u or "/sign_in" in u
 
 
 def _is_ais_activation_email_sent_page(page) -> bool:
@@ -173,7 +179,8 @@ def _wait_and_fill(page, selectors: List[str], value: str, field_name: str, time
                 continue
             loc.wait_for(state="visible", timeout=timeout)
             loc.fill(value, timeout=timeout)
-            _trace("ais.applicant.fill", f"{field_name};selector={sel};value={value}")
+            log_value = "***" if "password" in field_name.lower() else value
+            _trace("ais.applicant.fill", f"{field_name};selector={sel};value={log_value}")
             return True
         except Exception:
             continue
@@ -267,6 +274,28 @@ def _detect_known_signup_failure_text(text: str) -> str:
     return ""
 
 
+def _detect_known_login_failure_text(text: str) -> str:
+    normalized = html.unescape(str(text or ""))
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    low = normalized.lower()
+    patterns = [
+        (r"invalid[^.。\n]{0,80}(email|password)", "Invalid email or password"),
+        (r"(email|password)[^.。\n]{0,80}invalid", "Invalid email or password"),
+        (r"(privacy|terms)[^.。\n]{0,120}(accept|agree|required|must|read)", "Terms of use must be accepted"),
+        (r"(captcha|robot|recaptcha|verification)[^.。\n]{0,120}(failed|required|invalid)", "Captcha or verification failed"),
+        (r"not[^.。\n]{0,80}activated", "AIS account is not activated"),
+        (r"confirm[^.。\n]{0,80}email", "AIS account email confirmation is required"),
+    ]
+    for pattern, fallback in patterns:
+        match = re.search(pattern, low, flags=re.IGNORECASE)
+        if match:
+            start = max(0, match.start() - 60)
+            end = min(len(normalized), match.end() + 80)
+            snippet = normalized[start:end].strip(" |:;-")
+            return snippet or fallback
+    return ""
+
+
 def _extract_signup_error_text(page) -> str:
     """聚合注册页上可见错误，便于快速定位失败原因。"""
     selectors = [
@@ -311,6 +340,52 @@ def _extract_signup_error_text(page) -> str:
         pass
     try:
         known = _detect_known_signup_failure_text(page.content() or "")
+        if known:
+            return known
+    except Exception:
+        pass
+    return ""
+
+
+def _extract_login_error_text(page) -> str:
+    selectors = [
+        "form#new_user .error",
+        "form#new_user .alert",
+        "form#new_user .alert-danger",
+        ".alert-danger",
+        ".alert",
+        ".error",
+        "#error_explanation",
+    ]
+    messages: List[str] = []
+    seen = set()
+    for sel in selectors:
+        try:
+            loc = page.locator(sel)
+            cnt = min(loc.count(), 6)
+            for i in range(cnt):
+                text = (loc.nth(i).text_content() or "").strip()
+                if not text:
+                    continue
+                text = re.sub(r"\s+", " ", text)
+                key = text.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                messages.append(text)
+        except Exception:
+            continue
+    joined = " | ".join(messages[:3]).strip()
+    if joined:
+        return joined
+    try:
+        known = _detect_known_login_failure_text(page.locator("body").inner_text(timeout=2500) or "")
+        if known:
+            return known
+    except Exception:
+        pass
+    try:
+        known = _detect_known_login_failure_text(page.content() or "")
         if known:
             return known
     except Exception:
@@ -854,6 +929,7 @@ def register_ais(
     extra_email: str = "",
     test_mode: bool = False,
     output_dir: str = "",
+    login_existing_account: bool = False,
 ) -> Dict:
     def callback(pct: int, msg: str) -> None:
         _progress(pct, msg)
@@ -1177,7 +1253,130 @@ def register_ais(
                     _trace("step.click_continue.failed", "button_not_clickable")
                     raise RuntimeError("无法点击 Continue 按钮")
 
+            def login_existing_account_and_open_applicant_flow() -> str:
+                callback(15, "正在打开 AIS 登录页...")
+                _trace("step.login.open.start")
+                goto_with_retry(AIS_SIGN_IN_URL, wait_until="domcontentloaded", timeout_ms=120000, retries=3)
+                page.wait_for_timeout(3000)
+                _trace("step.login.open.done", page.url)
+                _save_ais_step_screenshot(page, str(out_dir), "01_login_page")
+
+                callback(25, "正在登录已有 AIS 账号...")
+                if not _wait_and_fill(
+                    page,
+                    ["#user_email", 'input[name="user[email]"]', 'input[type="email"]'],
+                    email,
+                    "login_email",
+                    timeout=20000,
+                ):
+                    try:
+                        page.get_by_label(re.compile(r"email", re.I)).first.fill(email, timeout=15000)
+                        _trace("step.login.fill", "email;label_re")
+                    except Exception as ex:
+                        raise RuntimeError(f"无法填写 AIS 登录邮箱: {ex}")
+
+                if not _wait_and_fill(
+                    page,
+                    ["#user_password", 'input[name="user[password]"]', 'input[type="password"]'],
+                    password,
+                    "login_password",
+                    timeout=20000,
+                ):
+                    try:
+                        page.get_by_label(re.compile(r"password", re.I)).first.fill(password, timeout=15000)
+                        _trace("step.login.fill", "password;label_re")
+                    except Exception as ex:
+                        raise RuntimeError(f"无法填写 AIS 登录密码: {ex}")
+
+                _wait_and_check(
+                    page,
+                    [
+                        "#policy_confirmed",
+                        "#user_policy_confirmed",
+                        'input[name="policy_confirmed"]',
+                        'input[name="user[policy_confirmed]"]',
+                        'form#new_user input[type="checkbox"]',
+                        'form input[type="checkbox"]',
+                    ],
+                    "login_terms",
+                    timeout=12000,
+                )
+
+                if not _wait_and_click(
+                    page,
+                    [
+                        'input[type="submit"][value="Sign In"]',
+                        'input[name="commit"][value="Sign In"]',
+                        'button:has-text("Sign In")',
+                        'input[type="submit"][value*="Sign"]',
+                    ],
+                    "login_submit",
+                    timeout=20000,
+                ):
+                    raise RuntimeError("未找到 Sign In 按钮")
+
+                try:
+                    page.wait_for_load_state("domcontentloaded", timeout=90000)
+                except Exception:
+                    pass
+                page.wait_for_timeout(3000)
+                _trace("step.login.submit.done", page.url)
+                _save_ais_step_screenshot(page, str(out_dir), "02_login_submitted")
+
+                if _is_ais_activation_email_sent_page(page):
+                    raise RuntimeError("AIS 账号还没有完成邮箱激活，请先打开邮箱点击官方激活链接")
+
+                if _is_ais_signin_url(page.url):
+                    error_text = _extract_login_error_text(page) or "AIS 登录失败，请确认邮箱、密码、条款勾选和账号激活状态"
+                    raise RuntimeError(error_text[:200])
+
+                callback(45, "登录成功，正在进入申请人流程...")
+                _trace("step.login.flow.start", page.url)
+                goto_with_retry(AIS_BASE_URL, wait_until="domcontentloaded", timeout_ms=120000, retries=3)
+                page.wait_for_timeout(3000)
+                _save_ais_step_screenshot(page, str(out_dir), "03_after_login_open_ais")
+                select_ds160_option()
+                page.wait_for_timeout(1500)
+                click_continue_button()
+                page.wait_for_timeout(3000)
+
+                state = _wait_until_post_signup_ready(page, timeout_ms=90000)
+                _trace("step.login.flow.state", f"{state};url={page.url}")
+                _save_ais_step_screenshot(page, str(out_dir), f"04_after_login_flow_{state}")
+
+                if state == "activation_email_sent":
+                    raise RuntimeError("AIS 账号还没有完成邮箱激活，请先打开邮箱点击官方激活链接")
+                if state in ("still_signup", "signup_error") or _is_ais_signup_url(page.url):
+                    signup_error = _extract_signup_error_text(page)
+                    if signup_error:
+                        raise RuntimeError(f"登录后仍进入注册页：{signup_error[:160]}")
+                    raise RuntimeError("登录后仍进入 signup 页面，请确认该邮箱已经完成 AIS 官方激活")
+                return state
+
             try:
+                if login_existing_account:
+                    callback(12, "准备登录已有 AIS 账号...")
+                    _trace("login_existing.start", email)
+                    login_state = login_existing_account_and_open_applicant_flow()
+                    _trace("login_existing.ready", login_state)
+
+                    callback(92, "正在进入支付页并抓取截图...")
+                    payment_flow = _complete_post_signup_flow(page, personal_info, str(out_dir))
+                    _trace("login_existing.payment.done", payment_flow.get("payment_url", ""))
+
+                    callback(100, "已登录 AIS 账号并推进到支付页")
+                    return {
+                        "success": True,
+                        "message": f"已登录 AIS 账号 {email}，并推进到 Payment 页面",
+                        "registration_status": "existing_account_payment_ready",
+                        "activation_required": False,
+                        "email": email,
+                        "chinese_name": str(personal_info.get("chinese_name", "") or personal_info.get("中文名", "") or "").strip(),
+                        "account_password": password,
+                        "payment_url": payment_flow.get("payment_url", ""),
+                        "payment_screenshot": payment_flow.get("payment_screenshot", ""),
+                    }
+
                 callback(15, "正在访问 AIS 网站...")
                 _trace("step.open_ais.start")
                 goto_with_retry(AIS_BASE_URL, wait_until="domcontentloaded", timeout_ms=120000, retries=3)
@@ -1496,6 +1695,7 @@ def main() -> None:
     parser.add_argument("--no-email", action="store_true", help="不发送激活指引邮件")
     parser.add_argument("--extra-email", default="", help="抄送邮箱")
     parser.add_argument("--test-mode", "-t", action="store_true", help="测试模式（仍使用无头，仅增加慢速执行）")
+    parser.add_argument("--login-existing", action="store_true", help="跳过注册，直接登录已激活 AIS 账号并推进到支付页")
     args = parser.parse_args()
     result = register_ais(
         excel_path=args.excel_path,
@@ -1504,6 +1704,7 @@ def main() -> None:
         extra_email=args.extra_email,
         test_mode=args.test_mode,
         output_dir=args.output_dir,
+        login_existing_account=args.login_existing,
     )
     print(json.dumps(result, ensure_ascii=False))
 

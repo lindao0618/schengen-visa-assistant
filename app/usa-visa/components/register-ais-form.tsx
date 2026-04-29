@@ -461,7 +461,8 @@ export function RegisterAISForm() {
         formData.append("caseId", activeApplicant.activeCaseId)
       }
       formData.append("password", password || "Visa202520252025!")
-      formData.append("send_activation_email", String(sendEmail))
+      formData.append("send_activation_email", "false")
+      formData.append("login_existing", "true")
       formData.append("extra_email", extraEmail)
 
       const res = await fetch("/api/usa-visa/register-ais", { method: "POST", body: formData })
