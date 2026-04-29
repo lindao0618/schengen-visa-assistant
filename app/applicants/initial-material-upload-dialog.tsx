@@ -22,7 +22,7 @@ type InitialMaterialUploadDialogProps = {
   applicantId: string
   applicantName: string
   visaTypes: string[]
-  onFinish: () => void
+  onFinish: (completion: "skip" | "uploaded") => void | Promise<void>
 }
 
 export function InitialMaterialUploadDialog({
@@ -70,7 +70,7 @@ export function InitialMaterialUploadDialog({
       if (!response.ok) {
         throw new Error(data?.error || "上传材料失败")
       }
-      onFinish()
+      await onFinish("uploaded")
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "上传材料失败")
     } finally {
@@ -82,7 +82,7 @@ export function InitialMaterialUploadDialog({
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (!nextOpen && !uploading) onFinish()
+        if (!nextOpen && !uploading) void onFinish("skip")
       }}
     >
       <DialogContent className="max-w-2xl border-slate-200 bg-white">
@@ -130,7 +130,7 @@ export function InitialMaterialUploadDialog({
         {message ? <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{message}</div> : null}
 
         <DialogFooter className="gap-2 sm:justify-between">
-          <Button type="button" variant="outline" onClick={onFinish} disabled={uploading}>
+          <Button type="button" variant="outline" onClick={() => void onFinish("skip")} disabled={uploading}>
             跳过，进入详情
           </Button>
           <Button

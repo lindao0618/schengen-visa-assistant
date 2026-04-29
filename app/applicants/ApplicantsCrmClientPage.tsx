@@ -450,11 +450,19 @@ export default function ApplicantsCrmClientPage() {
   )
 
   const finishInitialMaterialUpload = useCallback(
-    (applicantId: string) => {
+    async (applicantId: string, completion: "skip" | "uploaded" = "skip") => {
       clearClientCache(getApplicantDetailCacheKey(applicantId))
       clearClientCache(getApplicantDetailCacheKey(applicantId, "active"))
       clearClientCacheByPrefix(APPLICANT_CRM_LIST_CACHE_PREFIX)
       clearClientCacheByPrefix(FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX)
+
+      if (completion === "uploaded") {
+        await prefetchJsonIntoClientCache(getApplicantDetailCacheKey(applicantId), `/api/applicants/${applicantId}`, {
+          ttlMs: APPLICANT_DETAIL_CACHE_TTL_MS,
+          force: true,
+        }).catch(() => null)
+      }
+
       setInitialUploadPrompt(null)
       router.push(`/applicants/${applicantId}?tab=materials`)
     },
@@ -835,7 +843,7 @@ export default function ApplicantsCrmClientPage() {
           applicantId={initialUploadPrompt.applicantId}
           applicantName={initialUploadPrompt.applicantName}
           visaTypes={initialUploadPrompt.visaTypes}
-          onFinish={() => finishInitialMaterialUpload(initialUploadPrompt.applicantId)}
+          onFinish={(completion) => finishInitialMaterialUpload(initialUploadPrompt.applicantId, completion)}
         />
       ) : null}
     </div>
