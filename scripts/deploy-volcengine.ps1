@@ -3,6 +3,7 @@ param(
   [string]$SshUser = "root",
   [string]$KeyPath = "d:\360Downloads\download_chrome\vistoria.pem",
   [string]$RemoteDir = "/opt/visa-assistant",
+  [string]$SshBindAddress = "",
   [switch]$SkipBuild,
   [switch]$FullDeploy,
   [int]$ScpRetries = 4
@@ -18,6 +19,10 @@ $deleteManifestPath = Join-Path $env:TEMP "visa-assistant-delete-$timestamp.txt"
 $remoteArchive = "/tmp/visa-assistant-deploy.tar.gz"
 $remoteTemplatesArchive = "/tmp/visa-assistant-templates.tar.gz"
 $remoteDeleteManifest = "/tmp/visa-assistant-delete.txt"
+$sshBindOptions = @()
+if (-not [string]::IsNullOrWhiteSpace($SshBindAddress)) {
+  $sshBindOptions = @("-o", "BindAddress=$SshBindAddress")
+}
 
 function Test-DeployPathExcluded {
   param(
@@ -188,6 +193,7 @@ try {
   Invoke-CheckedScp "Upload archive" {
     & scp `
       -C `
+      @sshBindOptions `
       -o StrictHostKeyChecking=no `
       -o UserKnownHostsFile=/dev/null `
       -o ServerAliveInterval=30 `
@@ -201,6 +207,7 @@ try {
     Invoke-CheckedScp "Upload delete manifest" {
       & scp `
         -C `
+        @sshBindOptions `
         -o StrictHostKeyChecking=no `
         -o UserKnownHostsFile=/dev/null `
         -o ServerAliveInterval=30 `
@@ -219,6 +226,7 @@ try {
     Invoke-CheckedScp "Upload templates archive" {
       & scp `
         -C `
+        @sshBindOptions `
         -o StrictHostKeyChecking=no `
         -o UserKnownHostsFile=/dev/null `
         -o ServerAliveInterval=30 `
@@ -231,6 +239,7 @@ try {
 
   Invoke-Checked "Extract on server" {
     & ssh `
+      @sshBindOptions `
       -o StrictHostKeyChecking=no `
       -o UserKnownHostsFile=/dev/null `
       -o ServerAliveInterval=30 `
@@ -243,6 +252,7 @@ try {
   if (-not $SkipBuild) {
     Invoke-Checked "Build and restart services" {
       & ssh `
+        @sshBindOptions `
         -o StrictHostKeyChecking=no `
         -o UserKnownHostsFile=/dev/null `
         -o ServerAliveInterval=30 `
