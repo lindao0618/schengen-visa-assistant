@@ -14,3 +14,11 @@ test("active applicant profile polling skips hidden browser tabs", () => {
   assert.match(source, /addEventListener\("visibilitychange"/)
   assert.match(source, /removeEventListener\("visibilitychange"/)
 })
+
+test("active applicant profile hydrates file metadata from the dedicated files endpoint", () => {
+  const source = readSource("hooks/use-active-applicant-profile.ts")
+
+  assert.match(source, /\/api\/applicants\/\$\{id\}\/files/)
+  assert.match(source, /filesData\.files/)
+  assert.doesNotMatch(source, /view=active&includeProfileFiles=1/)
+})

@@ -68,10 +68,16 @@ export interface ActiveApplicantProfile {
   birthDate?: string
 }
 
+type ActiveApplicantFiles = NonNullable<ActiveApplicantProfile["files"]>
+
 type ApplicantDetailResponse = {
   profile?: ActiveApplicantProfile | null
   cases?: ActiveApplicantCase[]
   activeCaseId?: string | null
+}
+
+type ApplicantFilesResponse = {
+  files?: ActiveApplicantFiles
 }
 
 function resolveActiveCaseId(cases: ActiveApplicantCase[], preferredCaseId?: string | null, fallbackCaseId?: string | null) {
@@ -103,22 +109,57 @@ function buildActiveApplicantProfile(id: string, data: ApplicantDetailResponse) 
   } satisfies ActiveApplicantProfile
 }
 
+function mergeActiveApplicantFiles(profile: ActiveApplicantProfile, files?: ActiveApplicantFiles) {
+  if (!files || Object.keys(files).length === 0) return profile
+
+  return {
+    ...profile,
+    files: {
+      ...(profile.files || {}),
+      ...files,
+    },
+  } satisfies ActiveApplicantProfile
+}
+
 export function useActiveApplicantProfile() {
   const [profile, setProfile] = useState<ActiveApplicantProfile | null>(null)
 
   useEffect(() => {
+    let cancelled = false
+
+    const isCurrentApplicant = (id: string) =>
+      !cancelled && window.localStorage.getItem(ACTIVE_APPLICANT_PROFILE_KEY) === id
+
+    const hydrateProfileFiles = async (id: string) => {
+      try {
+        const filesRes = await fetch(`/api/applicants/${id}/files`, { cache: "no-store" })
+        if (!filesRes.ok) return
+
+        const filesData = (await filesRes.json()) as ApplicantFilesResponse
+        if (!filesData.files || !isCurrentApplicant(id)) return
+
+        setProfile((current) => {
+          if (!current || current.id !== id) return current
+          return mergeActiveApplicantFiles(current, filesData.files)
+        })
+      } catch {
+        // Active workflow pages can still operate with the lightweight profile while files retry on the next poll.
+      }
+    }
+
     const load = async () => {
       const id = window.localStorage.getItem(ACTIVE_APPLICANT_PROFILE_KEY) || ""
       if (!id) {
-        setProfile(null)
+        if (!cancelled) setProfile(null)
         return
       }
 
       const cacheKey = getApplicantDetailCacheKey(id, "active")
       const cached = readClientCache<ApplicantDetailResponse>(cacheKey)
+      let cachedProfile: ActiveApplicantProfile | null = null
       if (cached) {
-        const cachedProfile = buildActiveApplicantProfile(id, cached)
-        if (cachedProfile) {
+        cachedProfile = buildActiveApplicantProfile(id, cached)
+        if (cachedProfile && isCurrentApplicant(id)) {
           setProfile(cachedProfile)
         }
       }
@@ -126,7 +167,8 @@ export function useActiveApplicantProfile() {
       try {
         const res = await fetch(`/api/applicants/${id}?view=active`, { cache: "no-store" })
         if (!res.ok) {
-          if (!cached) setProfile(null)
+          if (cachedProfile) void hydrateProfileFiles(id)
+          if (!cached && isCurrentApplicant(id)) setProfile(null)
           return
         }
 
@@ -134,13 +176,17 @@ export function useActiveApplicantProfile() {
         writeClientCache(cacheKey, data, APPLICANT_DETAIL_CACHE_TTL_MS)
         const nextProfile = buildActiveApplicantProfile(id, data)
         if (!nextProfile) {
-          if (!cached) setProfile(null)
+          if (!cached && isCurrentApplicant(id)) setProfile(null)
           return
         }
 
-        setProfile(nextProfile)
+        if (isCurrentApplicant(id)) {
+          setProfile(nextProfile)
+          void hydrateProfileFiles(id)
+        }
       } catch {
-        if (!cached) setProfile(null)
+        if (cachedProfile) void hydrateProfileFiles(id)
+        if (!cached && isCurrentApplicant(id)) setProfile(null)
       }
     }
 
@@ -163,6 +209,7 @@ export function useActiveApplicantProfile() {
     window.addEventListener("active-applicant-profile-refresh", onCustom as EventListener)
     window.addEventListener("active-applicant-case-changed", onCustom as EventListener)
     return () => {
+      cancelled = true
       window.clearInterval(intervalId)
       window.removeEventListener("storage", onStorage)
       window.removeEventListener("focus", onStorage)
