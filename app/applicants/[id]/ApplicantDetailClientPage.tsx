@@ -134,6 +134,7 @@ export default function ApplicantDetailClientPage({
   const defaultTab = useMemo(() => {
     return resolveApplicantDetailTab(searchParams.get("tab"))
   }, [searchParams])
+  const queryCaseId = searchParams.get("caseId")
   const activeDetailCacheKey = useMemo(() => getApplicantDetailCacheKey(applicantId, "active"), [applicantId])
   const [activeTab, setActiveTab] = useState<ApplicantDetailTab>(defaultTab)
   const [assigneesRequested, setAssigneesRequested] = useState(false)
@@ -156,6 +157,11 @@ export default function ApplicantDetailClientPage({
   useEffect(() => {
     setActiveTab(defaultTab)
   }, [defaultTab])
+
+  useEffect(() => {
+    if (!queryCaseId || !detail?.cases.some((item) => item.id === queryCaseId)) return
+    setSelectedCaseId(queryCaseId)
+  }, [detail?.cases, queryCaseId, setSelectedCaseId])
 
   const loadDetail = useCallback(async () => {
     const cached =

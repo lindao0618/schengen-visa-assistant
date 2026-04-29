@@ -2,7 +2,7 @@
 
 import { memo } from "react"
 import Link from "next/link"
-import { RefreshCw, Shield, UserPlus } from "lucide-react"
+import { CalendarClock, RefreshCw, Shield, UserPlus } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -58,6 +58,12 @@ export const ApplicantCrmPageHeader = memo(function ApplicantCrmPageHeader({
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
+          <Button variant="outline" asChild>
+            <Link href="/applicants/schedule">
+              <CalendarClock className="mr-2 h-4 w-4" />
+              递签日程
+            </Link>
+          </Button>
           {canOpenAdmin ? (
             <Button variant="outline" asChild>
               <Link href="/admin">
