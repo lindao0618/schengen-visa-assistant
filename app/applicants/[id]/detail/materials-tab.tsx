@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { TabsContent } from "@/components/ui/tabs"
 import { Section } from "@/app/applicants/[id]/detail/detail-ui"
 import { MaterialsOverviewBar } from "@/app/applicants/[id]/detail/materials-overview-bar"
+import { shouldShowApplicantMaterialFilesLoading } from "@/lib/applicant-material-files"
 import {
   schengenMaterialDocumentSlots,
   schengenSubmissionSlots,
@@ -44,6 +45,11 @@ export function MaterialsTab({
   onPreview: (slot: string, meta: FileMeta) => Promise<void>
 }) {
   const hasUsVisaInterviewSource = Boolean(files.usVisaDs160Excel || files.ds160Excel || files.usVisaAisExcel || files.aisExcel)
+  const visibleFileCount = Object.keys(files).length
+  const showFilesLoading = shouldShowApplicantMaterialFilesLoading({
+    loading: filesLoading,
+    visibleFileCount,
+  })
   const interviewBriefHref = `/usa-visa?tab=interview-brief&applicantProfileId=${encodeURIComponent(applicantProfileId)}${
     selectedCaseId ? `&caseId=${encodeURIComponent(selectedCaseId)}` : ""
   }`
@@ -58,7 +64,7 @@ export function MaterialsTab({
         canRunAutomation={canRunAutomation}
       />
 
-      {filesLoading ? (
+      {showFilesLoading ? (
         <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
           正在加载材料文件列表...
         </div>

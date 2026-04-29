@@ -26,7 +26,10 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
       Object.entries(files).map(([slot, meta]) => [
         slot,
         {
+          slot: meta.slot || slot,
           originalName: meta.originalName,
+          mimeType: meta.mimeType,
+          size: meta.size,
           uploadedAt: meta.uploadedAt,
         },
       ]),

@@ -402,35 +402,120 @@ class ItineraryResponse(BaseModel):
     pdf_base64: str
     analysis: str
 
+DATE_LINE_PATTERN = re.compile(
+    r"^\s*(?:[-*•]|\d+[.)、])?\s*"
+    r"(?P<date>(?:20\d{2}[./-]\d{1,2}[./-]\d{1,2})|(?:\d{1,2}[./-]\d{1,2}[./-]20\d{2}))"
+    r"\s*(?:[:：]|[-–—]\s+)\s*(?P<attractions>.+?)\s*$"
+)
+
+CITY_FALLBACK_ATTRACTIONS = {
+    "paris": [
+        "Louvre Museum, Tuileries Garden, Seine River Walk",
+        "Eiffel Tower, Champ de Mars, Arc de Triomphe",
+        "Palace of Versailles",
+        "Montmartre, Sacré-Cœur Basilica, Galeries Lafayette",
+        "Musée d'Orsay, Luxembourg Gardens, Latin Quarter",
+    ],
+}
+
+DEFAULT_FALLBACK_ATTRACTIONS = [
+    "City Centre Walk, Main Square, Local Museum",
+    "Historic District, Cathedral Area, Riverside Walk",
+    "Art Museum, Public Garden, Local Shopping Street",
+]
+
+
+def normalize_itinerary_date(raw_date: str):
+    parts = [part.zfill(2) for part in re.split(r"[./-]", raw_date.strip()) if part.strip()]
+    if len(parts) != 3:
+        return None
+
+    if len(parts[0]) == 4:
+        year, month, day = parts
+    elif len(parts[2]) == 4:
+        day, month, year = parts
+    else:
+        return None
+
+    try:
+        parsed = datetime(int(year), int(month), int(day))
+    except ValueError:
+        return None
+
+    return parsed.strftime("%d/%m/%Y")
+
+
+def normalize_city_key(city: str):
+    return re.sub(r"[^a-z]", "", (city or "").lower())
+
+
+def build_fallback_attractions(arrival_city: str, day_index: int):
+    city_key = normalize_city_key(arrival_city)
+    attractions = CITY_FALLBACK_ATTRACTIONS.get(city_key, DEFAULT_FALLBACK_ATTRACTIONS)
+    return attractions[(max(day_index, 1) - 1) % len(attractions)]
+
+
+def build_itinerary_rows(
+    start_date: datetime,
+    days: int,
+    departure_city: str,
+    arrival_city: str,
+    hotel_name: str,
+    hotel_address: str,
+    hotel_phone: str,
+    daily_spots: dict,
+):
+    rows = []
+    hotel_info = f"Hotel: {hotel_name}\nAddress: {hotel_address}\nPhone: {hotel_phone}"
+
+    for i in range(days):
+        current_date = start_date + timedelta(days=i)
+        date_str = current_date.strftime("%d/%m/%Y")
+
+        if i == 0:
+            transport = f"{departure_city} ➔ {arrival_city}"
+            spots = "Arrival Day - Hotel Check-in"
+            row_hotel_info = hotel_info
+        elif i == days - 1:
+            transport = f"{arrival_city} ➔ {departure_city}"
+            spots = "Departure Day - Hotel Check-out"
+            row_hotel_info = ""
+        else:
+            transport = f"{arrival_city}"
+            spots = (daily_spots.get(date_str) or "").strip()
+            if not spots:
+                spots = build_fallback_attractions(arrival_city, i)
+            row_hotel_info = hotel_info
+
+        rows.append([str(i + 1), date_str, transport, spots, row_hotel_info])
+
+    return rows
+
+
 def parse_attractions(response):
     """Parse AI response to extract dates and attractions"""
-    # Split response by lines and remove empty lines
     lines = [line.strip() for line in response.split('\n') if line.strip()]
-    
+
     daily_attractions = {}
     for line in lines:
-        # Look for lines containing date and attractions (format: "YYYY.MM.DD: Attraction1, Attraction2")
-        if ':' in line:
-            date_str, attractions = line.split(':', 1)
-            date_str = date_str.strip()
-            attractions = attractions.strip()
-            
-            # Convert YYYY.MM.DD format to DD/MM/YYYY format
-            if len(date_str) == 10 and date_str[4] == '.' and date_str[7] == '.':
-                year = date_str[0:4]
-                month = date_str[5:7]
-                day = date_str[8:10]
-                date_str = f"{day}/{month}/{year}"
-            
-            # Special handling for Palace of Versailles
-            if "Palace of Versailles" in attractions or "Château de Versailles" in attractions:
-                print(f"\n🏰 Found Palace of Versailles {date_str} - Setting as only attraction for the day")
-                daily_attractions[date_str] = "Palace of Versailles"
-            else:
-                # Process comma-separated attractions
-                attractions_list = [attr.strip() for attr in attractions.split(',')]
+        match = DATE_LINE_PATTERN.match(line)
+        if not match:
+            continue
+
+        date_str = normalize_itinerary_date(match.group("date"))
+        attractions = match.group("attractions").strip()
+        if not date_str or not attractions:
+            continue
+
+        # Special handling for Palace of Versailles
+        if "Palace of Versailles" in attractions or "Château de Versailles" in attractions:
+            print(f"\n🏰 Found Palace of Versailles {date_str} - Setting as only attraction for the day")
+            daily_attractions[date_str] = "Palace of Versailles"
+        else:
+            attractions_list = [attr.strip() for attr in re.split(r"[,，;；]", attractions) if attr.strip()]
+            if attractions_list:
                 daily_attractions[date_str] = ', '.join(attractions_list)
-    
+
     return daily_attractions
 
 def analyze_itinerary(rows):
@@ -528,26 +613,16 @@ def generate_itinerary(req: ItineraryRequest):
                     print("----------------------------------------")
                     daily_spots[display_date_str] = attractions
 
-        rows = []
-        for i in range(days):
-            current_date = start_date + timedelta(days=i)
-            date_str = current_date.strftime("%d/%m/%Y")
-            
-            # Handle transportation and attractions based on day type
-            if i == 0:  # First day (arrival)
-                transport = f"{req.departure_city} ➔ {req.arrival_city}"
-                spots = "Arrival Day - Hotel Check-in"
-                hotel_info = f"Hotel: {req.hotel_name}\nAddress: {req.hotel_address}\nPhone: {req.hotel_phone}"
-            elif i == days - 1:  # Last day (departure)
-                transport = f"{req.arrival_city} ➔ {req.departure_city}"
-                spots = "Departure Day - Hotel Check-out"
-                hotel_info = ""
-            else:  # Regular sightseeing day
-                transport = f"{req.arrival_city}"  # Just use arrival city name for middle days
-                spots = daily_spots.get(date_str, "")  # Empty string if no attractions found
-                hotel_info = f"Hotel: {req.hotel_name}\nAddress: {req.hotel_address}\nPhone: {req.hotel_phone}"
-
-            rows.append([str(i + 1), date_str, transport, spots, hotel_info])
+        rows = build_itinerary_rows(
+            start_date=start_date,
+            days=days,
+            departure_city=req.departure_city,
+            arrival_city=req.arrival_city,
+            hotel_name=req.hotel_name,
+            hotel_address=req.hotel_address,
+            hotel_phone=req.hotel_phone,
+            daily_spots=daily_spots,
+        )
 
         # Write generated files outside app/ to avoid Next dev hot-reload loops.
         TRIP_GENERATOR_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

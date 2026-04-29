@@ -45,10 +45,16 @@ export function useApplicantMaterialFiles({
     }
 
     let cancelled = false
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), 15_000)
     setMaterialFilesLoading(true)
     setMaterialFilesError("")
 
-    fetch(`/api/applicants/${applicantId}/files`, { credentials: "include", cache: "no-store" })
+    fetch(`/api/applicants/${applicantId}/files`, {
+      credentials: "include",
+      cache: "no-store",
+      signal: controller.signal,
+    })
       .then(async (response) => {
         const data = (await readJsonSafely<{ files?: ApplicantMaterialFiles; error?: string }>(response)) ?? {}
         if (!response.ok || !data.files) {
@@ -73,10 +79,17 @@ export function useApplicantMaterialFiles({
       })
       .catch((error) => {
         if (!cancelled) {
-          setMaterialFilesError(error instanceof Error ? error.message : "加载材料文件失败")
+          setMaterialFilesError(
+            error instanceof DOMException && error.name === "AbortError"
+              ? "材料列表加载超时，已先显示已有归档材料。"
+              : error instanceof Error
+                ? error.message
+                : "加载材料文件失败",
+          )
         }
       })
       .finally(() => {
+        window.clearTimeout(timeoutId)
         if (!cancelled) {
           setMaterialFilesLoading(false)
         }
@@ -84,6 +97,8 @@ export function useApplicantMaterialFiles({
 
     return () => {
       cancelled = true
+      controller.abort()
+      window.clearTimeout(timeoutId)
     }
   }, [activeTab, applicantId, detailProfileId, materialFilesLoaded, materialFilesLoading, setDetail])
 

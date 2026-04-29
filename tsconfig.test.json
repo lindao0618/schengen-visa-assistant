@@ -19,6 +19,7 @@
   "include": [
     "tests/**/*.ts",
     "lib/health.ts",
+    "lib/applicant-initial-material-upload.ts",
     "lib/schengen-excel-audit.ts",
     "lib/us-visa-excel-autofix.ts",
     "lib/us-visa-interview-brief.ts"

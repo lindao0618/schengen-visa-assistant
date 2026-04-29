@@ -61,6 +61,7 @@ import type { CreateApplicantForm } from "@/app/applicants/create-applicant-dial
 import { ApplicantCrmDashboardPanel } from "@/app/applicants/applicant-crm-dashboard-panel"
 import { ApplicantCrmListPanel } from "@/app/applicants/applicant-crm-list-panel"
 import { ApplicantCrmPageHeader } from "@/app/applicants/applicant-crm-page-header"
+import { shouldShowInitialMaterialUploadPrompt } from "@/lib/applicant-initial-material-upload"
 import {
   APPLICANT_CRM_PAGE_SIZE,
   buildApplicantCrmListSearchParams,
@@ -83,6 +84,11 @@ const CreateApplicantDialog = dynamic(
   { ssr: false },
 )
 
+const InitialMaterialUploadDialog = dynamic(
+  () => import("@/app/applicants/initial-material-upload-dialog").then((module) => module.InitialMaterialUploadDialog),
+  { ssr: false },
+)
+
 const EMPTY_QUICK_COUNTS: ApplicantCrmQuickCounts = {
   mine: 0,
   review: 0,
@@ -91,6 +97,12 @@ const EMPTY_QUICK_COUNTS: ApplicantCrmQuickCounts = {
 }
 
 type BatchActionMode = "set-group" | "clear-group" | "delete" | null
+
+type InitialUploadPromptState = {
+  applicantId: string
+  applicantName: string
+  visaTypes: string[]
+}
 
 const emptyCreateForm: CreateApplicantForm = {
   name: "",
@@ -152,6 +164,7 @@ export default function ApplicantsCrmClientPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [createForm, setCreateForm] = useState<CreateApplicantForm>(emptyCreateForm)
+  const [initialUploadPrompt, setInitialUploadPrompt] = useState<InitialUploadPromptState | null>(null)
   const [selectedApplicantIds, setSelectedApplicantIds] = useState<string[]>([])
   const [batchActionMode, setBatchActionMode] = useState<BatchActionMode>(null)
   const [batchActionLoading, setBatchActionLoading] = useState(false)
@@ -436,6 +449,18 @@ export default function ApplicantsCrmClientPage() {
     [router],
   )
 
+  const finishInitialMaterialUpload = useCallback(
+    (applicantId: string) => {
+      clearClientCache(getApplicantDetailCacheKey(applicantId))
+      clearClientCache(getApplicantDetailCacheKey(applicantId, "active"))
+      clearClientCacheByPrefix(APPLICANT_CRM_LIST_CACHE_PREFIX)
+      clearClientCacheByPrefix(FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX)
+      setInitialUploadPrompt(null)
+      router.push(`/applicants/${applicantId}?tab=materials`)
+    },
+    [router],
+  )
+
   useEffect(() => {
     displayRows.slice(0, 3).forEach((row) => {
       prefetchApplicantDetail(row.id, "automatic")
@@ -485,20 +510,34 @@ export default function ApplicantsCrmClientPage() {
         throw new Error(data?.error || "\u521b\u5efa\u7533\u8bf7\u4eba\u5931\u8d25")
       }
 
+      const createdApplicantId = data.profile.id as string
+      const createdApplicantName = data.profile.name || data.profile.label || createForm.name.trim()
+      const createdVisaTypes = createForm.createFirstCase ? [...createForm.visaTypes] : []
+
       clearClientCacheByPrefix(APPLICANT_CRM_LIST_CACHE_PREFIX)
       clearClientCacheByPrefix(APPLICANT_CRM_SUMMARY_CACHE_PREFIX)
       clearClientCache(APPLICANT_SELECTOR_CACHE_KEY)
       clearClientCacheByPrefix(APPLICANT_CRM_ASSIGNEES_CACHE_PREFIX)
       clearClientCacheByPrefix(FRANCE_AUTOMATION_PROFILES_CACHE_PREFIX)
-      window.localStorage.setItem("activeApplicantProfileId", data.profile.id)
+      window.localStorage.setItem("activeApplicantProfileId", createdApplicantId)
       const firstCaseId = data?.cases?.[0]?.id || data?.case?.id
       if (firstCaseId) {
         window.localStorage.setItem("activeApplicantCaseId", firstCaseId)
       }
       setCreateDialogOpen(false)
       setCreateForm(emptyCreateForm)
-      prefetchApplicantDetail(data.profile.id, "create")
-      router.push(`/applicants/${data.profile.id}`)
+
+      if (shouldShowInitialMaterialUploadPrompt(createdVisaTypes)) {
+        setInitialUploadPrompt({
+          applicantId: createdApplicantId,
+          applicantName: createdApplicantName,
+          visaTypes: createdVisaTypes,
+        })
+        return
+      }
+
+      prefetchApplicantDetail(createdApplicantId, "create")
+      router.push(`/applicants/${createdApplicantId}`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "\u521b\u5efa\u7533\u8bf7\u4eba\u5931\u8d25")
     } finally {
@@ -787,6 +826,16 @@ export default function ApplicantsCrmClientPage() {
           availableAssignees={availableAssignees}
           creating={creating}
           onCreateApplicant={() => void createApplicant()}
+        />
+      ) : null}
+
+      {initialUploadPrompt ? (
+        <InitialMaterialUploadDialog
+          open={Boolean(initialUploadPrompt)}
+          applicantId={initialUploadPrompt.applicantId}
+          applicantName={initialUploadPrompt.applicantName}
+          visaTypes={initialUploadPrompt.visaTypes}
+          onFinish={() => finishInitialMaterialUpload(initialUploadPrompt.applicantId)}
         />
       ) : null}
     </div>

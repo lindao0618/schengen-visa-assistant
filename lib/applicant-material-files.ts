@@ -6,10 +6,22 @@ export type ApplicantMaterialFilesLoadState = {
   loading: boolean
 }
 
+export type ApplicantMaterialFilesLoadingVisibilityState = {
+  loading?: boolean
+  visibleFileCount: number
+}
+
 export function shouldFetchApplicantMaterialFiles({
   activeTab,
   hasFilesLoaded,
   loading,
 }: ApplicantMaterialFilesLoadState) {
   return activeTab === "materials" && !hasFilesLoaded && !loading
+}
+
+export function shouldShowApplicantMaterialFilesLoading({
+  loading,
+  visibleFileCount,
+}: ApplicantMaterialFilesLoadingVisibilityState) {
+  return Boolean(loading) && visibleFileCount <= 0
 }
