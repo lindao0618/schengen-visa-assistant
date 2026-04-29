@@ -14,6 +14,7 @@ import {
 import { writeOutputAccessMetadata } from "@/lib/task-route-access"
 import { buildUsVisaInterviewBrief } from "@/lib/us-visa-interview-brief"
 import { resolveUsVisaInterviewBriefTemplatePath } from "@/lib/us-visa-interview-brief-template"
+import { buildApplicantGeneratedFilename } from "@/lib/generated-filename"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 120
@@ -134,16 +135,13 @@ export async function POST(request: NextRequest) {
     const excelBuffer = await fs.readFile(storedExcel.absolutePath)
     const brief = buildUsVisaInterviewBrief(excelBuffer)
 
-    const safeApplicantName = (applicantProfile.name || applicantProfile.label || "applicant").replace(
-      /[^a-zA-Z0-9_-]/g,
-      "_",
-    )
+    const applicantDisplayName = applicantProfile.name || applicantProfile.label || "applicant"
     const payloadPath = path.join(outputDir, "brief-payload.json")
     const payload = {
       applicantName: applicantProfile.name || applicantProfile.label || "Applicant",
       blocks: brief.blocks,
-      docxFilename: `${safeApplicantName}-美签面试必看.docx`,
-      pdfFilename: `${safeApplicantName}-美签面试必看.pdf`,
+      docxFilename: buildApplicantGeneratedFilename(applicantDisplayName, "美签面试必看", ".docx"),
+      pdfFilename: buildApplicantGeneratedFilename(applicantDisplayName, "美签面试必看", ".pdf"),
     }
     await fs.writeFile(payloadPath, JSON.stringify(payload, null, 2), "utf-8")
 
