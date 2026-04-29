@@ -177,6 +177,91 @@ def _france_visas_page_has_application_markers(driver) -> bool:
         return False
 
 
+def _france_visas_duplicate_tab_lock_detected(driver) -> bool:
+    """France-Visas 登录后偶发 403：同一应用被判定已在另一个标签页打开。"""
+    try:
+        current_url = str(getattr(driver, "current_url", "") or "").lower()
+    except Exception:
+        current_url = ""
+    try:
+        page_source = str(getattr(driver, "page_source", "") or "")
+    except Exception:
+        page_source = ""
+    page_source_lower = page_source.lower()
+    markers = [
+        "application is open in another tab",
+        "connexion refus",
+        "ouverte dans un autre onglet",
+        "连接被拒绝",
+        "另一个标签页",
+        "france-visas - page 403",
+    ]
+    if any(marker in page_source_lower for marker in markers):
+        return True
+    return "/fv-fo-dde/login-error" in current_url and "403" in page_source_lower
+
+
+def _recover_france_visas_duplicate_tab_lock(driver, callback=None, max_attempts: int = 3) -> bool:
+    """
+    遇到 France-Visas 单标签锁时，优先点错误页自带的返回首页按钮，再直达 accueil。
+    单纯等待 Create 按钮会超时 60 秒，这里尽早恢复或给出明确失败原因。
+    """
+    if not _france_visas_duplicate_tab_lock_detected(driver):
+        return True
+
+    for attempt in range(max_attempts):
+        if callback:
+            callback(34, f"检测到 France-Visas 单标签锁，正在恢复 {attempt + 1}/{max_attempts}")
+
+        try:
+            clicked = bool(
+                driver.execute_script(
+                    """
+                    const link = document.querySelector(
+                      'a.errorButton[href*="accueil.xhtml"], a[href*="/fv-fo-dde/accueil.xhtml"]'
+                    );
+                    if (!link) return false;
+                    link.removeAttribute('target');
+                    link.click();
+                    return true;
+                    """
+                )
+            )
+            if clicked:
+                time.sleep(2.0)
+        except Exception:
+            pass
+
+        if _france_visas_accueil_ready(driver) or _france_visas_page_has_application_markers(driver):
+            if callback:
+                callback(34, "已从单标签锁页面返回 France-Visas 首页")
+            return True
+
+        try:
+            driver.get("https://application-form.france-visas.gouv.fr/fv-fo-dde/accueil.xhtml")
+            time.sleep(2.0 + attempt * 0.5)
+        except Exception:
+            time.sleep(1.5 + attempt * 0.5)
+
+        if _france_visas_accueil_ready(driver) or _france_visas_page_has_application_markers(driver):
+            if callback:
+                callback(34, "已直达 France-Visas 首页")
+            return True
+
+        try:
+            driver.get("https://application-form.france-visas.gouv.fr/")
+            time.sleep(2.0)
+        except Exception:
+            pass
+
+        if not _france_visas_duplicate_tab_lock_detected(driver) and (
+            _france_visas_accueil_ready(driver) or _france_visas_page_has_application_markers(driver)
+        ):
+            return True
+
+    return False
+
+
 def _france_visas_accueil_ready(driver) -> bool:
     """判断是否已经回到 France-Visas 主页。这里只认 accueil.xhtml 精确链接。"""
     try:
@@ -954,13 +1039,58 @@ def create_new_application(file_path: str, original_filename: str = None, callba
             except Exception:
                 break
         time.sleep(1)
+
+        if _france_visas_duplicate_tab_lock_detected(driver):
+            if not _recover_france_visas_duplicate_tab_lock(driver, callback=callback):
+                raise Exception(
+                    "France-Visas 拒绝连接：系统判定申请已在另一个标签页打开。"
+                    "已自动尝试返回首页但失败，请确认没有同账号任务正在同时运行后重试。"
+                )
         
         # 创建新申请
         if callback:
             callback(35, "正在创建新申请...")
         current_step = "点击 Create a new application 按钮"
-        create_new_app_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'Create a new application in a new group of applications')]")))
-        create_new_app_button.click()
+        create_click_error: Optional[BaseException] = None
+        for attempt in range(3):
+            try:
+                if _france_visas_duplicate_tab_lock_detected(driver):
+                    if not _recover_france_visas_duplicate_tab_lock(driver, callback=callback):
+                        raise Exception(
+                            "France-Visas 拒绝连接：系统判定申请已在另一个标签页打开。"
+                            "已自动尝试恢复但失败，请稍后重试。"
+                        )
+
+                create_new_app_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'Create a new application in a new group of applications')]")))
+                create_new_app_button.click()
+                create_click_error = None
+                break
+            except Exception as exc:
+                create_click_error = exc
+                if _france_visas_duplicate_tab_lock_detected(driver):
+                    if _recover_france_visas_duplicate_tab_lock(driver, callback=callback):
+                        continue
+                    raise Exception(
+                        "France-Visas 拒绝连接：系统判定申请已在另一个标签页打开。"
+                        "已自动尝试返回首页但失败，请确认没有同账号任务正在同时运行后重试。"
+                    ) from exc
+
+                if attempt < 2:
+                    if callback:
+                        callback(35, f"未找到创建按钮，返回首页后重试 {attempt + 2}/3")
+                    try:
+                        _go_to_france_visas_accueil(driver, callback=callback, max_attempts=2)
+                    except Exception:
+                        try:
+                            driver.get("https://application-form.france-visas.gouv.fr/")
+                            time.sleep(2)
+                        except Exception:
+                            pass
+                    continue
+                raise
+
+        if create_click_error is not None:
+            raise create_click_error
         
         time.sleep(0.1)
         

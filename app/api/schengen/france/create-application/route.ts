@@ -18,6 +18,16 @@ import { getPythonRuntimeCommand } from "@/lib/python-runtime"
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
 
+let createApplicationQueue: Promise<void> = Promise.resolve()
+
+function enqueueCreateApplicationTask(run: () => Promise<void>) {
+  const queued = createApplicationQueue.then(run, run)
+  createApplicationQueue = queued.catch((error) => {
+    console.error("France create-application queue task failed:", error)
+  })
+  return queued
+}
+
 type DebugDownload = {
   label: string
   filename: string
@@ -172,9 +182,9 @@ export async function POST(request: NextRequest) {
 
       const resultFilePath = path.join(outputDir, "create_result.json")
       await updateTask(task.task_id, {
-        status: "running",
+        status: "pending",
         progress: 5,
-        message: `[${fileName}] 准备中...`,
+        message: `[${fileName}] 已加入生成队列，等待前一个法签任务完成...`,
       })
 
       if (applicantProfileId) {
@@ -190,9 +200,17 @@ export async function POST(request: NextRequest) {
         })
       }
 
+      void enqueueCreateApplicationTask(async () => {
+        await updateTask(task.task_id, {
+          status: "running",
+          progress: 6,
+          message: `[${fileName}] 队列轮到，开始生成...`,
+        })
+
       const progressBuffer = { current: "" }
       const prefix = `[${fileName}] `
 
+      await new Promise<void>((resolve) => {
       const proc = spawn(getPythonRuntimeCommand(), ["-u", scriptPath, inputPath, "--output-dir", outputDir], {
         cwd: process.cwd(),
         env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
@@ -223,6 +241,7 @@ export async function POST(request: NextRequest) {
       })
 
       proc.on("close", async (code) => {
+        try {
         clearTimeout(timeoutId)
         const stdoutLog = Buffer.concat(stdoutChunks).toString("utf-8")
         const stderrLog = Buffer.concat(stderrChunks).toString("utf-8")
@@ -357,6 +376,9 @@ export async function POST(request: NextRequest) {
             })
           }
         }
+        } finally {
+          resolve()
+        }
       })
 
       proc.on("error", async (error) => {
@@ -367,6 +389,9 @@ export async function POST(request: NextRequest) {
           message: "进程启动失败",
           error: String(error),
         })
+        resolve()
+      })
+      })
       })
     }
 
