@@ -262,6 +262,85 @@ def _recover_france_visas_duplicate_tab_lock(driver, callback=None, max_attempts
     return False
 
 
+def _primefaces_native_select_by_label(
+    driver,
+    select_input_id: str,
+    label_id: str,
+    expected_label: str,
+    aliases: Optional[list] = None,
+) -> bool:
+    """
+    PrimeFaces selectOneMenu 偶发点击超时或面板不落值。
+    直接写隐藏 select 并派发 input/change，保留 onclick 方式失败时的稳定兜底。
+    """
+    needles = [expected_label, *(aliases or [])]
+    try:
+        result = driver.execute_script(
+            """
+            const selectId = arguments[0];
+            const labelId = arguments[1];
+            const needles = (arguments[2] || [])
+              .map((item) => String(item || '').replace(/\\u00a0/g, ' ').trim().toLowerCase())
+              .filter(Boolean);
+            const sel = document.getElementById(selectId);
+            if (!sel || !sel.options) return { ok: false, reason: 'select_not_found' };
+
+            const norm = (value) => String(value || '').replace(/\\u00a0/g, ' ').trim().toLowerCase();
+            const optionText = (opt) => norm(`${opt.textContent || ''} ${opt.getAttribute('data-label') || ''}`);
+            const matches = (opt) => {
+              const text = optionText(opt);
+              return needles.some((needle) => needle && (text === needle || text.includes(needle) || needle.includes(text)));
+            };
+
+            const current = sel.options[sel.selectedIndex];
+            if (current && current.value && matches(current)) {
+              return { ok: true, selectedText: (current.textContent || current.getAttribute('data-label') || '').trim(), alreadySelected: true };
+            }
+
+            let target = null;
+            for (const opt of Array.from(sel.options)) {
+              if (!opt.value) continue;
+              if (matches(opt)) {
+                target = opt;
+                break;
+              }
+            }
+            if (!target) {
+              return {
+                ok: false,
+                reason: 'option_not_found',
+                options: Array.from(sel.options).map((opt) => (opt.textContent || opt.getAttribute('data-label') || '').trim()).filter(Boolean).slice(0, 20),
+              };
+            }
+
+            target.selected = true;
+            sel.value = target.value;
+            sel.dispatchEvent(new Event('input', { bubbles: true }));
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+
+            const label = document.getElementById(labelId);
+            const displayText = (target.textContent || target.getAttribute('data-label') || '').trim();
+            if (label && displayText) {
+              label.textContent = displayText;
+              if (target.id) label.setAttribute('aria-activedescendant', target.id);
+            }
+
+            const rootId = selectId.replace(/_input$/, '');
+            const root = document.getElementById(rootId);
+            if (root && root.classList) {
+              root.classList.remove('error-input', 'ui-state-error');
+            }
+            return { ok: true, selectedText: displayText };
+            """,
+            select_input_id,
+            label_id,
+            needles,
+        )
+        return bool(isinstance(result, dict) and result.get("ok"))
+    except Exception:
+        return False
+
+
 def _france_visas_accueil_ready(driver) -> bool:
     """判断是否已经回到 France-Visas 主页。这里只认 accueil.xhtml 精确链接。"""
     try:
@@ -637,6 +716,18 @@ def _france_visas_step1_debug_snapshot(driver) -> Dict[str, Any]:
             };
             const townRoot = document.getElementById('formStep1:Visas-selected-deposit-town');
             const townSel = document.getElementById('formStep1:Visas-selected-deposit-town_input');
+            const selected = (id) => {
+              const sel = document.getElementById(id);
+              if (!sel) return { value: '', text: '' };
+              let text = '';
+              try {
+                if (sel.selectedIndex >= 0 && sel.options[sel.selectedIndex]) {
+                  const o = sel.options[sel.selectedIndex];
+                  text = (o && (o.text || o.innerText) || '').replace(/\\s+/g, ' ').trim();
+                }
+              } catch (e) {}
+              return { value: (sel.value || '').trim(), text };
+            };
             let depositTownOptionText = '';
             try {
               if (townSel && townSel.selectedIndex >= 0) {
@@ -644,6 +735,9 @@ def _france_visas_step1_debug_snapshot(driver) -> Dict[str, Any]:
                 depositTownOptionText = (o && (o.text || o.innerText) || '').replace(/\\s+/g, ' ').trim();
               }
             } catch (e) {}
+            const travelDoc = selected('formStep1:Visas-dde-travel-document_input');
+            const purposeCategory = selected('formStep1:Visas-selected-purposeCategory_input');
+            const purpose = selected('formStep1:Visas-selected-purpose_input');
             return {
               has_form_step1: !!document.getElementById('formStep1'),
               deposit_town_label: t('formStep1:Visas-selected-deposit-town_label') || t('formStep1:Visas-selected-deposit-town'),
@@ -653,6 +747,15 @@ def _france_visas_step1_debug_snapshot(driver) -> Dict[str, Any]:
               deposit_country_label: t('formStep1:Visas-selected-deposit-country_label'),
               nationality_label: t('formStep1:visas-selected-nationality_label'),
               destination_label: t('formStep1:Visas-selected-destination_label'),
+              travel_document_label: t('formStep1:Visas-dde-travel-document_label'),
+              travel_document_select_value: travelDoc.value,
+              travel_document_option_text: travelDoc.text,
+              purpose_category_label: t('formStep1:Visas-selected-purposeCategory_label'),
+              purpose_category_select_value: purposeCategory.value,
+              purpose_category_option_text: purposeCategory.text,
+              purpose_label: t('formStep1:Visas-selected-purpose_label'),
+              purpose_select_value: purpose.value,
+              purpose_option_text: purpose.text,
             };
             """
         )
@@ -1114,6 +1217,57 @@ def create_new_application(file_path: str, original_filename: str = None, callba
                     if attempt < retries - 1:
                         time.sleep(wait_time)
             raise Exception(f"无法打开下拉框: {panel_id}")
+
+        def select_primefaces_menu(
+            label_id: str,
+            input_id: str,
+            panel_id: str,
+            expected_label: str,
+            aliases: Optional[list] = None,
+            settle_time: float = 0.8,
+        ) -> None:
+            if _primefaces_native_select_by_label(driver, input_id, label_id, expected_label, aliases=aliases):
+                time.sleep(settle_time)
+                return
+
+            label_el = wait.until(EC.element_to_be_clickable((By.ID, label_id)))
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", label_el)
+            time.sleep(0.2)
+            open_primefaces_dropdown(label_el, panel_id, retries=4, wait_time=0.7)
+            panel_xpath = f"//*[@id='{panel_id}']"
+            option_locators = [
+                (By.XPATH, f"{panel_xpath}//li[@data-label='{expected_label}']"),
+                (By.XPATH, f"{panel_xpath}//li[contains(@data-label,'{expected_label}')]"),
+                (By.XPATH, f"{panel_xpath}//li[contains(normalize-space(.), '{expected_label}')]"),
+            ]
+            for alias in aliases or []:
+                option_locators.extend(
+                    [
+                        (By.XPATH, f"{panel_xpath}//li[@data-label='{alias}']"),
+                        (By.XPATH, f"{panel_xpath}//li[contains(@data-label,'{alias}')]"),
+                        (By.XPATH, f"{panel_xpath}//li[contains(normalize-space(.), '{alias}')]"),
+                    ]
+                )
+
+            last_error: Optional[BaseException] = None
+            for by, locator in option_locators:
+                try:
+                    option = WebDriverWait(driver, 8).until(EC.element_to_be_clickable((by, locator)))
+                    option.click()
+                    time.sleep(settle_time)
+                    if _primefaces_native_select_by_label(driver, input_id, label_id, expected_label, aliases=aliases):
+                        time.sleep(settle_time)
+                    return
+                except Exception as exc:
+                    last_error = exc
+                    continue
+
+            if _primefaces_native_select_by_label(driver, input_id, label_id, expected_label, aliases=aliases):
+                time.sleep(settle_time)
+                return
+            if last_error:
+                raise last_error
+            raise Exception(f"未找到下拉选项: {expected_label}")
         
         try:
             driver.execute_script("window.scrollTo(0, 200);")
@@ -1320,14 +1474,14 @@ def create_new_application(file_path: str, original_filename: str = None, callba
             # 选择证件类型
             if callback:
                 callback(53, "正在选择证件类型...")
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", 
-                                 driver.find_element(By.ID, "formStep1:Visas-dde-travel-document_label"))
-            time.sleep(0.2)
-            travel_doc_dropdown = wait.until(EC.element_to_be_clickable((By.ID, "formStep1:Visas-dde-travel-document_label")))
-            travel_doc_dropdown.click()
-            doc_type_option = wait.until(EC.element_to_be_clickable((By.XPATH, f"//li[@data-label='{document_type}']")))
-            doc_type_option.click()
-            time.sleep(0.2)
+            select_primefaces_menu(
+                "formStep1:Visas-dde-travel-document_label",
+                "formStep1:Visas-dde-travel-document_input",
+                "formStep1:Visas-dde-travel-document_panel",
+                document_type,
+                aliases=["Ordinary passport", "普通护照"],
+                settle_time=1.0,
+            )
             if callback:
                 callback(54, "✅ 已选择证件类型")
             
@@ -1364,29 +1518,25 @@ def create_new_application(file_path: str, original_filename: str = None, callba
             # 选择旅行目的
             if callback:
                 callback(59, "正在选择旅行目的...")
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", 
-                                 driver.find_element(By.ID, "formStep1:Visas-selected-purposeCategory_label"))
-            time.sleep(0.2)
-            purpose_dropdown = wait.until(EC.element_to_be_clickable((By.ID, "formStep1:Visas-selected-purposeCategory_label")))
-            purpose_dropdown.click()
-            purpose_option = wait.until(EC.element_to_be_clickable((By.XPATH, f"//li[@data-label='{travel_purpose}']")))
-            purpose_option.click()
-            time.sleep(0.2)
-            time.sleep(2)
+            select_primefaces_menu(
+                "formStep1:Visas-selected-purposeCategory_label",
+                "formStep1:Visas-selected-purposeCategory_input",
+                "formStep1:Visas-selected-purposeCategory_panel",
+                travel_purpose,
+                aliases=["Tourism"],
+                settle_time=2.0,
+            )
             if callback:
                 callback(60, "✅ 已选择旅行目的类别")
             
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", 
-                                 driver.find_element(By.ID, "formStep1:Visas-selected-purpose_label"))
-            time.sleep(0.2)
-            specific_purpose_dropdown = wait.until(EC.element_to_be_clickable((By.ID, "formStep1:Visas-selected-purpose_label")))
-            specific_purpose_dropdown.click()
-            time.sleep(0.2)
-            time.sleep(1)
-            
-            tourism_option = wait.until(EC.element_to_be_clickable((By.XPATH, "//li[@data-label='Tourism / Private visit']")))
-            tourism_option.click()
-            time.sleep(0.2)
+            select_primefaces_menu(
+                "formStep1:Visas-selected-purpose_label",
+                "formStep1:Visas-selected-purpose_input",
+                "formStep1:Visas-selected-purpose_panel",
+                "Tourism / Private visit",
+                aliases=["Tourism / Private visit"],
+                settle_time=1.0,
+            )
             if callback:
                 callback(61, "✅ 已选择具体旅行目的")
             
