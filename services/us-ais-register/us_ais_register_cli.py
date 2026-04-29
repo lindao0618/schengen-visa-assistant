@@ -246,14 +246,40 @@ def _wait_and_click(page, selectors: List[str], step: str, timeout: int = 15000)
     return False
 
 
+def _detect_known_signup_failure_text(text: str) -> str:
+    normalized = html.unescape(str(text or ""))
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    low = normalized.lower()
+    patterns = [
+        (r"email[^.。\n]{0,80}already[^.。\n]{0,80}taken", "Email has already been taken"),
+        (r"email[^.。\n]{0,80}already[^.。\n]{0,80}registered", "Email has already been registered"),
+        (r"password[^.。\n]{0,80}(blank|required|too short|invalid)", "Password validation failed"),
+        (r"terms[^.。\n]{0,120}(accept|agree|required|must)", "Terms of use must be accepted"),
+        (r"(captcha|robot|recaptcha|verification)[^.。\n]{0,120}(failed|required|invalid)", "Captcha or verification failed"),
+    ]
+    for pattern, fallback in patterns:
+        match = re.search(pattern, low, flags=re.IGNORECASE)
+        if match:
+            start = max(0, match.start() - 60)
+            end = min(len(normalized), match.end() + 80)
+            snippet = normalized[start:end].strip(" |:;-")
+            return snippet or fallback
+    return ""
+
+
 def _extract_signup_error_text(page) -> str:
     """聚合注册页上可见错误，便于快速定位失败原因。"""
     selectors = [
         "form#new_user small.error",
         "form#new_user .error",
         "form#new_user .alert-danger",
+        "form#new_user .alert",
+        "form#new_user .field_with_errors",
         ".alert-danger",
+        ".alert",
+        ".error",
         "#error_explanation li",
+        "#error_explanation",
     ]
     messages: List[str] = []
     seen = set()
@@ -273,7 +299,23 @@ def _extract_signup_error_text(page) -> str:
                 messages.append(text)
         except Exception:
             continue
-    return " | ".join(messages[:3]).strip()
+    joined = " | ".join(messages[:3]).strip()
+    if joined:
+        return joined
+    try:
+        body_text = page.locator("body").inner_text(timeout=2500) or ""
+        known = _detect_known_signup_failure_text(body_text)
+        if known:
+            return known
+    except Exception:
+        pass
+    try:
+        known = _detect_known_signup_failure_text(page.content() or "")
+        if known:
+            return known
+    except Exception:
+        pass
+    return ""
 
 
 def _wait_until_post_signup_ready(page, timeout_ms: int = 30000) -> str:
@@ -299,6 +341,8 @@ def _wait_until_post_signup_ready(page, timeout_ms: int = 30000) -> str:
             return "schedule_url"
         if _is_ais_activation_email_sent_page(page):
             return "activation_email_sent"
+        if _is_ais_signup_url(current_url) and _extract_signup_error_text(page):
+            return "signup_error"
         for sel in applicant_ready_selectors:
             try:
                 if page.locator(sel).count() > 0:
@@ -435,6 +479,25 @@ def _save_ais_step_screenshot(page, output_dir: str, step_tag: str) -> Optional[
             return filename
     except Exception as e:
         print(f"[WARNING] 保存 AIS 步骤截图失败: {e}", file=sys.stderr)
+    return None
+
+
+def _save_ais_debug_html(page, output_dir: str, step_tag: str) -> Optional[str]:
+    try:
+        if not page:
+            return None
+        path_dir = Path(output_dir) if output_dir else None
+        if not path_dir or not str(path_dir).strip():
+            return None
+        path_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_tag = re.sub(r"[^a-zA-Z0-9._-]", "_", str(step_tag or "debug"))
+        filename = f"ais_register_debug_{safe_tag}_{timestamp}.html"
+        (path_dir / filename).write_text(page.content() or "", encoding="utf-8")
+        print(f"[INFO] 已保存调试HTML: {filename}", file=sys.stderr)
+        return filename
+    except Exception as e:
+        print(f"[WARNING] 保存 AIS 调试HTML失败: {e}", file=sys.stderr)
     return None
 
 
@@ -1280,17 +1343,27 @@ def register_ais(
 
                 callback(80, "正在提交创建账号...")
                 _trace("step.submit.start")
-                page.click('input[value="Create Account"]', timeout=15000)
-                page.wait_for_timeout(8000)
+                if not _wait_and_click(
+                    page,
+                    [
+                        'input[type="submit"][value="Create Account"]',
+                        'input[name="commit"][value="Create Account"]',
+                        'button:has-text("Create Account")',
+                        'input[type="submit"][value*="Account"]',
+                    ],
+                    "create_account",
+                    timeout=20000,
+                ):
+                    raise RuntimeError("未找到 Create Account 按钮")
+                page.wait_for_timeout(2500)
                 _trace("step.submit.done", page.url)
-                _save_ais_step_screenshot(page, str(out_dir), "08_submit_done")
 
                 callback(90, "正在检查注册结果...")
                 _trace("step.check_result.start")
-                _save_ais_step_screenshot(page, str(out_dir), "09_check_result_start")
 
-                post_signup_state = _wait_until_post_signup_ready(page, timeout_ms=30000)
+                post_signup_state = _wait_until_post_signup_ready(page, timeout_ms=90000)
                 _trace("step.check_result.state", f"{post_signup_state};url={page.url}")
+                _save_ais_step_screenshot(page, str(out_dir), f"08_submit_{post_signup_state}")
 
                 error_el = page.locator('form#new_user small.error')
                 if error_el.count() > 0:
@@ -1337,11 +1410,21 @@ def register_ais(
                         "payment_screenshot": "",
                     }
 
-                if post_signup_state == "still_signup":
+                if post_signup_state in ("still_signup", "signup_error"):
                     error_text = _extract_signup_error_text(page) or "注册后仍停留在 signup 页面（可能是条款未勾选、验证码或字段校验失败）"
                     _trace("step.check_result.still_signup", error_text[:160])
+                    html_snapshot = _save_ais_debug_html(page, str(out_dir), post_signup_state)
                     screenshot = _save_ais_error_screenshot(page, str(out_dir), error_text)
-                    return {"success": False, "error": error_text[:200], "screenshot": screenshot, "email": email}
+                    error_message = error_text[:200]
+                    if "already" in error_text.lower() and "email" in error_text.lower():
+                        error_message = f"该邮箱（{email}）已被 AIS 注册，请打开邮箱激活已有账号，或换一个邮箱重新注册"
+                    return {
+                        "success": False,
+                        "error": error_message,
+                        "screenshot": screenshot,
+                        "debug_html": html_snapshot,
+                        "email": email,
+                    }
 
                 current_url = page.url
                 if "niv_questions" in current_url or "new_user" in current_url:

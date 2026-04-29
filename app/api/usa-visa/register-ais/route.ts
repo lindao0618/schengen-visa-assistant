@@ -135,6 +135,7 @@ async function runAisRegisterInBackground(
         error?: string
         email?: string
         screenshot?: string
+        debug_html?: string
         chinese_name?: string
         account_password?: string
         payment_url?: string
@@ -186,6 +187,12 @@ async function runAisRegisterInBackground(
               downloadUrl: `/api/usa-visa/ais-register/download/${outputId}/${encodeURIComponent(screenshotFilename)}`,
             }
           : undefined
+        const debugHtml = data.debug_html
+          ? {
+              filename: data.debug_html,
+              downloadUrl: `/api/usa-visa/ais-register/download/${outputId}/${encodeURIComponent(data.debug_html)}`,
+            }
+          : undefined
         const latestLogs = debugLogs.slice(-10)
         const lastStepHint = latestLogs.length > 0 ? `；最后步骤：${latestLogs[latestLogs.length - 1]}` : ''
         await updateTask(taskId, {
@@ -199,6 +206,7 @@ async function runAisRegisterInBackground(
             email: data.email,
             debugLogs: debugLogs.slice(-60),
             ...(screenshot && { screenshot }),
+            ...(debugHtml && { debugHtml }),
           },
         })
       }

@@ -50,6 +50,17 @@ class UsAisRegisterCliTest(unittest.TestCase):
 
         self.assertFalse(us_ais_register_cli._is_ais_activation_email_sent_page(page))
 
+    def test_detects_email_taken_signup_failure_text(self):
+        message = us_ais_register_cli._detect_known_signup_failure_text(
+            """
+            Signup
+            Email has already been taken
+            Password can't be blank
+            """
+        )
+
+        self.assertIn("Email has already been taken", message)
+
 
 if __name__ == "__main__":
     unittest.main()
