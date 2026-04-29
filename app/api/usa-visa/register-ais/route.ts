@@ -139,12 +139,21 @@ async function runAisRegisterInBackground(
         account_password?: string
         payment_url?: string
         payment_screenshot?: string
+        activation_required?: boolean
+        activation_screenshot?: string
+        registration_status?: string
       }
       if (data.success) {
         const paymentScreenshot = data.payment_screenshot
           ? {
               filename: data.payment_screenshot,
               downloadUrl: `/api/usa-visa/ais-register/download/${outputId}/${encodeURIComponent(data.payment_screenshot)}`,
+            }
+          : undefined
+        const activationScreenshot = data.activation_screenshot
+          ? {
+              filename: data.activation_screenshot,
+              downloadUrl: `/api/usa-visa/ais-register/download/${outputId}/${encodeURIComponent(data.activation_screenshot)}`,
             }
           : undefined
         await updateTask(taskId, {
@@ -158,7 +167,10 @@ async function runAisRegisterInBackground(
             chineseName: data.chinese_name,
             password: data.account_password || password,
             paymentUrl: data.payment_url || '',
+            registrationStatus: data.registration_status || '',
+            activationRequired: Boolean(data.activation_required),
             ...(paymentScreenshot ? { paymentScreenshot } : {}),
+            ...(activationScreenshot ? { activationScreenshot } : {}),
             debugLogs: debugLogs.slice(-60),
           },
         })

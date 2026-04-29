@@ -34,6 +34,31 @@ def _is_ais_signup_url(url: str) -> bool:
     )
 
 
+def _is_ais_activation_email_sent_page(page) -> bool:
+    """AIS 创建账号后会先停在激活邮件页，此状态代表账号已创建，不是注册失败。"""
+    texts: List[str] = []
+    try:
+        texts.append(page.locator("body").inner_text(timeout=2500) or "")
+    except Exception:
+        pass
+    try:
+        texts.append(page.content() or "")
+    except Exception:
+        pass
+
+    content = html.unescape(" ".join(texts))
+    content = re.sub(r"\s+", " ", content).lower()
+    return bool(
+        "activate your account" in content
+        and "created an account" in content
+        and (
+            "instructions provided in the email" in content
+            or "resend email" in content
+            or "email address above" in content
+        )
+    )
+
+
 def _progress(pct: int, msg: str) -> None:
     print(f"PROGRESS:{pct}:{msg}", file=sys.stderr, flush=True)
 
@@ -255,6 +280,7 @@ def _wait_until_post_signup_ready(page, timeout_ms: int = 30000) -> str:
     """
     等待注册提交后的稳定状态：
     - applicant_form: 已出现 applicant 表单
+    - activation_email_sent: 已创建账号，等待邮箱激活
     - schedule_url: 已进入 schedule 流程
     - still_signup: 仍停留在 signup
     - unknown: 其它中间态
@@ -271,6 +297,8 @@ def _wait_until_post_signup_ready(page, timeout_ms: int = 30000) -> str:
         low_url = current_url.lower()
         if "/schedule/" in low_url or "/payment" in low_url:
             return "schedule_url"
+        if _is_ais_activation_email_sent_page(page):
+            return "activation_email_sent"
         for sel in applicant_ready_selectors:
             try:
                 if page.locator(sel).count() > 0:
@@ -1277,6 +1305,37 @@ def register_ais(
                             "screenshot": screenshot,
                             "email": email,
                         }
+
+                if post_signup_state == "activation_email_sent":
+                    callback(92, "AIS 账号已创建，等待邮箱激活...")
+                    _trace("step.check_result.activation_email_sent", email)
+                    activation_screenshot = _save_ais_step_screenshot(page, str(out_dir), "10_activation_email_sent")
+
+                    if send_activation_email:
+                        callback(95, "正在发送激活指引邮件...")
+                        _trace("step.send_email.start", email)
+                        send_ais_activation_email(email, personal_info, password)
+                        if extra_email and extra_email.strip() and extra_email.strip().lower() != email.lower():
+                            send_ais_activation_email(extra_email.strip(), personal_info, password)
+                        _trace("step.send_email.done")
+
+                    extra_email_msg = ""
+                    if send_activation_email and extra_email and extra_email.strip() and extra_email.strip().lower() != email.lower():
+                        extra_email_msg = f"，并抄送 {extra_email.strip()}"
+                    callback(100, "AIS 账号创建完成，官方激活邮件已发送！")
+                    _trace("register_ais.success.activation_email_sent", email)
+                    return {
+                        "success": True,
+                        "message": f"AIS 账号已创建，官方激活邮件已发送到 {email}，请先完成邮箱激活后再继续填写申请人资料{extra_email_msg}",
+                        "registration_status": "activation_email_sent",
+                        "activation_required": True,
+                        "activation_screenshot": activation_screenshot or "",
+                        "email": email,
+                        "chinese_name": str(personal_info.get("chinese_name", "") or personal_info.get("中文名", "") or "").strip(),
+                        "account_password": password,
+                        "payment_url": "",
+                        "payment_screenshot": "",
+                    }
 
                 if post_signup_state == "still_signup":
                     error_text = _extract_signup_error_text(page) or "注册后仍停留在 signup 页面（可能是条款未勾选、验证码或字段校验失败）"
