@@ -1218,6 +1218,30 @@ def create_new_application(file_path: str, original_filename: str = None, callba
                         time.sleep(wait_time)
             raise Exception(f"无法打开下拉框: {panel_id}")
 
+        def wait_for_primefaces_ajax_idle(max_wait: float = 10.0) -> None:
+            deadline = time.time() + max_wait
+            while time.time() < deadline:
+                try:
+                    idle = driver.execute_script(
+                        """
+                        if (window.PrimeFaces && PrimeFaces.ajax && PrimeFaces.ajax.Queue
+                            && typeof PrimeFaces.ajax.Queue.isEmpty === 'function') {
+                          return PrimeFaces.ajax.Queue.isEmpty();
+                        }
+                        const activeStatus = Array.from(document.querySelectorAll('.ui-ajax-status'))
+                          .some((node) => {
+                            const style = window.getComputedStyle(node);
+                            return style.display !== 'none' && style.visibility !== 'hidden';
+                          });
+                        return !activeStatus;
+                        """
+                    )
+                    if idle:
+                        return
+                except Exception:
+                    return
+                time.sleep(0.25)
+
         def select_primefaces_menu(
             label_id: str,
             input_id: str,
@@ -1225,10 +1249,17 @@ def create_new_application(file_path: str, original_filename: str = None, callba
             expected_label: str,
             aliases: Optional[list] = None,
             settle_time: float = 0.8,
+            native_wait_time: float = 8.0,
         ) -> None:
-            if _primefaces_native_select_by_label(driver, input_id, label_id, expected_label, aliases=aliases):
-                time.sleep(settle_time)
-                return
+            native_deadline = time.time() + native_wait_time
+            while True:
+                if _primefaces_native_select_by_label(driver, input_id, label_id, expected_label, aliases=aliases):
+                    wait_for_primefaces_ajax_idle()
+                    time.sleep(settle_time)
+                    return
+                if time.time() >= native_deadline:
+                    break
+                time.sleep(0.35)
 
             label_el = wait.until(EC.element_to_be_clickable((By.ID, label_id)))
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", label_el)
@@ -1254,8 +1285,10 @@ def create_new_application(file_path: str, original_filename: str = None, callba
                 try:
                     option = WebDriverWait(driver, 8).until(EC.element_to_be_clickable((by, locator)))
                     option.click()
+                    wait_for_primefaces_ajax_idle()
                     time.sleep(settle_time)
                     if _primefaces_native_select_by_label(driver, input_id, label_id, expected_label, aliases=aliases):
+                        wait_for_primefaces_ajax_idle()
                         time.sleep(settle_time)
                     return
                 except Exception as exc:
@@ -1263,6 +1296,7 @@ def create_new_application(file_path: str, original_filename: str = None, callba
                     continue
 
             if _primefaces_native_select_by_label(driver, input_id, label_id, expected_label, aliases=aliases):
+                wait_for_primefaces_ajax_idle()
                 time.sleep(settle_time)
                 return
             if last_error:
@@ -1287,13 +1321,16 @@ def create_new_application(file_path: str, original_filename: str = None, callba
             # 选择国籍（中国）
             if callback:
                 callback(43, "正在选择国籍...")
-            nationality_dropdown = wait.until(EC.element_to_be_clickable((By.ID, "formStep1:visas-selected-nationality_label")))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", nationality_dropdown)
-            time.sleep(0.2)
-            open_primefaces_dropdown(nationality_dropdown, "formStep1:visas-selected-nationality_panel", retries=4, wait_time=0.6)
-            chinese_option = wait.until(EC.element_to_be_clickable((By.XPATH, "//li[@data-label='Chinese']")))
-            chinese_option.click()
-            time.sleep(0.6)
+            current_step = "选择国籍"
+            select_primefaces_menu(
+                "formStep1:visas-selected-nationality_label",
+                "formStep1:visas-selected-nationality_input",
+                "formStep1:visas-selected-nationality_panel",
+                "Chinese",
+                aliases=["China", "中国"],
+                settle_time=1.0,
+                native_wait_time=10.0,
+            )
             wait.until(lambda d: "Chinese" in d.find_element(By.ID, "formStep1:visas-selected-nationality_label").text)
             if callback:
                 callback(44, "✅ 已选择中国国籍")
@@ -1301,13 +1338,16 @@ def create_new_application(file_path: str, original_filename: str = None, callba
             # 选择提交国家
             if callback:
                 callback(45, "正在选择提交国家...")
-            deposit_country_dropdown = wait.until(EC.element_to_be_clickable((By.ID, "formStep1:Visas-selected-deposit-country_label")))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", deposit_country_dropdown)
-            time.sleep(0.2)
-            open_primefaces_dropdown(deposit_country_dropdown, "formStep1:Visas-selected-deposit-country_panel")
-            deposit_country_option = wait.until(EC.element_to_be_clickable((By.XPATH, "//li[@data-label='United Kingdom']")))
-            deposit_country_option.click()
-            time.sleep(0.3)
+            current_step = "选择提交国家"
+            select_primefaces_menu(
+                "formStep1:Visas-selected-deposit-country_label",
+                "formStep1:Visas-selected-deposit-country_input",
+                "formStep1:Visas-selected-deposit-country_panel",
+                "United Kingdom",
+                aliases=["UK", "英国"],
+                settle_time=1.0,
+                native_wait_time=12.0,
+            )
             wait.until(lambda d: "United Kingdom" in d.find_element(By.ID, "formStep1:Visas-selected-deposit-country_label").text)
             if callback:
                 callback(46, "✅ 已选择英国作为提交国家")
@@ -1315,44 +1355,35 @@ def create_new_application(file_path: str, original_filename: str = None, callba
             # 选择停留时间
             if callback:
                 callback(47, "正在选择停留时间...")
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", 
-                                 driver.find_element(By.ID, "formStep1:Visas-selected-stayDuration_label"))
-            time.sleep(0.2)
-            duration_dropdown = wait.until(EC.element_to_be_clickable((By.ID, "formStep1:Visas-selected-stayDuration_label")))
-            duration_dropdown.click()
-            duration_option = wait.until(EC.element_to_be_clickable((By.XPATH, f"//li[@data-label='{stay_duration}']")))
-            duration_option.click()
-            time.sleep(0.3)
+            current_step = "选择停留时间"
+            select_primefaces_menu(
+                "formStep1:Visas-selected-stayDuration_label",
+                "formStep1:Visas-selected-stayDuration_input",
+                "formStep1:Visas-selected-stayDuration_panel",
+                stay_duration,
+                aliases=["Short-stay", "Short stay", "90 days", "90"],
+                settle_time=1.0,
+                native_wait_time=12.0,
+            )
             if callback:
                 callback(48, "✅ 已选择停留时间")
             
             # 选择目的地国家
             if callback:
                 callback(49, "正在选择目的地国家...")
+            current_step = "选择目的地国家"
             destination_dropdown = wait.until(EC.element_to_be_clickable((By.ID, "formStep1:Visas-selected-destination_label")))
             current_destination = (destination_dropdown.text or "").strip()
             if "France" not in current_destination:
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", destination_dropdown)
-                time.sleep(0.3)
-                open_primefaces_dropdown(destination_dropdown, "formStep1:Visas-selected-destination_panel", retries=4, wait_time=0.8)
-                france_option = None
-                destination_option_locators = [
-                    (By.CSS_SELECTOR, "li[data-label='France']"),
-                    (By.XPATH, "//li[@data-label='France']"),
-                    (By.XPATH, "//li[contains(@data-label,'France')]"),
-                    (By.XPATH, "//li[contains(normalize-space(.), 'France')]"),
-                    (By.XPATH, "//li[contains(normalize-space(.), '法国')]"),
-                ]
-                for by, locator in destination_option_locators:
-                    try:
-                        france_option = WebDriverWait(driver, 8).until(EC.element_to_be_clickable((by, locator)))
-                        break
-                    except Exception:
-                        continue
-                if not france_option:
-                    raise Exception("未找到目的地国家选项 France/法国")
-                france_option.click()
-                time.sleep(0.6)
+                select_primefaces_menu(
+                    "formStep1:Visas-selected-destination_label",
+                    "formStep1:Visas-selected-destination_input",
+                    "formStep1:Visas-selected-destination_panel",
+                    "France",
+                    aliases=["法国"],
+                    settle_time=1.0,
+                    native_wait_time=12.0,
+                )
                 wait.until(lambda d: "France" in d.find_element(By.ID, "formStep1:Visas-selected-destination_label").text)
             else:
                 if callback:

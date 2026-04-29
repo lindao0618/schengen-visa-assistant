@@ -61,6 +61,19 @@ class FranceVisaApplicationGeneratorTest(unittest.TestCase):
         self.assertEqual(driver.calls[0][1][1], "formStep1:Visas-dde-travel-document_label")
         self.assertIn("Ordinary passport", driver.calls[0][1][2])
 
+    def test_step_one_early_dropdowns_use_resilient_primefaces_selector(self):
+        source = (PROJECT_ROOT / "services" / "french-visa" / "application_generator.py").read_text(encoding="utf-8")
+
+        for input_id in [
+            "formStep1:visas-selected-nationality_input",
+            "formStep1:Visas-selected-deposit-country_input",
+            "formStep1:Visas-selected-stayDuration_input",
+            "formStep1:Visas-selected-destination_input",
+        ]:
+            self.assertIn(input_id, source)
+
+        self.assertNotIn("//li[@data-label='Chinese']", source)
+
 
 if __name__ == "__main__":
     unittest.main()
