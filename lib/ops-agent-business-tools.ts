@@ -2,6 +2,15 @@ import {
   parseOpsAgentImportFilename,
   type OpsAgentImportQueueType,
 } from "./ops-agent-filename-parser"
+import {
+  canAssignCases,
+  canReadAllApplicants,
+  canTriggerAutomation,
+  canWriteApplicants,
+  getAppRoleLabel,
+  isReadOnlyRole,
+  normalizeAppRole,
+} from "./access-control"
 
 export type OpsAgentBriefSeverity = "critical" | "warning" | "info"
 export type OpsAgentFollowUpScene = "missing-materials" | "deadline" | "payment" | "general"
@@ -42,6 +51,14 @@ export interface FollowUpDraftInput {
   missingMaterials?: string[]
   slotTime?: string | null
   paymentNote?: string
+}
+
+export interface OpsAgentPermissionSummary {
+  role: string
+  roleLabel: string
+  visibleScope: string
+  allowed: string[]
+  restricted: string[]
 }
 
 const SEVERITY_SCORE: Record<OpsAgentBriefSeverity, number> = {
@@ -258,6 +275,46 @@ export async function batchLookupApplicantsTool(params: {
   }
 }
 
+export async function listCurrentAccountApplicantsTool(params: {
+  userId: string
+  role?: string
+  keyword?: string
+  limit?: number
+}) {
+  const { listApplicantCrmData } = await import("@/lib/applicant-crm")
+  const role = normalizeAppRole(params.role)
+  const limit = Math.min(Math.max(params.limit ?? 20, 1), 50)
+  const data = await listApplicantCrmData(params.userId, params.role, {
+    keyword: params.keyword,
+    includeProfiles: false,
+    includeProfileFiles: false,
+    includeListMeta: false,
+    includeStats: true,
+    limit,
+  })
+  const rows = (Array.isArray(data.rows) ? data.rows : []).map((row: any) => ({
+    id: row.id,
+    name: row.name,
+    visaType: row.visaType || row.caseType || "未标注",
+    region: row.region || "",
+    status: row.currentStatusLabel || "未建案",
+    activeCaseId: row.activeCaseId || null,
+    assigneeName: row.assignee?.name || row.assignee?.email || "",
+    ownerName: row.owner?.name || row.owner?.email || "",
+    updatedAt: row.updatedAt,
+  }))
+
+  return {
+    type: "current-account-applicant-list",
+    rows,
+    stats: data.stats,
+    pagination: data.pagination,
+    totalRows: data.pagination?.totalRows ?? rows.length,
+    hasMore: Boolean(data.pagination?.hasMore),
+    permissions: buildOpsAgentPermissionSummary(role),
+  }
+}
+
 export async function getDailyBriefTool(params: {
   userId: string
   role?: string
@@ -370,6 +427,55 @@ export async function summarizeTaskFailureTool(params: {
     type: "task-failure-summary",
     task,
     summary: summarizeTaskFailureFallback(task),
+  }
+}
+
+function buildOpsAgentPermissionSummary(role: string): OpsAgentPermissionSummary {
+  const normalizedRole = normalizeAppRole(role)
+  const visibleScope = canReadAllApplicants(normalizedRole)
+    ? "当前角色可查看系统内全部申请人。"
+    : "当前角色只可查看自己创建或分配给自己的申请人。"
+  const allowed = [
+    visibleScope,
+    "可以生成材料缺漏、催办话术、每日简报等只读分析。",
+  ]
+  const restricted = [
+    "不会输出 API Key、密码、完整护照号等敏感信息。",
+    "不会绕过确认直接执行写入、覆盖、批量修改或自动化启动。",
+  ]
+
+  if (canWriteApplicants(normalizedRole)) {
+    allowed.push("可以发起申请人和案件字段修改，但必须先生成确认卡。")
+  } else {
+    restricted.push("当前角色不能修改申请人或案件字段。")
+  }
+
+  if (canTriggerAutomation(normalizedRole)) {
+    allowed.push("可以发起法签/美签自动化启动确认。")
+  } else {
+    restricted.push("当前角色不能启动法签/美签自动化。")
+  }
+
+  if (canAssignCases(normalizedRole)) {
+    allowed.push("可以分配案件或调整负责人。")
+  } else {
+    restricted.push("当前角色不能分配案件或调整负责人。")
+  }
+
+  if (!canReadAllApplicants(normalizedRole)) {
+    restricted.push("不能查看未归属、未分配给当前账号的申请人。")
+  }
+
+  if (isReadOnlyRole(normalizedRole)) {
+    restricted.push("客服角色属于只读运营视角，只能查看和生成话术/简报。")
+  }
+
+  return {
+    role: normalizedRole,
+    roleLabel: getAppRoleLabel(normalizedRole),
+    visibleScope,
+    allowed,
+    restricted,
   }
 }
 

@@ -7,8 +7,29 @@ import {
 } from "@/lib/ops-agent-settings"
 
 export interface OpsAgentChatMessage {
-  role: "system" | "user" | "assistant"
-  content: string
+  role: "system" | "user" | "assistant" | "tool"
+  content?: string | null
+  name?: string
+  tool_call_id?: string
+  tool_calls?: OpsAgentToolCall[]
+}
+
+export interface OpsAgentToolCall {
+  id: string
+  type: "function"
+  function: {
+    name: string
+    arguments: string
+  }
+}
+
+export interface OpsAgentToolDefinition {
+  type: "function"
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+  }
 }
 
 export interface OpsAgentModelCallInput {
@@ -17,6 +38,8 @@ export interface OpsAgentModelCallInput {
   effective: OpsAgentEffectiveSettings
   taskKind: OpsAgentTaskKind
   messages: OpsAgentChatMessage[]
+  tools?: OpsAgentToolDefinition[]
+  toolChoice?: "auto" | "none" | Record<string, unknown>
 }
 
 export interface OpsAgentModelCallResult {
@@ -25,6 +48,7 @@ export interface OpsAgentModelCallResult {
   provider: string
   usedModel: boolean
   error?: string
+  toolCalls: OpsAgentToolCall[]
 }
 
 const SECRET_PATTERNS = [
@@ -67,10 +91,48 @@ function buildProviderRequestOptions(provider: string, model: string) {
 }
 
 export function sanitizeOpsAgentMessages(messages: OpsAgentChatMessage[]) {
-  return messages.map((message) => ({
-    ...message,
-    content: maskSensitiveText(message.content).slice(0, 12000),
-  }))
+  return messages.map((message) => {
+    const sanitized: OpsAgentChatMessage = {
+      role: message.role,
+      content: typeof message.content === "string" ? maskSensitiveText(message.content).slice(0, 12000) : message.content ?? "",
+    }
+
+    if (message.name) sanitized.name = message.name
+    if (message.tool_call_id) sanitized.tool_call_id = message.tool_call_id
+    if (message.tool_calls?.length) {
+      sanitized.tool_calls = message.tool_calls.map((toolCall) => ({
+        ...toolCall,
+        function: {
+          ...toolCall.function,
+          arguments: maskSensitiveText(toolCall.function.arguments).slice(0, 12000),
+        },
+      }))
+    }
+
+    return sanitized
+  })
+}
+
+function normalizeToolCalls(value: unknown): OpsAgentToolCall[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item): OpsAgentToolCall | null => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null
+      const record = item as Record<string, any>
+      const fn = record.function
+      if (!fn || typeof fn !== "object") return null
+      const name = typeof fn.name === "string" ? fn.name : ""
+      if (!name) return null
+      return {
+        id: typeof record.id === "string" ? record.id : `tool-${name}`,
+        type: "function",
+        function: {
+          name,
+          arguments: typeof fn.arguments === "string" ? fn.arguments : JSON.stringify(fn.arguments || {}),
+        },
+      }
+    })
+    .filter((item): item is OpsAgentToolCall => Boolean(item))
 }
 
 export async function callOpsAgentModel(input: OpsAgentModelCallInput): Promise<OpsAgentModelCallResult> {
@@ -87,25 +149,33 @@ export async function callOpsAgentModel(input: OpsAgentModelCallInput): Promise<
       provider,
       usedModel: false,
       error: "模型未配置",
+      toolCalls: [],
     }
   }
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 25000)
   try {
+    const requestBody: Record<string, unknown> = {
+      model,
+      messages: sanitizeOpsAgentMessages(input.messages),
+      temperature: input.taskKind === "failure-diagnosis" ? 0.2 : 0.4,
+      ...providerOptions,
+      stream: false,
+    }
+
+    if (input.tools?.length) {
+      requestBody.tools = input.tools
+      requestBody.tool_choice = input.toolChoice || "auto"
+    }
+
     const response = await fetch(baseUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${credential}`,
       },
-      body: JSON.stringify({
-        model,
-        messages: sanitizeOpsAgentMessages(input.messages),
-        temperature: input.taskKind === "failure-diagnosis" ? 0.2 : 0.4,
-        ...providerOptions,
-        stream: false,
-      }),
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     })
 
@@ -116,16 +186,20 @@ export async function callOpsAgentModel(input: OpsAgentModelCallInput): Promise<
         provider,
         usedModel: false,
         error: `模型请求失败：${response.status}`,
+        toolCalls: [],
       }
     }
 
     const data = await response.json()
-    const content = String(data?.choices?.[0]?.message?.content || "").trim()
+    const message = data?.choices?.[0]?.message || {}
+    const content = String(message.content || "").trim()
+    const toolCalls = normalizeToolCalls(message.tool_calls)
     return {
       content,
       model,
       provider,
-      usedModel: Boolean(content),
+      usedModel: Boolean(content || toolCalls.length),
+      toolCalls,
     }
   } catch (error) {
     return {
@@ -134,6 +208,7 @@ export async function callOpsAgentModel(input: OpsAgentModelCallInput): Promise<
       provider,
       usedModel: false,
       error: error instanceof Error ? error.message : "模型请求异常",
+      toolCalls: [],
     }
   } finally {
     clearTimeout(timeout)
