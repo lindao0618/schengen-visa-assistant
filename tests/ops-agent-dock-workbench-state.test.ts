@@ -42,3 +42,14 @@ test("structured agent cards render item lists instead of raw json", () => {
   assert.match(source, /item\.nextAction/)
   assert.doesNotMatch(source, /card\.content\s*\|\|\s*card\.description\s*\|\|\s*card\.items/)
 })
+
+test("agent chat messages render lightweight markdown formatting", () => {
+  const source = readSource("components/ops-agent-dock.tsx")
+
+  assert.match(source, /function MarkdownText/)
+  assert.match(source, /function renderInlineMarkdown/)
+  assert.match(source, /<strong/)
+  assert.match(source, /<ul/)
+  assert.match(source, /<MarkdownText content=\{message\.content\}/)
+  assert.doesNotMatch(source, /whitespace-pre-wrap leading-6">\{message\.content\}/)
+})

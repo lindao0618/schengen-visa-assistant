@@ -113,6 +113,79 @@ function formatCardItems(items: unknown) {
     .filter((item): item is { title: string; reason: string; nextAction: string; severity: string } => Boolean(item))
 }
 
+function renderInlineMarkdown(text: string) {
+  const nodes: React.ReactNode[] = []
+  const boldPattern = /\*\*([^*]+)\*\*/g
+  let cursor = 0
+  let match: RegExpExecArray | null
+
+  while ((match = boldPattern.exec(text)) !== null) {
+    if (match.index > cursor) {
+      nodes.push(text.slice(cursor, match.index))
+    }
+    nodes.push(
+      <strong key={`${match.index}-${match[1]}`} className="font-semibold text-slate-50">
+        {match[1]}
+      </strong>,
+    )
+    cursor = match.index + match[0].length
+  }
+
+  if (cursor < text.length) {
+    nodes.push(text.slice(cursor))
+  }
+
+  return nodes.length ? nodes : text
+}
+
+function MarkdownText({ content }: { content: string }) {
+  const blocks: React.ReactNode[] = []
+  let listItems: string[] = []
+
+  const flushList = () => {
+    if (!listItems.length) return
+    const items = listItems
+    listItems = []
+    blocks.push(
+      <ul key={`list-${blocks.length}`} className="my-2 list-disc space-y-1 pl-5">
+        {items.map((item, index) => (
+          <li key={`${item}-${index}`} className="pl-1">
+            {renderInlineMarkdown(item)}
+          </li>
+        ))}
+      </ul>,
+    )
+  }
+
+  content
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .forEach((line, index) => {
+      const trimmed = line.trim()
+      if (!trimmed) {
+        flushList()
+        return
+      }
+
+      const bullet = trimmed.match(/^[-*]\s+(.+)$/)
+      if (bullet) {
+        listItems.push(bullet[1].trim())
+        return
+      }
+
+      flushList()
+      blocks.push(
+        <p key={`paragraph-${index}`} className="whitespace-pre-wrap">
+          {renderInlineMarkdown(trimmed)}
+        </p>,
+      )
+    })
+
+  flushList()
+
+  return <div className="space-y-2 leading-6">{blocks}</div>
+}
+
 function contextLabel(context: OpsAgentPageContext) {
   if (context.currentApplicantId) return `申请人 ${context.currentApplicantId}`
   if (context.pageType === "schedule") return "递签月历"
@@ -738,7 +811,7 @@ function AgentMessage({
             : "max-w-[92%] rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-100"
         }
       >
-        <div className="whitespace-pre-wrap leading-6">{message.content}</div>
+        <MarkdownText content={message.content} />
         {message.cards?.length ? (
           <div className="mt-3 space-y-2">
             {message.cards.map((card, index) => (
