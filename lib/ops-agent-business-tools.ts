@@ -1,5 +1,6 @@
 import {
   parseOpsAgentImportFilename,
+  type OpsAgentImportFilenameParse,
   type OpsAgentImportQueueType,
 } from "./ops-agent-filename-parser"
 import {
@@ -244,6 +245,7 @@ export async function previewExcelImportTool(params: {
       title: parsed.applicantName ? `确认导入 ${parsed.applicantName}` : "缺人文件待确认",
       riskLevel: queueType === "ready" && matches.length <= 1 ? "medium" : "high",
       actions: buildImportConfirmationActions(queueType, matches.length),
+      actionPayload: buildImportActionPayload(parsed, queueType),
     },
   }
 }
@@ -510,7 +512,32 @@ function buildImportConfirmationActions(queueType: OpsAgentImportQueueType, matc
   if (queueType === "missing-person") return ["选择申请人", "手动填写姓名", "取消"]
   if (matchCount > 1) return ["选择同名申请人", "新建申请人", "取消"]
   if (matchCount === 1) return ["合并到已有档案", "新建案件", "只归档文件", "取消"]
-  return ["创建申请人并建案", "只建申请人", "取消"]
+  return ["创建申请人并建档", "只建申请人", "取消"]
+}
+
+function getVisaTypeFromImportKind(kind: OpsAgentImportFilenameParse["kind"]) {
+  if (kind === "france-schengen") return "france-schengen"
+  if (kind === "usa-visa") return "usa-visa"
+  return undefined
+}
+
+function buildImportActionPayload(parsed: OpsAgentImportFilenameParse, queueType: OpsAgentImportQueueType) {
+  const visaType = getVisaTypeFromImportKind(parsed.kind)
+  const travelDate = parsed.bookingWindow?.start || parsed.expectedSubmissionMonth?.start
+
+  return {
+    source: "filename-import",
+    sourceFilename: parsed.rawFilename,
+    queueType,
+    applicantName: parsed.applicantName,
+    visaType,
+    visaTypes: visaType ? [visaType] : [],
+    createFirstCase: true,
+    travelDate,
+    bookingWindow: parsed.bookingWindow,
+    expectedSubmissionMonth: parsed.expectedSubmissionMonth,
+    unavailableDates: parsed.unavailableDates,
+  }
 }
 
 function isWithinDays(value: string | null | undefined, now: Date, days: number) {

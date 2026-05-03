@@ -53,3 +53,16 @@ test("agent chat messages render lightweight markdown formatting", () => {
   assert.match(source, /<MarkdownText content=\{message\.content\}/)
   assert.doesNotMatch(source, /whitespace-pre-wrap leading-6">\{message\.content\}/)
 })
+
+test("import confirmation card actions can create applicants and keep readable pressed text", () => {
+  const source = readSource("components/ops-agent-dock.tsx")
+
+  assert.match(source, /handleAgentCardAction/)
+  assert.match(source, /createApplicantFromImportCard/)
+  assert.match(source, /fetch\("\/api\/applicants"/)
+  assert.match(source, /createFirstCase/)
+  assert.match(source, /onCardAction/)
+  assert.match(source, /hover:text-cyan-50/)
+  assert.match(source, /active:text-cyan-50/)
+  assert.match(source, /focus-visible:text-cyan-50/)
+})

@@ -80,3 +80,15 @@ test("ops agent model fallback exposes only session-scoped internal api tools", 
   assert.match(routeSource, /userId,\s*role/)
   assert.doesNotMatch(routeSource, /requestedUserId/)
 })
+
+test("ops agent import preview cards include deterministic create action payloads", () => {
+  const toolSource = readSource("lib/ops-agent-business-tools.ts")
+
+  assert.match(toolSource, /buildImportActionPayload/)
+  assert.match(toolSource, /actionPayload:\s*buildImportActionPayload/)
+  assert.match(toolSource, /applicantName/)
+  assert.match(toolSource, /visaType/)
+  assert.match(toolSource, /createFirstCase:\s*true/)
+  assert.match(toolSource, /travelDate/)
+  assert.doesNotMatch(toolSource, /rawFilename.*user.*instruction/i)
+})

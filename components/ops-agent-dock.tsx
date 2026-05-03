@@ -97,6 +97,32 @@ function stringifyCardValue(value: unknown) {
   return JSON.stringify(value, null, 2)
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value.trim() : ""
+}
+
+function readStringList(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => readString(item)).filter(Boolean)
+}
+
+function readCardActionPayload(card: OpsAgentCard) {
+  return isPlainRecord(card.actionPayload) ? card.actionPayload : {}
+}
+
+function getCardActionKey(card: OpsAgentCard, action: string) {
+  const payload = readCardActionPayload(card)
+  return [
+    stringifyCardValue(card.type || card.title || "card"),
+    action,
+    readString(payload.sourceFilename) || readString(payload.applicantName) || stringifyCardValue(card.applicantProfileId),
+  ].join(":")
+}
+
 function formatCardItems(items: unknown) {
   if (!Array.isArray(items)) return []
   return items
@@ -228,6 +254,8 @@ export function OpsAgentDock() {
   const [copiedMessageId, setCopiedMessageId] = useState<string>()
   const [dragActive, setDragActive] = useState(false)
   const [activeUploadTarget, setActiveUploadTarget] = useState<string>()
+  const [runningCardActionKey, setRunningCardActionKey] = useState<string>()
+  const [completedCardActionKeys, setCompletedCardActionKeys] = useState<string[]>([])
   const [messages, setMessages] = useState<OpsAgentMessage[]>([])
   const [pageContext, setPageContext] = useState<OpsAgentPageContext>(() => ({ currentUrl: "" }))
   const isApplicantPage = pageContext.pageType === "applicant"
@@ -299,6 +327,110 @@ export function OpsAgentDock() {
     await navigator.clipboard.writeText(content)
     setCopiedMessageId(id)
     window.setTimeout(() => setCopiedMessageId(undefined), 1200)
+  }
+
+  const appendAssistantMessage = (message: Omit<OpsAgentMessage, "id" | "role">) => {
+    setMessages((current) => [
+      ...current,
+      {
+        id: makeId("assistant"),
+        role: "assistant",
+        ...message,
+      },
+    ])
+  }
+
+  const createApplicantFromImportCard = async (card: OpsAgentCard, action: string) => {
+    const payload = readCardActionPayload(card)
+    const applicantName = readString(payload.applicantName)
+    const visaTypes = readStringList(payload.visaTypes)
+    const fallbackVisaType = readString(payload.visaType)
+    const requestedVisaTypes = visaTypes.length ? visaTypes : fallbackVisaType ? [fallbackVisaType] : []
+    const createFirstCase = /创建申请人并建档|创建申请人并建案/.test(action)
+    const travelDate = readString(payload.travelDate)
+    const sourceFilename = readString(payload.sourceFilename)
+
+    if (!applicantName) {
+      throw new Error("确认卡缺少申请人姓名，不能自动创建。请先选择申请人或手动填写姓名。")
+    }
+    if (createFirstCase && requestedVisaTypes.length === 0) {
+      throw new Error("确认卡缺少签证类型，不能自动建档。请先让 Agent 重新解析文件名。")
+    }
+
+    const response = await fetch("/api/applicants", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: applicantName,
+        visaTypes: requestedVisaTypes,
+        visaType: requestedVisaTypes[0],
+        createFirstCase,
+        priority: "normal",
+        travelDate: travelDate || undefined,
+        note: sourceFilename ? `Ops Agent 从文件名创建：${sourceFilename}` : undefined,
+      }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || !data?.profile?.id) {
+      throw new Error(data?.error || "创建申请人失败")
+    }
+
+    const profileId = String(data.profile.id)
+    const profileName = String(data.profile.name || data.profile.label || applicantName)
+    const caseId = data?.cases?.[0]?.id || data?.case?.id
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("activeApplicantProfileId", profileId)
+      if (caseId) window.localStorage.setItem("activeApplicantCaseId", String(caseId))
+      window.dispatchEvent(new CustomEvent("ops-agent:applicant-created", {
+        detail: { applicantProfileId: profileId, applicantName: profileName, caseId },
+      }))
+    }
+
+    appendAssistantMessage({
+      content: caseId
+        ? `已创建申请人「${profileName}」并建立首个签证案件。`
+        : `已创建申请人「${profileName}」。`,
+      cards: [
+        {
+          type: "applicant-created",
+          title: "创建完成",
+          items: [
+            { title: profileName, reason: `申请人 ID：${profileId}`, nextAction: caseId ? `案件 ID：${caseId}` : "未创建案件" },
+          ],
+        },
+      ],
+    })
+  }
+
+  const handleAgentCardAction = async (card: OpsAgentCard, action: string) => {
+    const actionKey = getCardActionKey(card, action)
+    if (runningCardActionKey || completedCardActionKeys.includes(actionKey)) return
+
+    if (action === "取消") {
+      setCompletedCardActionKeys((current) => [...current, actionKey])
+      appendAssistantMessage({ content: "已取消，不会写入申请人或案件数据。" })
+      return
+    }
+
+    if (/创建申请人并建档|创建申请人并建案|只建申请人|新建申请人/.test(action)) {
+      setRunningCardActionKey(actionKey)
+      try {
+        await createApplicantFromImportCard(card, action)
+        setCompletedCardActionKeys((current) => [...current, actionKey])
+      } catch (error) {
+        appendAssistantMessage({
+          content: error instanceof Error ? error.message : "创建申请人失败",
+        })
+      } finally {
+        setRunningCardActionKey(undefined)
+      }
+      return
+    }
+
+    appendAssistantMessage({
+      content: `「${action}」还没有接入写入执行逻辑，我不会假装已经完成。`,
+    })
   }
 
   const sendMessage = async (content = input, filename?: string) => {
@@ -457,6 +589,9 @@ export function OpsAgentDock() {
                           onCopy={() => copyText(message.id, message.content)}
                           onRetry={() => lastUserMessage && void sendMessage(lastUserMessage.content)}
                           onEdit={() => lastUserMessage && setInput(lastUserMessage.content)}
+                          onCardAction={handleAgentCardAction}
+                          runningActionKey={runningCardActionKey}
+                          completedActionKeys={completedCardActionKeys}
                         />
                       ))}
                       {isProcessing ? (
@@ -795,12 +930,18 @@ function AgentMessage({
   onCopy,
   onRetry,
   onEdit,
+  onCardAction,
+  runningActionKey,
+  completedActionKeys,
 }: {
   message: OpsAgentMessage
   copied: boolean
   onCopy: () => void
   onRetry: () => void
   onEdit: () => void
+  onCardAction: (card: OpsAgentCard, action: string) => Promise<void>
+  runningActionKey?: string
+  completedActionKeys: string[]
 }) {
   return (
     <div className={message.role === "user" ? "flex justify-end" : "flex justify-start"}>
@@ -815,7 +956,13 @@ function AgentMessage({
         {message.cards?.length ? (
           <div className="mt-3 space-y-2">
             {message.cards.map((card, index) => (
-              <AgentCard key={`${message.id}-card-${index}`} card={card} />
+              <AgentCard
+                key={`${message.id}-card-${index}`}
+                card={card}
+                onCardAction={onCardAction}
+                runningActionKey={runningActionKey}
+                completedActionKeys={completedActionKeys}
+              />
             ))}
           </div>
         ) : null}
@@ -839,7 +986,17 @@ function AgentMessage({
   )
 }
 
-function AgentCard({ card }: { card: OpsAgentCard }) {
+function AgentCard({
+  card,
+  onCardAction,
+  runningActionKey,
+  completedActionKeys,
+}: {
+  card: OpsAgentCard
+  onCardAction: (card: OpsAgentCard, action: string) => Promise<void>
+  runningActionKey?: string
+  completedActionKeys: string[]
+}) {
   const title = stringifyCardValue(card.title || card.type || "结果")
   const riskLevel = stringifyCardValue(card.riskLevel)
   const content = stringifyCardValue(card.content || card.description)
@@ -881,11 +1038,25 @@ function AgentCard({ card }: { card: OpsAgentCard }) {
       ) : null}
       {actions.length ? (
         <div className="mt-3 flex flex-wrap gap-2">
-          {actions.map((action) => (
-            <Button key={action} type="button" variant="outline" size="sm" className="border-white/10 bg-white/[0.04] text-slate-100 hover:bg-cyan-300/10">
-              {action}
-            </Button>
-          ))}
+          {actions.map((action) => {
+            const actionKey = getCardActionKey(card, action)
+            const disabled = runningActionKey === actionKey || completedActionKeys.includes(actionKey)
+
+            return (
+              <Button
+                key={action}
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                onClick={() => void onCardAction(card, action)}
+                className="border-white/10 bg-white/[0.04] text-slate-100 hover:border-cyan-200/35 hover:bg-cyan-300/10 hover:text-cyan-50 active:text-cyan-50 focus-visible:text-cyan-50 disabled:text-slate-500"
+              >
+                {runningActionKey === actionKey ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                {completedActionKeys.includes(actionKey) ? "已处理" : action}
+              </Button>
+            )
+          })}
         </div>
       ) : null}
     </div>
