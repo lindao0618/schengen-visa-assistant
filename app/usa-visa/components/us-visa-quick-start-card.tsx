@@ -101,11 +101,11 @@ function StepMeta({
   if (!step.taskId && !step.error) return null
 
   return (
-    <div className="mt-2 space-y-2 rounded-lg border border-dashed border-gray-200 bg-gray-50/80 p-2 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">
+    <div className="mt-2 space-y-2 rounded-lg border border-dashed border-white/10 bg-black/25 p-2 text-xs text-white/45">
       {step.taskId && (
         <div>
           最近任务 ID：
-          <span className="ml-1 font-mono text-[11px] text-gray-800 dark:text-gray-100">{step.taskId}</span>
+          <span className="ml-1 font-mono text-[11px] text-white">{step.taskId}</span>
         </div>
       )}
       {step.error && <div className="break-all text-red-600 dark:text-red-400">失败摘要：{step.error}</div>}
@@ -610,31 +610,31 @@ export function UsVisaQuickStartCard() {
   }, [activeApplicant])
 
   return (
-    <Card className="mb-6 border-blue-200/60 bg-gradient-to-r from-blue-50 to-white shadow-xl dark:border-blue-900/40 dark:from-blue-950/20 dark:to-gray-950">
-      <CardHeader className="border-b border-blue-100/80 dark:border-blue-900/30">
-        <CardTitle className="text-xl text-gray-900 dark:text-white">美签一键启动</CardTitle>
-        <CardDescription>按你的业务节奏拆成两段：先做资料预处理，人工确认后再做并行提交。</CardDescription>
+    <Card className="mb-6 overflow-hidden rounded-[32px] border border-white/5 bg-white/[0.02] text-white shadow-none">
+      <CardHeader className="border-b border-white/5">
+        <CardTitle className="text-xl text-white">美签一键启动</CardTitle>
+        <CardDescription className="text-white/42">按你的业务节奏拆成两段：先做资料预处理，人工确认后再做并行提交。</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-5 pt-6 xl:grid-cols-2">
-        <div className="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-black/20">
+        <div className="rounded-2xl border border-white/5 bg-black/25 p-4">
           <div className="mb-4 grid gap-3 md:grid-cols-2">
-            <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
-              <div className="text-xs text-gray-500">当前步骤</div>
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+              <div className="text-xs text-white/35">当前步骤</div>
               <div className="mt-1 text-sm font-semibold">{getPrepCurrentStep(prepWorkflow)}</div>
             </div>
-            <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
-              <div className="text-xs text-gray-500">审核状态</div>
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+              <div className="text-xs text-white/35">审核状态</div>
               <div className="mt-1 text-sm font-semibold">
                 {prepWorkflow?.phase === "completed" ? "等待人工审核" : prepWorkflow?.phase === "failed" ? "存在失败步骤" : "自动执行中"}
               </div>
             </div>
           </div>
           <div>
-            <div className="text-sm font-semibold text-gray-900 dark:text-white">阶段一：照片检测 → DS-160 填表</div>
-            <div className="mt-1 text-xs text-gray-500">{prepReadyMessage}</div>
+            <div className="text-sm font-semibold text-white">阶段一：照片检测 → DS-160 填表</div>
+            <div className="mt-1 text-xs text-white/35">{prepReadyMessage}</div>
           </div>
           <div className="mt-4 space-y-2">
-            <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300">
+            <div className="flex items-center justify-between text-sm text-white/45">
               <span>进度</span>
               <span>{prepPercent}%</span>
             </div>
@@ -665,41 +665,41 @@ export function UsVisaQuickStartCard() {
             </Alert>
           )}
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            <Button onClick={handleStartPrep} disabled={!canStartPrep || prepLoading || prepWorkflow?.phase === "running"} className="gap-2">
+            <Button onClick={handleStartPrep} disabled={!canStartPrep || prepLoading || prepWorkflow?.phase === "running"} className="gap-2 bg-white text-black hover:bg-white/90 active:scale-95">
               {prepLoading || prepWorkflow?.phase === "running" ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
               {prepWorkflow ? "重新开始阶段一" : "启动阶段一"}
             </Button>
-            <Button variant="secondary" disabled={!canResume(prepWorkflow) || prepLoading} onClick={handleResumePrep} className="gap-2">
+            <Button variant="secondary" disabled={!canResume(prepWorkflow) || prepLoading} onClick={handleResumePrep} className="gap-2 border border-white/10 bg-white/[0.02] text-white/70 hover:bg-white/[0.04] active:scale-95">
               <PlayCircle className="h-4 w-4" />
               从失败步骤续跑
             </Button>
-            <Button variant="outline" disabled={!prepWorkflow} onClick={() => persistPrepWorkflow(null)} className="gap-2">
+            <Button variant="outline" disabled={!prepWorkflow} onClick={() => persistPrepWorkflow(null)} className="gap-2 border-white/10 bg-transparent text-white/70 hover:bg-white/[0.04] active:scale-95">
               <RotateCcw className="h-4 w-4" />
               清空状态
             </Button>
-            {prepWorkflow?.startedAt && <span className="text-xs text-gray-500">开始于 {formatWorkflowTime(prepWorkflow.startedAt)}</span>}
+            {prepWorkflow?.startedAt && <span className="text-xs text-white/35">开始于 {formatWorkflowTime(prepWorkflow.startedAt)}</span>}
           </div>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-black/20">
+        <div className="rounded-2xl border border-white/5 bg-black/25 p-4">
           <div className="mb-4 grid gap-3 md:grid-cols-2">
-            <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
-              <div className="text-xs text-gray-500">当前步骤</div>
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+              <div className="text-xs text-white/35">当前步骤</div>
               <div className="mt-1 text-sm font-semibold">{getSubmitCurrentStep(submitWorkflow)}</div>
             </div>
-            <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
-              <div className="text-xs text-gray-500">审核状态</div>
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+              <div className="text-xs text-white/35">审核状态</div>
               <div className="mt-1 text-sm font-semibold">
                 {submitWorkflow?.phase === "completed" ? "自动阶段已完成" : submitWorkflow?.phase === "failed" ? "存在失败步骤" : "等待你确认后启动"}
               </div>
             </div>
           </div>
           <div>
-            <div className="text-sm font-semibold text-gray-900 dark:text-white">阶段二：提交 DS-160 + AIS 注册</div>
-            <div className="mt-1 text-xs text-gray-500">{submitReadyMessage}</div>
+            <div className="text-sm font-semibold text-white">阶段二：提交 DS-160 + AIS 注册</div>
+            <div className="mt-1 text-xs text-white/35">{submitReadyMessage}</div>
           </div>
           <div className="mt-4 space-y-2">
-            <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300">
+            <div className="flex items-center justify-between text-sm text-white/45">
               <span>进度</span>
               <span>{submitPercent}%</span>
             </div>
@@ -730,19 +730,19 @@ export function UsVisaQuickStartCard() {
             </Alert>
           )}
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            <Button onClick={handleStartSubmit} disabled={!canStartSubmit || submitLoading || submitWorkflow?.phase === "running"} className="gap-2">
+            <Button onClick={handleStartSubmit} disabled={!canStartSubmit || submitLoading || submitWorkflow?.phase === "running"} className="gap-2 bg-white text-black hover:bg-white/90 active:scale-95">
               {submitLoading || submitWorkflow?.phase === "running" ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
               {submitWorkflow ? "重新开始阶段二" : "启动阶段二"}
             </Button>
-            <Button variant="secondary" disabled={!canResume(submitWorkflow) || submitLoading} onClick={handleResumeSubmit} className="gap-2">
+            <Button variant="secondary" disabled={!canResume(submitWorkflow) || submitLoading} onClick={handleResumeSubmit} className="gap-2 border border-white/10 bg-white/[0.02] text-white/70 hover:bg-white/[0.04] active:scale-95">
               <PlayCircle className="h-4 w-4" />
               从失败步骤续跑
             </Button>
-            <Button variant="outline" disabled={!submitWorkflow} onClick={() => persistSubmitWorkflow(null)} className="gap-2">
+            <Button variant="outline" disabled={!submitWorkflow} onClick={() => persistSubmitWorkflow(null)} className="gap-2 border-white/10 bg-transparent text-white/70 hover:bg-white/[0.04] active:scale-95">
               <RotateCcw className="h-4 w-4" />
               清空状态
             </Button>
-            {submitWorkflow?.startedAt && <span className="text-xs text-gray-500">开始于 {formatWorkflowTime(submitWorkflow.startedAt)}</span>}
+            {submitWorkflow?.startedAt && <span className="text-xs text-white/35">开始于 {formatWorkflowTime(submitWorkflow.startedAt)}</span>}
           </div>
         </div>
       </CardContent>

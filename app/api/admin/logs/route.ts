@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import prisma from "@/lib/db"
 import { getAdminSession, adminForbiddenResponse } from "@/lib/admin-auth"
 import { listAllMaterialTasks } from "@/lib/material-tasks"
+import { isPublicUiPreviewEnabled } from "@/lib/public-ui-preview"
+import { getPublicUiPreviewAdminData } from "@/lib/public-ui-preview-admin-data"
 import * as fs from "fs/promises"
 import * as path from "path"
 
@@ -12,6 +14,10 @@ async function readLogFile(filePath: string, lines = 200) {
 }
 
 export async function GET(request: NextRequest) {
+  if (isPublicUiPreviewEnabled()) {
+    return NextResponse.json(getPublicUiPreviewAdminData("logs"))
+  }
+
   const session = await getAdminSession()
   if (!session) return adminForbiddenResponse()
 

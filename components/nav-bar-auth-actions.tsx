@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { signOut, useSession } from "next-auth/react"
+import { ArrowRight } from "lucide-react"
 
 export function NavBarAuthActions() {
   const [mounted, setMounted] = useState(false)
@@ -13,7 +14,7 @@ export function NavBarAuthActions() {
   }, [])
 
   if (!mounted || status === "loading") {
-    return <div className="h-9 w-20 shrink-0 animate-pulse rounded-full bg-slate-100" />
+    return <div className="h-11 w-28 shrink-0 animate-pulse rounded-full bg-white/10" />
   }
 
   if (status === "authenticated" && session) {
@@ -21,14 +22,14 @@ export function NavBarAuthActions() {
       <div className="flex shrink-0 items-center gap-2">
         <Link
           href="/dashboard"
-          className="hidden h-9 items-center rounded-full border border-transparent px-4 text-sm font-medium text-slate-700 transition hover:border-blue-100 hover:bg-blue-50 hover:text-blue-800 sm:inline-flex"
+          className="pro-auth-action hidden h-11 items-center justify-center whitespace-nowrap rounded-full border border-white/10 bg-white/[0.055] px-5 text-sm font-semibold leading-none text-white/80 transition hover:border-cyan-100/25 hover:bg-white/10 hover:text-white sm:inline-flex"
         >
           个人中心
         </Link>
         <button
           type="button"
           onClick={() => signOut()}
-          className="h-9 rounded-full border border-transparent px-4 text-sm font-medium text-slate-700 transition hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950"
+          className="pro-auth-action inline-flex h-11 items-center justify-center whitespace-nowrap rounded-full border border-white/10 bg-white/[0.055] px-5 text-sm font-semibold leading-none text-white/75 transition hover:border-red-400/30 hover:bg-red-400/10 hover:text-red-200"
         >
           退出登录
         </button>
@@ -40,15 +41,16 @@ export function NavBarAuthActions() {
     <div className="flex shrink-0 items-center gap-2">
       <Link
         href="/login"
-        className="h-9 rounded-full border border-transparent px-4 text-sm font-medium text-slate-700 transition hover:border-blue-100 hover:bg-blue-50 hover:text-blue-800"
+        className="pro-auth-action inline-flex h-11 items-center justify-center whitespace-nowrap rounded-full border border-white/10 bg-white/[0.055] px-5 text-sm font-semibold leading-none text-white/80 transition hover:border-cyan-100/25 hover:bg-white/10 hover:text-white"
       >
         登录
       </Link>
       <Link
         href="/signup"
-        className="h-9 rounded-full bg-blue-600 px-4 text-sm font-semibold leading-9 text-white shadow-lg shadow-blue-100 transition hover:bg-blue-700"
+        className="pro-auth-primary inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-white px-5 text-sm font-black leading-none text-zinc-950 shadow-[0_0_34px_rgba(255,255,255,0.18)] transition hover:-translate-y-0.5 hover:bg-cyan-50"
       >
         注册
+        <ArrowRight className="h-3.5 w-3.5" />
       </Link>
     </div>
   )

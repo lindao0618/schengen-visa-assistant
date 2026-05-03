@@ -106,11 +106,11 @@ function StepMeta({
   if (!step.taskId && !step.error) return null
 
   return (
-    <div className="mt-2 space-y-2 rounded-lg border border-dashed border-gray-200 bg-gray-50/80 p-2 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">
+    <div className="mt-2 space-y-2 rounded-lg border border-dashed border-white/10 bg-black/25 p-2 text-xs text-white/45">
       {step.taskId && (
         <div>
           最近任务 ID：
-          <span className="ml-1 font-mono text-[11px] text-gray-800 dark:text-gray-100">{step.taskId}</span>
+          <span className="ml-1 font-mono text-[11px] text-white">{step.taskId}</span>
         </div>
       )}
       {step.error && <div className="break-all text-red-600 dark:text-red-400">失败摘要：{step.error}</div>}
@@ -587,10 +587,10 @@ export function FranceQuickStartCard() {
   const canResume = canResumeFranceWorkflow(workflow)
 
   return (
-    <Card className="mb-6 border-blue-200/60 bg-gradient-to-r from-blue-50 to-white shadow-xl dark:border-blue-900/40 dark:from-blue-950/20 dark:to-gray-950">
-      <CardHeader className="border-b border-blue-100/80 dark:border-blue-900/30">
-        <CardTitle className="text-xl text-gray-900 dark:text-white">法签一键启动</CardTitle>
-        <CardDescription>自动执行到 “TLS 填表提交” 为止，之后故意停下来，方便你人工审核数据是否正确。</CardDescription>
+    <Card className="mb-6 overflow-hidden rounded-[32px] border border-white/5 bg-white/[0.02] text-white shadow-none">
+      <CardHeader className="border-b border-white/5">
+        <CardTitle className="text-xl text-white">法签一键启动</CardTitle>
+        <CardDescription className="text-white/42">自动执行到 “TLS 填表提交” 为止，之后故意停下来，方便你人工审核数据是否正确。</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 pt-6">
         {!activeApplicant?.id ? (
@@ -614,24 +614,24 @@ export function FranceQuickStartCard() {
         )}
 
         <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-2xl border border-blue-100 bg-white/80 p-4 dark:border-blue-900/40 dark:bg-black/20">
-            <div className="text-xs text-gray-500">当前步骤</div>
-            <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{currentStepText}</div>
+          <div className="rounded-2xl border border-white/5 bg-black/25 p-4">
+            <div className="text-xs text-white/35">当前步骤</div>
+            <div className="mt-1 text-sm font-semibold text-white">{currentStepText}</div>
           </div>
-          <div className="rounded-2xl border border-blue-100 bg-white/80 p-4 dark:border-blue-900/40 dark:bg-black/20">
-            <div className="text-xs text-gray-500">审核状态</div>
-            <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
+          <div className="rounded-2xl border border-white/5 bg-black/25 p-4">
+            <div className="text-xs text-white/35">审核状态</div>
+            <div className="mt-1 text-sm font-semibold text-white">
               {workflow?.phase === "completed" ? "等待人工审核" : workflow?.phase === "failed" ? "存在失败步骤" : "自动执行中"}
             </div>
           </div>
-          <div className="rounded-2xl border border-blue-100 bg-white/80 p-4 dark:border-blue-900/40 dark:bg-black/20">
-            <div className="text-xs text-gray-500">自动进度</div>
-            <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{overallPercent}%</div>
+          <div className="rounded-2xl border border-white/5 bg-black/25 p-4">
+            <div className="text-xs text-white/35">自动进度</div>
+            <div className="mt-1 text-sm font-semibold text-white">{overallPercent}%</div>
           </div>
         </div>
 
         <div className="space-y-2">
-          <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300">
+          <div className="flex items-center justify-between text-sm text-white/45">
             <span>自动链路进度</span>
             <span>{overallPercent}%</span>
           </div>
@@ -639,9 +639,9 @@ export function FranceQuickStartCard() {
         </div>
 
         <div className="grid gap-3 md:grid-cols-[1.4fr,1fr,1fr]">
-          <div className="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-black/20">
-            <div className="text-sm font-semibold text-gray-900 dark:text-white">步骤 1：注册准备</div>
-            <div className="mt-1 text-xs text-gray-500">只有 FV 注册和 TLS 注册都成功，才会继续下一步。</div>
+          <div className="rounded-2xl border border-white/5 bg-black/25 p-4">
+            <div className="text-sm font-semibold text-white">步骤 1：注册准备</div>
+            <div className="mt-1 text-xs text-white/35">只有 FV 注册和 TLS 注册都成功，才会继续下一步。</div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <div>
                 <StepBadge label="FV 注册" step={workflow?.steps.extractRegister ?? { status: "idle" }} />
@@ -653,9 +653,9 @@ export function FranceQuickStartCard() {
               </div>
             </div>
           </div>
-          <div className="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-black/20">
-            <div className="text-sm font-semibold text-gray-900 dark:text-white">步骤 2：生成新申请</div>
-            <div className="mt-1 text-xs text-gray-500">生成 France-visas 新申请 JSON。</div>
+          <div className="rounded-2xl border border-white/5 bg-black/25 p-4">
+            <div className="text-sm font-semibold text-white">步骤 2：生成新申请</div>
+            <div className="mt-1 text-xs text-white/35">生成 France-visas 新申请 JSON。</div>
             <div className="mt-3">
               <StepBadge label="France-visas 新申请" step={workflow?.steps.createApplication ?? { status: "idle" }} />
               <StepMeta
@@ -665,9 +665,9 @@ export function FranceQuickStartCard() {
               />
             </div>
           </div>
-          <div className="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-black/20">
-            <div className="text-sm font-semibold text-gray-900 dark:text-white">步骤 3：TLS 填表提交</div>
-            <div className="mt-1 text-xs text-gray-500">提交完成后自动停止，留给人工检查。</div>
+          <div className="rounded-2xl border border-white/5 bg-black/25 p-4">
+            <div className="text-sm font-semibold text-white">步骤 3：TLS 填表提交</div>
+            <div className="mt-1 text-xs text-white/35">提交完成后自动停止，留给人工检查。</div>
             <div className="mt-3">
               <StepBadge label="TLS 页面填表与提交" step={workflow?.steps.tlsApply ?? { status: "idle" }} />
               <StepMeta step={workflow?.steps.tlsApply ?? { status: "idle" }} taskListId="france-tls-apply-tasks" taskLabel="TLS 填表提交" />
@@ -692,11 +692,11 @@ export function FranceQuickStartCard() {
         )}
 
         <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={handleStart} disabled={!canStart || loading || workflow?.phase === "running"} className="gap-2">
+          <Button onClick={handleStart} disabled={!canStart || loading || workflow?.phase === "running"} className="gap-2 bg-white text-black hover:bg-white/90 active:scale-95">
             {loading || workflow?.phase === "running" ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
             {workflow ? "重新开始本轮自动化" : "开始自动运行"}
           </Button>
-          <Button variant="secondary" disabled={!canResume || loading} onClick={handleResume} className="gap-2">
+          <Button variant="secondary" disabled={!canResume || loading} onClick={handleResume} className="gap-2 border border-white/10 bg-white/[0.02] text-white/70 hover:bg-white/[0.04] active:scale-95">
             <PlayCircle className="h-4 w-4" />
             从失败步骤续跑
           </Button>
@@ -706,12 +706,12 @@ export function FranceQuickStartCard() {
             onClick={() => {
               persistWorkflow(null)
             }}
-            className="gap-2"
+            className="gap-2 border-white/10 bg-transparent text-white/70 hover:bg-white/[0.04] active:scale-95"
           >
             <RotateCcw className="h-4 w-4" />
             清空本轮状态
           </Button>
-          {workflow?.startedAt && <span className="text-xs text-gray-500">开始于 {formatWorkflowTime(workflow.startedAt)}</span>}
+          {workflow?.startedAt && <span className="text-xs text-white/35">开始于 {formatWorkflowTime(workflow.startedAt)}</span>}
         </div>
       </CardContent>
     </Card>

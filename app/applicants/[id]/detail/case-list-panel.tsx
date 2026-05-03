@@ -1,12 +1,10 @@
 "use client"
 
-import { Plus } from "lucide-react"
+import { Circle, Plus } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import type { VisaCaseRecord } from "@/app/applicants/[id]/detail/types"
 import { getApplicantCrmRegionLabel, getApplicantCrmVisaTypeLabel } from "@/lib/applicant-crm-labels"
-import { formatDateTime, Section } from "@/app/applicants/[id]/detail/detail-ui"
+import { formatDateTime } from "@/app/applicants/[id]/detail/detail-ui"
 
 function getPriorityLabel(value?: string | null) {
   if (!value) return "-"
@@ -16,9 +14,9 @@ function getPriorityLabel(value?: string | null) {
 }
 
 function getPriorityVariant(value?: string | null) {
-  if (value === "urgent") return "destructive" as const
-  if (value === "high") return "warning" as const
-  return "outline" as const
+  if (value === "urgent") return "border-red-400/30 bg-red-400/10 text-red-300"
+  if (value === "high") return "border-amber-400/30 bg-amber-400/10 text-amber-300"
+  return "border-blue-400/25 bg-blue-400/10 text-blue-200"
 }
 
 export function CaseSwitcherPanel({
@@ -30,29 +28,36 @@ export function CaseSwitcherPanel({
   selectedCaseId: string
   onSelectCaseId: (caseId: string) => void
 }) {
-  if (cases.length === 0) return null
+  if (cases.length <= 1) return null
 
   return (
-    <Section title="案件切换" description="同一个申请人可同时办理多个签证案件，点击标签即可切换当前工作案件。" tone="amber">
-      <div className="flex flex-wrap gap-3">
-        {cases.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onSelectCaseId(item.id)}
-            className={[
-              "rounded-full border px-4 py-2 text-sm font-semibold shadow-sm transition-all",
-              selectedCaseId === item.id
-                ? "border-blue-600 bg-blue-600 text-white"
-                : "border-blue-200 bg-white text-blue-900 hover:border-blue-300 hover:bg-blue-50",
-            ].join(" ")}
-          >
-            {getApplicantCrmVisaTypeLabel(item.visaType || item.caseType)}
-            {item.applyRegion ? ` · ${getApplicantCrmRegionLabel(item.applyRegion)}` : ""}
-          </button>
-        ))}
+    <section className="rounded-[32px] border border-white/8 bg-[#151518] p-4 shadow-2xl shadow-black/30">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-white/35">案件切换</p>
+        <span className="font-mono text-[10px] text-white/30">{cases.length} CASES</span>
       </div>
-    </Section>
+      <div className="space-y-2">
+        {cases.map((item) => {
+          const active = selectedCaseId === item.id
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onSelectCaseId(item.id)}
+              className={[
+                "w-full rounded-2xl border px-3 py-2 text-left text-xs font-semibold transition-all",
+                active
+                  ? "border-white/20 bg-white/10 text-white"
+                  : "border-white/8 bg-white/[0.025] text-white/45 hover:border-white/16 hover:text-white/80",
+              ].join(" ")}
+            >
+              {getApplicantCrmVisaTypeLabel(item.visaType || item.caseType)}
+              {item.applyRegion ? ` / ${getApplicantCrmRegionLabel(item.applyRegion)}` : ""}
+            </button>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 
@@ -70,44 +75,68 @@ export function CaseListPanel({
   onOpenCreateCase: () => void
 }) {
   return (
-    <Section title="Case 列表" description="一个申请人可以挂多个 Case。当前激活中的 France Case 会驱动法签自动化和提醒。" tone="amber">
-      <div className="space-y-3">
-        <Button onClick={onOpenCreateCase} disabled={!canEditApplicant} className="w-full rounded-2xl bg-blue-600 text-white hover:bg-blue-700">
-          <Plus className="mr-2 h-4 w-4" />
-          新建 Case
-        </Button>
+    <div className="space-y-6">
+      <section className="rounded-[32px] border border-white/8 bg-[#151518] p-5 shadow-2xl shadow-black/35">
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-white/35">Archive Cases</p>
+            <h3 className="mt-2 text-base font-bold tracking-tight text-white">Case 列表</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenCreateCase}
+            disabled={!canEditApplicant}
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/8 bg-white/8 text-white/65 transition hover:border-white/18 hover:bg-white/12 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="新建 Case"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
 
         {cases.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50/70 p-4 text-sm text-blue-800">当前还没有 Case，先创建一个再继续。</div>
+          <div className="rounded-2xl border border-dashed border-white/12 bg-white/[0.025] p-4 text-sm text-white/45">当前还没有 Case，先创建一个再继续。</div>
         ) : (
-          cases.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onSelectCaseId(item.id)}
-              className={[
-                "w-full rounded-2xl border p-4 text-left shadow-sm transition-all",
-                selectedCaseId === item.id
-                  ? "border-blue-300 bg-[linear-gradient(135deg,_#eff6ff,_#ffffff)] text-blue-950 shadow-blue-100"
-                  : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/50",
-              ].join(" ")}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold">{getApplicantCrmVisaTypeLabel(item.visaType || item.caseType)}</div>
-                  <div className="mt-1 text-xs opacity-80">{item.applyRegion ? getApplicantCrmRegionLabel(item.applyRegion) : "未设置地区"}</div>
-                </div>
-                {item.isActive ? <Badge variant={selectedCaseId === item.id ? "secondary" : "info"}>当前案件</Badge> : null}
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Badge variant={getPriorityVariant(item.priority)}>{getPriorityLabel(item.priority)}</Badge>
-                {item.exceptionCode ? <Badge variant="destructive">异常处理中</Badge> : null}
-              </div>
-              <div className="mt-3 text-xs opacity-80">最近更新：{formatDateTime(item.updatedAt)}</div>
-            </button>
-          ))
+          <div className="space-y-3">
+            {cases.map((item) => {
+              const active = selectedCaseId === item.id
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onSelectCaseId(item.id)}
+                  className={[
+                    "group relative w-full overflow-hidden rounded-2xl border p-4 text-left transition-all",
+                    active
+                      ? "border-blue-400/45 bg-[linear-gradient(135deg,_rgba(59,130,246,0.15),_rgba(255,255,255,0.035))] shadow-[0_0_34px_rgba(59,130,246,0.08)]"
+                      : "border-white/8 bg-white/[0.025] hover:border-white/16 hover:bg-white/[0.045]",
+                  ].join(" ")}
+                >
+                  {active ? <div className="absolute inset-y-4 left-0 w-px bg-blue-400" /> : null}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-bold text-white">{getApplicantCrmVisaTypeLabel(item.visaType || item.caseType)}</div>
+                      <div className="mt-2 text-[11px] text-white/55">{item.applyRegion ? getApplicantCrmRegionLabel(item.applyRegion) : "未设置地区"} · {getPriorityLabel(item.priority)}</div>
+                    </div>
+                    {item.isActive ? (
+                      <span className="rounded-md border border-blue-400/20 bg-blue-400/10 px-2 py-0.5 text-[9px] font-bold text-blue-200">当前案件</span>
+                    ) : null}
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <span className={["rounded-full border px-2 py-0.5 text-[10px] font-bold", getPriorityVariant(item.priority)].join(" ")}>
+                      {getPriorityLabel(item.priority)}
+                    </span>
+                    {item.exceptionCode ? <span className="rounded-full border border-red-400/30 bg-red-400/10 px-2 py-0.5 text-[10px] font-bold text-red-300">异常处理中</span> : null}
+                  </div>
+                  <div className="mt-4 flex items-center gap-1.5 text-[10px] text-white/30">
+                    <Circle className="h-2.5 w-2.5" />
+                    最近更新：{formatDateTime(item.updatedAt)}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
         )}
-      </div>
-    </Section>
+      </section>
+    </div>
   )
 }

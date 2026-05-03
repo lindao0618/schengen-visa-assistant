@@ -32,52 +32,56 @@ export const ApplicantCrmPageHeader = memo(function ApplicantCrmPageHeader({
   const loading = refreshing || summaryLoading
 
   return (
-    <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white/90 p-5 shadow-sm shadow-slate-200/70">
+    <section className="pro-spotlight pro-spotlight-blue overflow-hidden rounded-[32px] border border-white/5 bg-white/[0.02] p-5 text-white">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
         <div className="max-w-3xl space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+            <Badge variant="outline" className="border-white/10 bg-white/[0.02] text-[10px] uppercase tracking-widest text-white/60">
+              <span className="pro-live-dot relative mr-1.5 inline-flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-pulse rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+              </span>
               员工工作台
             </Badge>
             {canReadAll ? (
-              <Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-700">
+              <Badge variant="outline" className="border-emerald-400/20 bg-emerald-400/10 text-[10px] uppercase tracking-widest text-emerald-300">
                 {`${viewerRoleLabel}视角可查看团队数据`}
               </Badge>
             ) : null}
           </div>
           <div className="space-y-1">
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-950">申请人 CRM 工作台</h1>
-            <p className="text-sm leading-6 text-slate-500">
+            <h1 className="text-3xl font-bold tracking-tight text-white">申请人 CRM 工作台</h1>
+            <p className="text-sm leading-6 text-white/48">
               集中跟进申请人、案件、材料与自动化流程；建议先用视图和筛选缩小范围，再进入详情或批量处理。
             </p>
           </div>
-          <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">高频入口：新建 / 筛选 / 批量分组</span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">主管视角：团队数据与异常跟进</span>
+          <div className="flex flex-wrap gap-2 text-xs text-white/45">
+            <span className="rounded-full border border-white/5 bg-white/[0.02] px-3 py-1">高频入口：新建 / 筛选 / 批量分组</span>
+            <span className="pro-premium-glow rounded-full border border-white/5 bg-white/[0.02] px-3 py-1">主管视角：团队数据与异常跟进</span>
           </div>
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
-          <Button variant="outline" asChild>
+          <Button variant="outline" className="rounded-full border-white/10 bg-white/[0.02] text-white/75 hover:bg-white/[0.06] hover:text-white active:scale-95" asChild>
             <Link href="/applicants/schedule">
               <CalendarClock className="mr-2 h-4 w-4" />
               递签日程
             </Link>
           </Button>
           {canOpenAdmin ? (
-            <Button variant="outline" asChild>
+            <Button variant="outline" className="pro-premium-glow rounded-full border-white/10 bg-white/[0.02] text-white/75 hover:bg-white/[0.06] hover:text-white active:scale-95" asChild>
               <Link href="/admin">
                 <Shield className="mr-2 h-4 w-4" />
                 管理后台
               </Link>
             </Button>
           ) : null}
-          <Button variant="outline" onClick={onRefresh} disabled={loading}>
+          <Button variant="outline" className="rounded-full border-white/10 bg-white/[0.02] text-white/75 hover:bg-white/[0.06] hover:text-white active:scale-95" onClick={onRefresh} disabled={loading}>
             <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
             刷新数据
           </Button>
           {canEditApplicants ? (
-            <Button onClick={onCreateApplicant}>
+            <Button className="pro-cta-glow rounded-full bg-white text-black hover:bg-white/90 active:scale-95" onClick={onCreateApplicant}>
               <UserPlus className="mr-2 h-4 w-4" />
               新建申请人
             </Button>

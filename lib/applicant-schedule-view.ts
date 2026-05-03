@@ -8,6 +8,7 @@ export const SCHEDULE_RANGE_OPTIONS = [
 export type ScheduleRangeDays = (typeof SCHEDULE_RANGE_OPTIONS)[number]["days"]
 export type ScheduleViewMode = "list" | "calendar"
 export type ApplicantScheduleGroupKey = "next-3" | "next-7" | "next-15" | "next-30" | "missing-slot" | "submitted"
+export type ScheduleVisaColorKey = "france" | "usa" | "uk" | "germany" | "italy" | "spain" | "schengen" | "other"
 
 export type ApplicantScheduleItem = {
   id: string
@@ -18,6 +19,7 @@ export type ApplicantScheduleItem = {
   applyRegion?: string | null
   tlsCity?: string | null
   slotTime?: string | null
+  submissionDate?: string | null
   mainStatus: string
   subStatus?: string | null
   priority: string
@@ -78,6 +80,50 @@ export function isSubmittedScheduleStatus(status?: string | null) {
   return normalized === "SUBMITTED" || normalized === "COMPLETED"
 }
 
+export function getScheduleDateTime(item: Pick<ApplicantScheduleItem, "slotTime" | "submissionDate">) {
+  return item.slotTime || item.submissionDate || null
+}
+
+export function getQuickScheduleDatePatchTarget(
+  item: Pick<ApplicantScheduleItem, "caseType" | "visaType">,
+): "slotTime" | "submissionDate" {
+  const caseType = String(item.caseType || "").toLowerCase()
+  const visaType = String(item.visaType || "").toLowerCase()
+  return caseType.includes("schengen") || visaType.includes("schengen") ? "slotTime" : "submissionDate"
+}
+
+export function getScheduleVisaColorKey(
+  item: Pick<ApplicantScheduleItem, "caseType" | "visaType" | "applyRegion" | "tlsCity">,
+): ScheduleVisaColorKey {
+  const visaTarget = [item.visaType, item.caseType]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean)
+    .join(" ")
+  const locationTarget = [item.applyRegion, item.tlsCity]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean)
+    .join(" ")
+  const target = [visaTarget, locationTarget].filter(Boolean).join(" ")
+
+  if (/\b(usa|us-visa|usa-visa|united states|america|b1\/b2|b1b2)\b/.test(visaTarget)) return "usa"
+  if (/\b(uk|uk-visa|gb|united kingdom|british|england)\b/.test(visaTarget)) return "uk"
+  if (/\b(france|french|france-schengen)\b/.test(visaTarget)) return "france"
+  if (/\b(germany|german|deutschland|de-schengen)\b/.test(visaTarget)) return "germany"
+  if (/\b(italy|italian|it-schengen)\b/.test(visaTarget)) return "italy"
+  if (/\b(spain|spanish|es-schengen)\b/.test(visaTarget)) return "spain"
+  if (visaTarget.includes("schengen")) return "schengen"
+  if (visaTarget) return "other"
+
+  if (/\b(usa|us|united states|america)\b/.test(locationTarget)) return "usa"
+  if (/\b(uk|gb|united kingdom|england|london|manchester|edinburgh|lon|mnc|edi)\b/.test(locationTarget)) return "uk"
+  if (/\b(france|paris|fra)\b/.test(locationTarget)) return "france"
+  if (/\b(germany|berlin|deu|de)\b/.test(locationTarget)) return "germany"
+  if (/\b(italy|rome|ita|it)\b/.test(locationTarget)) return "italy"
+  if (/\b(spain|madrid|esp|es)\b/.test(locationTarget)) return "spain"
+  if (target.includes("schengen")) return "schengen"
+  return "other"
+}
+
 export function buildScheduleDateWindow(days: ScheduleRangeDays, now = new Date()) {
   const from = startOfLocalDay(now)
   const to = addDays(from, days)
@@ -105,7 +151,7 @@ export function buildApplicantScheduleGroups({
     helper: definition.helper,
     tone: definition.tone,
     items: sortedItems.filter((item) => {
-      const dayIndex = getDayIndex(start, item.slotTime)
+      const dayIndex = getDayIndex(start, getScheduleDateTime(item))
       return dayIndex >= definition.minDay && dayIndex <= definition.maxDay
     }),
   }))
@@ -143,7 +189,7 @@ export function buildApplicantScheduleSummary({
   const start = startOfLocalDay(now)
   const countWithin = (maxDay: number) =>
     items.filter((item) => {
-      const dayIndex = getDayIndex(start, item.slotTime)
+      const dayIndex = getDayIndex(start, getScheduleDateTime(item))
       return dayIndex >= 0 && dayIndex <= maxDay
     }).length
 
@@ -177,8 +223,9 @@ export function buildCalendarMonthDays({
   const itemsByDate = new Map<string, ApplicantScheduleItem[]>()
 
   for (const item of items) {
-    if (!item.slotTime) continue
-    const key = formatDateKey(new Date(item.slotTime))
+    const scheduleDateTime = getScheduleDateTime(item)
+    if (!scheduleDateTime) continue
+    const key = formatDateKey(new Date(scheduleDateTime))
     const nextItems = itemsByDate.get(key) || []
     nextItems.push(item)
     itemsByDate.set(key, nextItems)
@@ -256,8 +303,10 @@ function addDays(date: Date, days: number) {
 
 function sortScheduleItems(items: ApplicantScheduleItem[]) {
   return [...items].sort((left, right) => {
-    const leftTime = left.slotTime ? new Date(left.slotTime).getTime() : Number.MAX_SAFE_INTEGER
-    const rightTime = right.slotTime ? new Date(right.slotTime).getTime() : Number.MAX_SAFE_INTEGER
+    const leftScheduleDateTime = getScheduleDateTime(left)
+    const rightScheduleDateTime = getScheduleDateTime(right)
+    const leftTime = leftScheduleDateTime ? new Date(leftScheduleDateTime).getTime() : Number.MAX_SAFE_INTEGER
+    const rightTime = rightScheduleDateTime ? new Date(rightScheduleDateTime).getTime() : Number.MAX_SAFE_INTEGER
     return leftTime - rightTime || left.applicantName.localeCompare(right.applicantName, "zh-CN")
   })
 }

@@ -9,6 +9,7 @@ import {
   formatFranceExceptionLabel,
   formatFranceStatusLabel,
 } from "@/lib/france-case-labels"
+import { FRANCE_MAIN_STATUS_RANK, type FranceMainStatus } from "@/lib/france-case-machine"
 
 type FranceCaseRecord = {
   id: string
@@ -87,11 +88,11 @@ function formatStepTime(value?: number | string | null) {
 function getStatusMeta(status: StepStatus) {
   if (status === "completed") {
     return {
-      dotClassName: "border-green-500 bg-green-500 text-white",
-      lineClassName: "bg-green-500",
-      titleClassName: "text-gray-900",
-      descriptionClassName: "text-gray-600",
-      badgeClassName: "bg-green-50 text-green-700 ring-green-200",
+      dotClassName: "border-emerald-400 bg-emerald-400 text-black",
+      lineClassName: "bg-emerald-400",
+      titleClassName: "text-white",
+      descriptionClassName: "text-white/[0.48]",
+      badgeClassName: "border border-emerald-400/25 bg-emerald-400/10 text-emerald-300",
       icon: <CheckCircle2 className="h-4 w-4" />,
       text: "已完成",
     }
@@ -99,11 +100,11 @@ function getStatusMeta(status: StepStatus) {
 
   if (status === "failed") {
     return {
-      dotClassName: "border-red-500 bg-red-500 text-white",
-      lineClassName: "bg-red-300",
-      titleClassName: "text-red-700",
-      descriptionClassName: "text-red-600",
-      badgeClassName: "bg-red-50 text-red-700 ring-red-200",
+      dotClassName: "border-red-400 bg-red-400 text-black",
+      lineClassName: "bg-red-400/70",
+      titleClassName: "text-red-200",
+      descriptionClassName: "text-red-200/[0.65]",
+      badgeClassName: "border border-red-400/25 bg-red-400/10 text-red-300",
       icon: <XCircle className="h-4 w-4" />,
       text: "失败",
     }
@@ -111,22 +112,22 @@ function getStatusMeta(status: StepStatus) {
 
   if (status === "active") {
     return {
-      dotClassName: "border-blue-500 bg-blue-50 text-blue-600",
-      lineClassName: "bg-blue-300",
-      titleClassName: "text-gray-900",
-      descriptionClassName: "text-blue-700",
-      badgeClassName: "bg-blue-50 text-blue-700 ring-blue-200",
+      dotClassName: "border-cyan-300 bg-cyan-300/12 text-cyan-200",
+      lineClassName: "bg-cyan-300/70",
+      titleClassName: "text-white",
+      descriptionClassName: "text-cyan-100/[0.58]",
+      badgeClassName: "border border-cyan-300/25 bg-cyan-300/10 text-cyan-200",
       icon: <Clock3 className="h-4 w-4" />,
       text: "进行中",
     }
   }
 
   return {
-    dotClassName: "border-gray-300 bg-white text-gray-500",
-    lineClassName: "bg-gray-200",
-    titleClassName: "text-gray-500",
-    descriptionClassName: "text-gray-400",
-    badgeClassName: "bg-gray-50 text-gray-500 ring-gray-200",
+    dotClassName: "border-white/[0.18] bg-white/[0.035] text-white/35",
+    lineClassName: "bg-white/10",
+    titleClassName: "text-white/42",
+    descriptionClassName: "text-white/30",
+    badgeClassName: "border border-white/10 bg-white/[0.035] text-white/[0.38]",
     icon: null,
     text: "未开始",
   }
@@ -167,9 +168,9 @@ function RegistrationChip({
   const meta = getStatusMeta(status)
 
   return (
-    <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white/90 px-3 py-1 text-xs shadow-sm">
+    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.035] px-3 py-1 text-xs shadow-sm shadow-black/20">
       <span className={`h-2.5 w-2.5 rounded-full ${meta.dotClassName}`} />
-      <span className="font-medium text-gray-700">{label}</span>
+      <span className="font-medium text-white/70">{label}</span>
       <span className={meta.descriptionClassName}>{meta.text}</span>
     </div>
   )
@@ -252,14 +253,85 @@ function buildRegistrationStatus(
   return "pending"
 }
 
+type ProgressStepKey =
+  | "registration"
+  | "create-application"
+  | "tls-apply"
+  | "slot-submit"
+  | "slot-booked"
+  | "fill-receipt"
+  | "submit-final"
+
+function isKnownFranceMainStatus(status?: string | null): status is FranceMainStatus {
+  return !!status && status in FRANCE_MAIN_STATUS_RANK
+}
+
+function isMainStatusAtLeast(currentStatus: string | null | undefined, targetStatus: FranceMainStatus) {
+  if (!isKnownFranceMainStatus(currentStatus)) return false
+  return FRANCE_MAIN_STATUS_RANK[currentStatus] >= FRANCE_MAIN_STATUS_RANK[targetStatus]
+}
+
+function getManualCaseStepStatus(caseRecord: FranceCaseRecord | null, stepKey: ProgressStepKey): StepStatus | null {
+  if (!caseRecord) return null
+  const mainStatus = caseRecord.mainStatus
+  const subStatus = caseRecord.subStatus
+
+  if (stepKey === "registration") {
+    if (isMainStatusAtLeast(mainStatus, "SLOT_BOOKED") || ["SLOT_HUNTING", "PENDING_SUBMISSION", "WAITING_TLS_PAYMENT", "PACKAGE_SENT"].includes(subStatus || "")) return "completed"
+    if (mainStatus === "TLS_PROCESSING" || subStatus === "TLS_REGISTERING" || subStatus === "FV_FILLING") return "active"
+    return null
+  }
+
+  if (stepKey === "create-application") {
+    if (isMainStatusAtLeast(mainStatus, "SLOT_BOOKED") || ["FV_FILLING", "SLOT_HUNTING", "PENDING_SUBMISSION", "WAITING_TLS_PAYMENT", "PACKAGE_SENT"].includes(subStatus || "")) return "completed"
+    if (mainStatus === "TLS_PROCESSING" || subStatus === "TLS_REGISTERING") return "active"
+    return null
+  }
+
+  if (stepKey === "tls-apply") {
+    if (isMainStatusAtLeast(mainStatus, "SLOT_BOOKED") || ["SLOT_HUNTING", "PENDING_SUBMISSION", "WAITING_TLS_PAYMENT", "PACKAGE_SENT"].includes(subStatus || "")) return "completed"
+    if (mainStatus === "TLS_PROCESSING" || subStatus === "FV_FILLING" || subStatus === "TLS_REGISTERING") return "active"
+    return null
+  }
+
+  if (stepKey === "slot-submit") {
+    if (isMainStatusAtLeast(mainStatus, "SLOT_BOOKED") || ["PENDING_SUBMISSION", "WAITING_TLS_PAYMENT", "PACKAGE_SENT"].includes(subStatus || "")) return "completed"
+    if (subStatus === "SLOT_HUNTING") return "active"
+    return null
+  }
+
+  if (stepKey === "slot-booked") {
+    if (isMainStatusAtLeast(mainStatus, "SLOT_BOOKED")) return "completed"
+    if (subStatus === "PACKAGE_SENT" || subStatus === "WAITING_TLS_PAYMENT" || subStatus === "PENDING_SUBMISSION") return "active"
+    return null
+  }
+
+  if (stepKey === "fill-receipt") {
+    if (isMainStatusAtLeast(mainStatus, "SUBMITTED")) return "completed"
+    if (mainStatus === "SLOT_BOOKED") return "active"
+    return null
+  }
+
+  if (stepKey === "submit-final") {
+    if (isMainStatusAtLeast(mainStatus, "COMPLETED")) return "completed"
+    if (mainStatus === "SUBMITTED") return "active"
+  }
+
+  return null
+}
+
 export function FranceCaseProgressCard({
   applicantProfileId,
   applicantName,
   caseId,
+  caseOverride,
+  historyOverride,
 }: {
   applicantProfileId?: string
   applicantName?: string
   caseId?: string
+  caseOverride?: FranceCaseRecord | null
+  historyOverride?: FranceCaseHistoryRecord[] | null
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -278,6 +350,10 @@ export function FranceCaseProgressCard({
     }
 
     let cancelled = false
+    if (caseOverride?.id === caseId && caseOverride) {
+      setCaseRecord(caseOverride)
+      setHistory(historyOverride || [])
+    }
 
     const load = async () => {
       setLoading(true)
@@ -315,7 +391,9 @@ export function FranceCaseProgressCard({
           if (cancelled) return
 
           setCaseRecord(
-            caseData.case
+            caseOverride?.id === caseId && caseOverride
+              ? caseOverride
+              : caseData.case
               ? {
                   id: caseData.case.id,
                   mainStatus: caseData.case.mainStatus,
@@ -325,7 +403,7 @@ export function FranceCaseProgressCard({
                 }
               : null,
           )
-          setHistory(caseData.case?.statusHistory || [])
+          setHistory(caseOverride?.id === caseId && caseOverride ? historyOverride || [] : caseData.case?.statusHistory || [])
         } else {
           const caseData = (await caseRes.json()) as FranceCaseApiResponse
           if (cancelled) return
@@ -355,7 +433,7 @@ export function FranceCaseProgressCard({
     return () => {
       cancelled = true
     }
-  }, [applicantProfileId, caseId])
+  }, [applicantProfileId, caseId, caseOverride, historyOverride])
 
   const latestTasks = useMemo(() => getLatestTaskByType(tasks), [tasks])
   const recentHistory = useMemo(() => history.slice(-5).reverse(), [history])
@@ -372,10 +450,9 @@ export function FranceCaseProgressCard({
 
   const tlsRegisterStatus = useMemo(() => getTaskStatus(latestTasks.get("tls-register")), [latestTasks])
 
-  const registrationStatus = useMemo(
-    () => buildRegistrationStatus(fvRegisterStatus, tlsRegisterStatus),
-    [fvRegisterStatus, tlsRegisterStatus],
-  )
+  const registrationStatus = useMemo(() => {
+    return getManualCaseStepStatus(caseRecord, "registration") ?? buildRegistrationStatus(fvRegisterStatus, tlsRegisterStatus)
+  }, [caseRecord?.mainStatus, caseRecord?.subStatus, fvRegisterStatus, tlsRegisterStatus])
 
   const registrationTimeLabel = useMemo(() => {
     const fvTime = getTaskTimestamp(latestTasks.get("extract-register") ?? latestTasks.get("register"))
@@ -390,15 +467,16 @@ export function FranceCaseProgressCard({
     return ""
   }, [latestTasks, registrationStatus])
 
-  const createApplicationStatus = useMemo(
-    () =>
+  const createApplicationStatus = useMemo(() => {
+    return (
+      getManualCaseStepStatus(caseRecord, "create-application") ??
       getSingleTaskStepStatus(
         latestTasks,
         "create-application",
         registrationStatus === "completed" || registrationStatus === "active",
-      ),
-    [latestTasks, registrationStatus],
-  )
+      )
+    )
+  }, [caseRecord?.mainStatus, caseRecord?.subStatus, latestTasks, registrationStatus])
 
   const createApplicationTimeLabel = useMemo(() => {
     const time = getTaskTimestamp(latestTasks.get("create-application"))
@@ -407,10 +485,12 @@ export function FranceCaseProgressCard({
     return ""
   }, [createApplicationStatus, latestTasks])
 
-  const tlsApplyStatus = useMemo(
-    () => getSingleTaskStepStatus(latestTasks, "tls-apply", createApplicationStatus === "completed"),
-    [latestTasks, createApplicationStatus],
-  )
+  const tlsApplyStatus = useMemo(() => {
+    return (
+      getManualCaseStepStatus(caseRecord, "tls-apply") ??
+      getSingleTaskStepStatus(latestTasks, "tls-apply", createApplicationStatus === "completed")
+    )
+  }, [caseRecord?.mainStatus, caseRecord?.subStatus, latestTasks, createApplicationStatus])
 
   const tlsApplyTimeLabel = useMemo(() => {
     const time = getTaskTimestamp(latestTasks.get("tls-apply"))
@@ -420,6 +500,9 @@ export function FranceCaseProgressCard({
   }, [latestTasks, tlsApplyStatus])
 
   const slotSubmissionStatus: StepStatus = useMemo(() => {
+    const manualStatus = getManualCaseStepStatus(caseRecord, "slot-submit")
+    if (manualStatus) return manualStatus
+
     if (
       caseRecord?.subStatus === "PACKAGE_SENT" ||
       caseRecord?.subStatus === "WAITING_TLS_PAYMENT" ||
@@ -456,6 +539,9 @@ export function FranceCaseProgressCard({
   }, [caseRecord?.updatedAt, history, slotSubmissionStatus])
 
   const slotBookedStatus: StepStatus = useMemo(() => {
+    const manualStatus = getManualCaseStepStatus(caseRecord, "slot-booked")
+    if (manualStatus) return manualStatus
+
     if (
       caseRecord?.mainStatus === "SLOT_BOOKED" ||
       caseRecord?.mainStatus === "SUBMITTED" ||
@@ -485,10 +571,12 @@ export function FranceCaseProgressCard({
     return ""
   }, [caseRecord?.updatedAt, history, slotBookedStatus])
 
-  const fillReceiptStatus = useMemo(
-    () => getSingleTaskStepStatus(latestTasks, "fill-receipt", slotBookedStatus === "completed"),
-    [latestTasks, slotBookedStatus],
-  )
+  const fillReceiptStatus = useMemo(() => {
+    return (
+      getManualCaseStepStatus(caseRecord, "fill-receipt") ??
+      getSingleTaskStepStatus(latestTasks, "fill-receipt", slotBookedStatus === "completed")
+    )
+  }, [caseRecord?.mainStatus, caseRecord?.subStatus, latestTasks, slotBookedStatus])
 
   const fillReceiptTimeLabel = useMemo(() => {
     const time = getTaskTimestamp(latestTasks.get("fill-receipt"))
@@ -497,10 +585,12 @@ export function FranceCaseProgressCard({
     return ""
   }, [fillReceiptStatus, latestTasks])
 
-  const submitFinalStatus = useMemo(
-    () => getSingleTaskStepStatus(latestTasks, "submit-final", fillReceiptStatus === "completed"),
-    [latestTasks, fillReceiptStatus],
-  )
+  const submitFinalStatus = useMemo(() => {
+    return (
+      getManualCaseStepStatus(caseRecord, "submit-final") ??
+      getSingleTaskStepStatus(latestTasks, "submit-final", fillReceiptStatus === "completed")
+    )
+  }, [caseRecord?.mainStatus, caseRecord?.subStatus, latestTasks, fillReceiptStatus])
 
   const submitFinalTimeLabel = useMemo(() => {
     const time = getTaskTimestamp(latestTasks.get("submit-final"))
@@ -588,27 +678,28 @@ export function FranceCaseProgressCard({
   )
 
   return (
-    <Card className="border-blue-200/50 bg-gradient-to-r from-blue-50/80 to-white">
+    <Card className="overflow-hidden rounded-[32px] border border-white/[0.06] bg-[#111714] bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.08),transparent_34%),linear-gradient(180deg,#111714,#0d0f0e)] text-white shadow-2xl shadow-black/25">
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">法签案件进度</CardTitle>
+        <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-emerald-300/60">France Case Progress</div>
+        <CardTitle className="mt-2 text-xl font-bold tracking-tight text-white">法签案件进度</CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
         {!applicantProfileId && !caseId && (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-white/45">
             先选择申请人或案件，这里就会显示对应的法签案件进度。
           </p>
         )}
 
         {(applicantProfileId || caseId) && loading && (
-          <p className="text-sm text-muted-foreground">正在加载当前法签案件进度...</p>
+          <p className="text-sm text-white/45">正在加载当前法签案件进度...</p>
         )}
 
         {(applicantProfileId || caseId) && !loading && error && (
-          <p className="text-sm text-red-600">{error}</p>
+          <p className="text-sm text-red-300">{error}</p>
         )}
 
         {(applicantProfileId || caseId) && !loading && !error && !caseRecord && (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-white/45">
             当前还没有可展示的法签案件，开始跑法国自动化流程后系统会自动生成。
           </p>
         )}
@@ -616,30 +707,30 @@ export function FranceCaseProgressCard({
         {caseRecord && (
           <>
             <div className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-xl border border-gray-200 bg-white/90 p-4">
-                <div className="text-xs text-muted-foreground">申请人</div>
-                <div className="mt-1 text-sm font-medium">{applicantName || "未命名申请人"}</div>
+              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.035] p-4">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-white/30">申请人</div>
+                <div className="mt-2 text-sm font-bold text-white">{applicantName || "未命名申请人"}</div>
               </div>
-              <div className="rounded-xl border border-gray-200 bg-white/90 p-4">
-                <div className="text-xs text-muted-foreground">当前状态</div>
-                <div className="mt-1 text-sm font-medium">
+              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.035] p-4">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-white/30">当前状态</div>
+                <div className="mt-2 text-sm font-bold text-white">
                   {formatFranceStatusLabel(caseRecord.mainStatus, caseRecord.subStatus)}
                 </div>
               </div>
-              <div className="rounded-xl border border-gray-200 bg-white/90 p-4">
-                <div className="text-xs text-muted-foreground">最近更新时间</div>
-                <div className="mt-1 text-sm font-medium">{formatDate(caseRecord.updatedAt) || "未知"}</div>
+              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.035] p-4">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-white/30">最近更新时间</div>
+                <div className="mt-2 font-mono text-sm font-bold text-white">{formatDate(caseRecord.updatedAt) || "未知"}</div>
               </div>
             </div>
 
             {exceptionLabel && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <div className="rounded-2xl border border-red-400/25 bg-red-400/[0.08] px-4 py-3 text-sm text-red-200">
                 当前异常：{exceptionLabel}
               </div>
             )}
 
             <div className="space-y-3">
-              <div className="text-sm font-semibold text-gray-900">业务进度条</div>
+              <div className="text-sm font-semibold text-white">业务进度条</div>
 
               <div className="hidden overflow-x-auto lg:block">
                 <div className="min-w-[1260px]">
@@ -666,7 +757,7 @@ export function FranceCaseProgressCard({
                             {step.title}
                           </div>
                           {step.timeLabel && (
-                            <div className="mt-1 text-xs font-medium text-gray-500">{step.timeLabel}</div>
+                            <div className="mt-1 font-mono text-xs font-medium text-white/35">{step.timeLabel}</div>
                           )}
                           <div className={["mt-2 text-sm leading-6", meta.descriptionClassName].join(" ")}>
                             {step.description}
@@ -683,7 +774,7 @@ export function FranceCaseProgressCard({
                 {steps.map((step, index) => {
                   const meta = getStatusMeta(step.status)
                   return (
-                    <div key={step.key} className="flex gap-4 rounded-2xl border border-gray-200 bg-white/90 p-4">
+                    <div key={step.key} className="flex gap-4 rounded-2xl border border-white/[0.06] bg-white/[0.035] p-4">
                       <div className="flex flex-col items-center">
                         <StepDot status={step.status} stepNumber={index + 1} compact />
                         {index < steps.length - 1 && (
@@ -695,11 +786,11 @@ export function FranceCaseProgressCard({
                           <div className={["text-sm font-semibold", meta.titleClassName].join(" ")}>
                             {step.title}
                           </div>
-                          <span className={`rounded-full px-2 py-0.5 text-xs ring-1 ${meta.badgeClassName}`}>
+                          <span className={`rounded-full px-2 py-0.5 text-xs ${meta.badgeClassName}`}>
                             {meta.text}
                           </span>
                         </div>
-                        {step.timeLabel && <div className="mt-1 text-xs text-gray-500">{step.timeLabel}</div>}
+                        {step.timeLabel && <div className="mt-1 font-mono text-xs text-white/35">{step.timeLabel}</div>}
                         <div className={["mt-2 text-sm leading-6", meta.descriptionClassName].join(" ")}>
                           {step.description}
                         </div>
@@ -714,12 +805,12 @@ export function FranceCaseProgressCard({
             <div className="space-y-3">
               <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
                 <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-semibold text-gray-900">最近流转</div>
+                  <div className="text-sm font-semibold text-white">最近流转</div>
                   {recentHistory.length > 0 ? (
                     <CollapsibleTrigger asChild>
                       <button
                         type="button"
-                        className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white/90 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white"
                       >
                         <span>{historyOpen ? "收起" : `展开 ${recentHistory.length} 条`}</span>
                         <ChevronDown className={`h-4 w-4 transition-transform ${historyOpen ? "rotate-180" : ""}`} />
@@ -728,16 +819,16 @@ export function FranceCaseProgressCard({
                   ) : null}
                 </div>
                 {recentHistory.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">还没有可展示的状态变更记录。</p>
+                  <p className="text-sm text-white/42">还没有可展示的状态变更记录。</p>
                 ) : (
                   <CollapsibleContent className="space-y-2 pt-1">
                     {recentHistory.map((item) => (
-                      <div key={item.id} className="rounded-xl border border-gray-200 bg-white/90 px-4 py-3">
-                        <div className="text-sm font-medium text-gray-900">{getHistorySummary(item)}</div>
-                        <div className="mt-1 text-xs text-gray-500">{formatDate(item.createdAt)}</div>
-                        {item.reason && <div className="mt-2 text-sm text-gray-600">原因：{item.reason}</div>}
+                      <div key={item.id} className="rounded-2xl border border-white/[0.06] bg-white/[0.035] px-4 py-3">
+                        <div className="text-sm font-medium text-white">{getHistorySummary(item)}</div>
+                        <div className="mt-1 font-mono text-xs text-white/35">{formatDate(item.createdAt)}</div>
+                        {item.reason && <div className="mt-2 text-sm text-white/55">原因：{item.reason}</div>}
                         {item.exceptionCode && (
-                          <div className="mt-2 text-sm text-red-600">
+                          <div className="mt-2 text-sm text-red-300">
                             异常：{formatFranceExceptionLabel(item.exceptionCode)}
                           </div>
                         )}

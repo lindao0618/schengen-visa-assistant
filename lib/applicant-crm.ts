@@ -948,11 +948,11 @@ async function loadCaseRecord(
       },
       statusHistory: {
         orderBy: { createdAt: "desc" },
-        take: 1,
+        take: 50,
       },
       reminderLogs: {
         orderBy: { triggeredAt: "desc" },
-        take: 0,
+        take: 50,
       },
     },
   })

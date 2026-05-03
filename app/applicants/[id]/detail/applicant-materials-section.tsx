@@ -40,6 +40,7 @@ type ApplicantMaterialsSectionProps = {
   activeTab: ApplicantDetailTab
   detail: ApplicantDetailResponse
   selectedCaseId?: string | null
+  selectedCaseType?: string | null
   canEditApplicant: boolean
   canRunAutomation: boolean
   preview: PreviewState
@@ -59,6 +60,7 @@ export function ApplicantMaterialsSection({
   activeTab,
   detail,
   selectedCaseId,
+  selectedCaseType,
   canEditApplicant,
   canRunAutomation,
   preview,
@@ -147,7 +149,9 @@ export function ApplicantMaterialsSection({
         <MaterialsTab
           applicantId={applicantId}
           applicantProfileId={detail.profile.id}
+          applicantName={detail.profile.name || detail.profile.label}
           selectedCaseId={selectedCaseId || undefined}
+          selectedCaseType={selectedCaseType || undefined}
           files={visibleMaterialFiles}
           filesLoading={materialFilesLoading}
           filesError={materialFilesError}

@@ -32,14 +32,17 @@ type ApplicantProfileSelectorCommandProps = {
   otherProfiles: ApplicantSelectorViewProfile[]
   selectedId: string
   onProfileChange: (value: string) => void
+  theme?: "light" | "dark"
 }
 
 function ApplicantOptionRow({
   profile,
   selected,
+  theme = "light",
 }: {
   profile: ApplicantSelectorViewProfile
   selected: boolean
+  theme?: "light" | "dark"
 }) {
   const secondaryParts = [
     getApplicantCrmVisaTypeLabel(profile.visaType),
@@ -55,15 +58,17 @@ function ApplicantOptionRow({
         className={cn(
           "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors",
           selected
-            ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-200"
-            : "border-gray-300 bg-white text-transparent",
+            ? "border-blue-500 bg-blue-500 text-white shadow-sm shadow-blue-950"
+            : theme === "dark"
+              ? "border-white/15 bg-white/[0.035] text-transparent"
+              : "border-gray-300 bg-white text-transparent",
         )}
       >
         <Check className="h-3.5 w-3.5" />
       </div>
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-gray-900">{profile.name || profile.label}</span>
+          <span className={cn("font-medium", theme === "dark" ? "text-white" : "text-gray-900")}>{profile.name || profile.label}</span>
           {businessTag && (
             <Badge variant="outline" className={cn("rounded-full px-2.5 py-0.5", businessTag.className)}>
               {businessTag.label}
@@ -80,8 +85,8 @@ function ApplicantOptionRow({
             </Badge>
           )}
         </div>
-        {secondaryParts.length > 0 && <div className="text-xs text-gray-500">{secondaryParts.join(" · ")}</div>}
-        <div className="flex flex-wrap items-center gap-3 text-xs text-gray-400">
+        {secondaryParts.length > 0 && <div className={cn("text-xs", theme === "dark" ? "text-white/45" : "text-gray-500")}>{secondaryParts.join(" · ")}</div>}
+        <div className={cn("flex flex-wrap items-center gap-3 text-xs", theme === "dark" ? "text-white/32" : "text-gray-400")}>
           {profile.phone && <span>{profile.phone}</span>}
           {!profile.phone && profile.email && <span>{profile.email}</span>}
           {!profile.phone && !profile.email && profile.wechat && <span>微信 {profile.wechat}</span>}
@@ -98,12 +103,14 @@ function renderGroup({
   profiles,
   selectedId,
   onProfileChange,
+  theme = "light",
 }: {
   heading: string
   keyPrefix: string
   profiles: ApplicantSelectorViewProfile[]
   selectedId: string
   onProfileChange: (value: string) => void
+  theme?: "light" | "dark"
 }) {
   if (profiles.length === 0) return null
 
@@ -114,9 +121,9 @@ function renderGroup({
           key={`${keyPrefix}-${profile.id}`}
           value={getApplicantSelectorSearchValue(profile)}
           onSelect={() => onProfileChange(profile.id)}
-          className="items-start px-3 py-3"
+          className={cn("items-start px-3 py-3", theme === "dark" && "data-[selected=true]:bg-white/[0.06] data-[selected=true]:text-white")}
         >
-          <ApplicantOptionRow profile={profile} selected={profile.id === selectedId} />
+          <ApplicantOptionRow profile={profile} selected={profile.id === selectedId} theme={theme} />
         </CommandItem>
       ))}
     </CommandGroup>
@@ -129,12 +136,16 @@ export function ApplicantProfileSelectorCommand({
   otherProfiles,
   selectedId,
   onProfileChange,
+  theme = "light",
 }: ApplicantProfileSelectorCommandProps) {
   return (
-    <Command>
-      <CommandInput placeholder="搜索姓名、护照尾号、手机号或微信号..." />
+    <Command className={cn(theme === "dark" && "bg-[#101012] text-white")}>
+      <CommandInput
+        placeholder="搜索姓名、护照尾号、手机号或微信号..."
+        className={cn(theme === "dark" && "text-white placeholder:text-white/32")}
+      />
       <CommandList className="max-h-[420px]">
-        <CommandEmpty>没有找到匹配的申请人</CommandEmpty>
+        <CommandEmpty className={cn(theme === "dark" && "text-white/42")}>没有找到匹配的申请人</CommandEmpty>
 
         {renderGroup({
           heading: "最近使用",
@@ -142,6 +153,7 @@ export function ApplicantProfileSelectorCommand({
           profiles: recentProfiles,
           selectedId,
           onProfileChange,
+          theme,
         })}
 
         {recentProfiles.length > 0 && mineProfiles.length > 0 && <CommandSeparator />}
@@ -152,6 +164,7 @@ export function ApplicantProfileSelectorCommand({
           profiles: mineProfiles,
           selectedId,
           onProfileChange,
+          theme,
         })}
 
         {(recentProfiles.length > 0 || mineProfiles.length > 0) && otherProfiles.length > 0 && <CommandSeparator />}
@@ -162,6 +175,7 @@ export function ApplicantProfileSelectorCommand({
           profiles: otherProfiles,
           selectedId,
           onProfileChange,
+          theme,
         })}
       </CommandList>
     </Command>

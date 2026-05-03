@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n next,trip,letter,review -c blue,green,magenta,yellow \"next dev\" \"node scripts/start-trip-generator.js\" \"node scripts/start-explanation-letter.js\" \"node scripts/start-material-review.js\"",
-    "dev:next": "next dev",
+    "dev": "concurrently -n next,trip,letter,review -c blue,green,magenta,yellow \"node scripts/run-next-dev.js\" \"node scripts/start-trip-generator.js\" \"node scripts/start-explanation-letter.js\" \"node scripts/start-material-review.js\"",
+    "dev:next": "node scripts/run-next-dev.js",
     "dev:trip": "node scripts/start-trip-generator.js",
     "dev:letter": "node scripts/start-explanation-letter.js",
     "dev:review": "node scripts/start-material-review.js",

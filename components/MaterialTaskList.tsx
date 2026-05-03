@@ -20,6 +20,7 @@ import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
 import { usePageVisibility } from "@/hooks/use-page-visibility"
 import { useTaskStatusReminder } from "@/hooks/use-task-status-reminder"
 import { getAdaptivePollInterval } from "@/lib/polling"
+import { cn } from "@/lib/utils"
 
 const MaterialResultSummary = dynamic(
   () => import("@/components/material-task-result-summary").then((mod) => mod.MaterialResultSummary),
@@ -97,6 +98,7 @@ interface MaterialTaskListProps {
   title?: string
   pollInterval?: number
   autoRefresh?: boolean
+  surface?: "default" | "dark"
 }
 
 export function MaterialTaskList({
@@ -105,6 +107,7 @@ export function MaterialTaskList({
   title = "任务列表",
   pollInterval = 2000,
   autoRefresh = true,
+  surface = "default",
 }: MaterialTaskListProps) {
   const [tasks, setTasks] = useState<MaterialTask[]>([])
   const [loading, setLoading] = useState(false)
@@ -249,10 +252,17 @@ export function MaterialTaskList({
     return () => window.clearInterval(id)
   }, [fetchTasks, interval, autoRefresh, isPageVisible, tasks.length])
 
+  const isDarkSurface = surface === "dark"
+
   return (
-    <Card className="border-[#e5e5ea] dark:border-gray-800">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
+    <Card
+      className={cn(
+        "shadow-none",
+        isDarkSurface ? "border-white/8 bg-black/20 text-white" : "border-[#e5e5ea] dark:border-gray-800",
+      )}
+    >
+      <CardHeader className={cn("flex flex-row items-center justify-between pb-2", isDarkSurface && "border-b border-white/5")}>
+        <CardTitle className={cn("flex items-center gap-2 text-base", isDarkSurface && "text-white")}>
           <ListTodo className="h-5 w-5" />
           {title}
         </CardTitle>
@@ -263,13 +273,19 @@ export function MaterialTaskList({
               size="sm"
               onClick={clearFailedTasks}
               disabled={clearingFailed}
-              className="gap-1"
+              className={cn("gap-1", isDarkSurface && "border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/[0.08] hover:text-white")}
             >
               <Trash2 className={`h-4 w-4 ${clearingFailed ? "animate-pulse" : ""}`} />
               {clearingFailed ? "清理中" : `清理失败任务 (${failedTaskIds.length})`}
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={() => void fetchTasks()} disabled={loading} className="gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void fetchTasks()}
+            disabled={loading}
+            className={cn("gap-1", isDarkSurface && "text-white/70 hover:bg-white/[0.08] hover:text-white")}
+          >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             刷新
           </Button>
@@ -283,14 +299,14 @@ export function MaterialTaskList({
               placeholder="搜索任务..."
               value={searchKeyword}
               onChange={(event) => setSearchKeyword(event.target.value)}
-              className="h-9 pl-8"
+              className={cn("h-9 pl-8", isDarkSurface && "border-white/10 bg-white/[0.03] text-white placeholder:text-white/30 focus-visible:ring-0")}
             />
           </div>
           <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
-            <SelectTrigger className="h-9 w-full sm:w-[120px]">
+            <SelectTrigger className={cn("h-9 w-full sm:w-[120px]", isDarkSurface && "border-white/10 bg-white/[0.03] text-white")}>
               <SelectValue placeholder="状态" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={cn(isDarkSurface && "border-white/10 bg-[#111] text-white")}>
               <SelectItem value="all">全部</SelectItem>
               <SelectItem value="completed">已完成</SelectItem>
               <SelectItem value="failed">失败</SelectItem>
@@ -299,7 +315,7 @@ export function MaterialTaskList({
           </Select>
         </div>
         {activeApplicant?.id && (
-          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+          <div className={cn("flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300", isDarkSurface && "text-white/55")}>
             <input
               id="material-only-current-applicant"
               type="checkbox"
@@ -317,11 +333,11 @@ export function MaterialTaskList({
         {(tasks.length === 0 || displayedTasks.length === 0) && (
           <div className="py-4 text-center">
             {taskIds.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">暂无任务，提交后将在此显示进度</p>
+              <p className={cn("text-sm text-gray-500 dark:text-gray-400", isDarkSurface && "text-white/35")}>暂无任务，提交后将在此显示进度</p>
             ) : tasks.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">暂无任务</p>
+              <p className={cn("text-sm text-gray-500 dark:text-gray-400", isDarkSurface && "text-white/35")}>暂无任务</p>
             ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400">无匹配结果</p>
+              <p className={cn("text-sm text-gray-500 dark:text-gray-400", isDarkSurface && "text-white/35")}>无匹配结果</p>
             )}
           </div>
         )}
@@ -330,7 +346,10 @@ export function MaterialTaskList({
             {displayedTasks.map((task) => (
               <div
                 key={task.task_id}
-                className="space-y-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700"
+                className={cn(
+                  "space-y-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700",
+                  isDarkSurface && "border-white/8 bg-white/[0.025]",
+                )}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-medium">
@@ -340,14 +359,14 @@ export function MaterialTaskList({
                   </span>
                   <StatusBadge status={task.status} />
                 </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{task.message}</p>
+                <p className={cn("text-xs text-gray-500 dark:text-gray-400", isDarkSurface && "text-white/40")}>{task.message}</p>
                 {task.applicantName && (
                   <p className="text-xs text-blue-600 dark:text-blue-300">申请人: {task.applicantName}</p>
                 )}
                 {task.caseLabel && (
                   <p className="text-xs text-violet-600 dark:text-violet-300">所属案件: {task.caseLabel}</p>
                 )}
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+                <div className={cn("flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400", isDarkSurface && "text-white/35")}>
                   <span>创建时间: {formatTimestamp(task.created_at)}</span>
                   <span>最近更新时间: {formatTimestamp(task.updated_at || task.created_at)}</span>
                 </div>
@@ -371,7 +390,7 @@ export function MaterialTaskList({
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-7 gap-1.5 text-xs"
+                    className={cn("h-7 gap-1.5 text-xs", isDarkSurface && "border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/[0.08] hover:text-white")}
                     onClick={() => setDetailTaskId(task.task_id)}
                   >
                     <ExternalLink className="h-3.5 w-3.5" />

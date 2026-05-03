@@ -10,6 +10,7 @@ import {
   BriefcaseBusiness,
   Building2,
   ClipboardList,
+  CreditCard,
   FolderOpen,
   LayoutDashboard,
   LogOut,
@@ -40,6 +41,12 @@ const navigation = [
     href: "/admin/tasks",
     icon: ClipboardList,
     description: "查看自动化任务与执行结果",
+  },
+  {
+    name: "全局账单",
+    href: "/admin/orders",
+    icon: CreditCard,
+    description: "账单、订单与退款",
   },
   {
     name: "员工工作台",
@@ -91,20 +98,22 @@ export function Sidebar() {
           key={item.href}
           href={item.href}
           className={cn(
-            "group flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-            isActive ? "bg-blue-100 text-blue-900" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900",
+            "pro-spotlight pro-spotlight-blue group flex items-center rounded-2xl border px-3 py-2 text-sm font-medium transition active:scale-95",
+            isActive
+              ? "border-white bg-white text-black"
+              : "border-white/5 bg-white/[0.02] text-white/58 hover:border-white/10 hover:bg-white/[0.04] hover:text-white",
           )}
           onClick={onItemClick}
         >
           <item.icon
             className={cn(
               "mr-3 h-5 w-5 flex-shrink-0",
-              isActive ? "text-blue-500" : "text-gray-400 group-hover:text-gray-500",
+              isActive ? "text-black" : "text-white/35 group-hover:text-white/70",
             )}
           />
           <div className="flex-1">
             <div>{item.name}</div>
-            <div className="truncate text-xs text-gray-500">{item.description}</div>
+            <div className={cn("truncate text-xs", isActive ? "text-black/55" : "text-white/35")}>{item.description}</div>
           </div>
         </Link>
       )
@@ -112,23 +121,25 @@ export function Sidebar() {
 
   return (
     <>
-      <div className="flex h-full w-full flex-col border-r border-gray-200 bg-white shadow-sm">
-        <div className="flex h-16 items-center border-b border-gray-200 px-4">
+      <div className="flex h-full w-full flex-col border-r border-white/5 bg-black text-white">
+        <div className="flex h-16 items-center border-b border-white/5 px-4">
           <div className="flex items-center space-x-2">
-            <Building2 className="h-6 w-6 text-blue-600" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-white/5 bg-white/[0.02]">
+              <Building2 className="h-5 w-5 text-white" />
+            </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">老板后台</h1>
-              <p className="text-xs text-gray-500">查看全局数据与系统运营</p>
+              <h1 className="text-lg font-bold tracking-tight text-white">老板后台</h1>
+              <p className="text-xs text-white/38">查看全局数据与系统运营</p>
             </div>
           </div>
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-4">{renderNavItems()}</nav>
 
-        <div className="border-t border-gray-200 p-4">
+        <div className="border-t border-white/5 p-4">
           <Button
             variant="ghost"
-            className="w-full justify-start text-gray-600 hover:text-gray-900"
+            className="w-full justify-start rounded-2xl text-white/55 hover:bg-white/[0.04] hover:text-white"
             onClick={() => {
               window.location.href = "/api/auth/signout"
             }}
@@ -144,25 +155,25 @@ export function Sidebar() {
           variant="ghost"
           size="sm"
           onClick={() => setSidebarOpen(true)}
-          className="fixed left-4 top-4 z-40 border border-gray-200 bg-white shadow-md"
+          className="fixed left-4 top-4 z-40 border border-white/10 bg-black text-white shadow-md"
         >
           <Menu className="h-5 w-5" />
         </Button>
 
         {sidebarOpen && (
           <div className="fixed inset-0 z-50 flex">
-            <div className="fixed inset-0 bg-gray-600/75" onClick={() => setSidebarOpen(false)} />
+            <div className="fixed inset-0 bg-black/75" onClick={() => setSidebarOpen(false)} />
 
-            <div className="relative flex w-72 max-w-xs flex-1 flex-col bg-white">
-              <div className="flex h-16 items-center justify-between border-b border-gray-200 px-4">
+            <div className="relative flex w-72 max-w-xs flex-1 flex-col border-r border-white/5 bg-black text-white">
+              <div className="flex h-16 items-center justify-between border-b border-white/5 px-4">
                 <div className="flex items-center space-x-2">
-                  <Building2 className="h-6 w-6 text-blue-600" />
+                  <Building2 className="h-6 w-6 text-white" />
                   <div>
-                    <h1 className="text-lg font-bold text-gray-900">老板后台</h1>
-                    <p className="text-xs text-gray-500">全局数据与运营总览</p>
+                    <h1 className="text-lg font-bold text-white">老板后台</h1>
+                    <p className="text-xs text-white/38">全局数据与运营总览</p>
                   </div>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => setSidebarOpen(false)}>
+                <Button variant="ghost" size="sm" className="text-white/60" onClick={() => setSidebarOpen(false)}>
                   <X className="h-5 w-5" />
                 </Button>
               </div>
@@ -171,10 +182,10 @@ export function Sidebar() {
                 {renderNavItems(() => setSidebarOpen(false))}
               </nav>
 
-              <div className="border-t border-gray-200 p-4">
+              <div className="border-t border-white/5 p-4">
                 <Button
                   variant="ghost"
-                  className="w-full justify-start text-gray-600 hover:text-gray-900"
+                  className="w-full justify-start rounded-2xl text-white/55 hover:bg-white/[0.04] hover:text-white"
                   onClick={() => {
                     window.location.href = "/api/auth/signout"
                   }}

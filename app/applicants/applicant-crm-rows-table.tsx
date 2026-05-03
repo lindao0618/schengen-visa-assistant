@@ -28,49 +28,49 @@ function formatDateTime(value?: string | null) {
   return date.toLocaleString("zh-CN", { hour12: false })
 }
 
-function getStatusVariant(statusKey: string) {
-  if (statusKey === "exception") return "destructive" as const
-  if (statusKey === "completed") return "success" as const
-  if (statusKey === "submitted" || statusKey === "slot_booked") return "info" as const
-  if (statusKey === "reviewing") return "warning" as const
-  return "outline" as const
+function getStatusBadgeClass(statusKey: string) {
+  if (statusKey === "exception") return "border-red-400/30 bg-red-400/10 text-red-300 shadow-red-500/10"
+  if (statusKey === "completed") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
+  if (statusKey === "submitted" || statusKey === "slot_booked" || statusKey === "tls_processing") {
+    return "border-blue-400/25 bg-blue-400/10 text-blue-300"
+  }
+  if (statusKey === "reviewing" || statusKey === "docs_ready" || statusKey === "preparing_docs") {
+    return "border-amber-400/25 bg-amber-400/10 text-amber-300"
+  }
+  return "border-white/10 bg-white/[0.02] text-white/58"
 }
 
 function getPriorityBadgeClass(priority?: string) {
-  if (priority === "urgent") return "border-red-200 bg-red-50 text-red-700"
-  if (priority === "high") return "border-amber-200 bg-amber-50 text-amber-700"
-  return "border-gray-200 bg-gray-50 text-gray-700"
+  if (priority === "urgent") return "border-red-400/25 bg-red-400/10 text-red-300"
+  if (priority === "high") return "border-amber-400/25 bg-amber-400/10 text-amber-300"
+  return "border-white/10 bg-white/[0.02] text-white/58"
 }
 
 function getVisaTypeBadgeClass(value?: string) {
-  if (!value) return "border-gray-200 bg-gray-50 text-gray-700"
+  if (!value) return "border-white/10 bg-white/[0.02] text-white/58"
   const normalized = value.toLowerCase()
   if (normalized.includes("france") || normalized.includes("schengen") || normalized.includes("法国") || normalized.includes("申根")) {
-    return "border-blue-200 bg-blue-50 text-blue-700"
+    return "border-blue-400/25 bg-blue-400/10 text-blue-300"
   }
   if (normalized.includes("usa") || normalized.includes("us") || normalized.includes("美国")) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700"
+    return "border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
   }
   if (normalized.includes("uk") || normalized.includes("英国")) {
-    return "border-violet-200 bg-violet-50 text-violet-700"
+    return "border-amber-400/25 bg-amber-400/10 text-amber-300"
   }
-  return "border-slate-200 bg-slate-50 text-slate-700"
+  return "border-white/10 bg-white/[0.02] text-white/58"
 }
 
 const groupBadgePalette = [
-  "border-blue-200 bg-blue-50 text-blue-700",
-  "border-emerald-200 bg-emerald-50 text-emerald-700",
-  "border-violet-200 bg-violet-50 text-violet-700",
-  "border-amber-200 bg-amber-50 text-amber-700",
-  "border-rose-200 bg-rose-50 text-rose-700",
-  "border-cyan-200 bg-cyan-50 text-cyan-700",
-  "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
-  "border-lime-200 bg-lime-50 text-lime-700",
+  "border-blue-400/25 bg-blue-400/10 text-blue-300",
+  "border-emerald-400/25 bg-emerald-400/10 text-emerald-300",
+  "border-amber-400/25 bg-amber-400/10 text-amber-300",
+  "border-red-400/25 bg-red-400/10 text-red-300",
 ]
 
 function getGroupBadgeClass(groupName?: string) {
   const normalized = (groupName || "").trim()
-  if (!normalized) return "border-slate-200 bg-slate-50 text-slate-700"
+  if (!normalized) return "border-white/10 bg-white/[0.02] text-white/58"
   let hash = 0
   for (let index = 0; index < normalized.length; index += 1) {
     hash = (hash * 31 + normalized.charCodeAt(index)) >>> 0
@@ -110,13 +110,13 @@ function SelectionToggleButton({
       className={cn(
         "inline-flex h-9 min-w-[78px] items-center justify-center gap-2 rounded-xl border px-3 text-xs font-semibold transition-all",
         checked
-          ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-200"
-          : "border-gray-200 bg-white text-gray-600 hover:border-blue-300 hover:text-blue-700",
+          ? "border-white bg-white text-black"
+          : "border-white/5 bg-white/[0.02] text-white/55 hover:border-blue-300/25 hover:text-white",
       )}
       aria-pressed={checked}
       aria-label={label}
     >
-      <CheckCircle2 className={cn("h-4 w-4", checked ? "text-white" : "text-gray-300")} />
+      <CheckCircle2 className={cn("h-4 w-4", checked ? "text-black" : "text-white/25")} />
       <span>{checked ? "已选" : "选择"}</span>
     </button>
   )
@@ -142,9 +142,9 @@ export const ApplicantCrmRowsTable = memo(function ApplicantCrmRowsTable({
   const selectedApplicantIdSet = useMemo(() => new Set(selectedApplicantIds), [selectedApplicantIds])
 
   return (
-    <Table>
+    <Table className="text-white">
       <TableHeader>
-        <TableRow>
+        <TableRow className="border-white/5 hover:bg-transparent">
           <TableHead className="w-[96px]">
             <SelectionToggleButton
               checked={allVisibleSelected}
@@ -165,11 +165,16 @@ export const ApplicantCrmRowsTable = memo(function ApplicantCrmRowsTable({
       <TableBody>
         {rows.map((row) => {
           const selected = selectedApplicantIdSet.has(row.id)
+          const isException = row.currentStatusKey === "exception"
 
           return (
             <TableRow
               key={row.id}
-              className={cn("cursor-pointer transition-colors", selected && "bg-blue-50/60")}
+              className={cn(
+                "group cursor-pointer border-white/5 transition-colors hover:bg-white/[0.03]",
+                selected && "bg-white/[0.04]",
+                isException && "bg-red-400/[0.035] hover:bg-red-400/[0.06]",
+              )}
               onMouseEnter={() => onPrefetchApplicant(row.id)}
               onFocus={() => onPrefetchApplicant(row.id)}
               onClick={() => onOpenApplicant(row.id)}
@@ -184,14 +189,14 @@ export const ApplicantCrmRowsTable = memo(function ApplicantCrmRowsTable({
               <TableCell>
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="font-medium text-gray-900">{row.name}</div>
+                    <div className="font-medium text-white transition-colors group-hover:text-blue-300">{row.name}</div>
                     {row.groupName ? (
                       <Badge variant="outline" className={getGroupBadgeClass(row.groupName)}>
                         {row.groupName}
                       </Badge>
                     ) : null}
                   </div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-white/42">
                     {row.phone || row.email || row.wechat || row.passportNumber || "暂无联系方式"}
                   </div>
                 </div>
@@ -206,7 +211,10 @@ export const ApplicantCrmRowsTable = memo(function ApplicantCrmRowsTable({
               </TableCell>
               <TableCell>{getApplicantCrmRegionLabel(row.region)}</TableCell>
               <TableCell>
-                <Badge variant={getStatusVariant(row.currentStatusKey)}>
+                <Badge variant="outline" className={cn("pro-semantic-badge", getStatusBadgeClass(row.currentStatusKey))}>
+                  {isException ? (
+                    <span className="pro-status-pulse-dot inline-flex h-2 w-2 rounded-full bg-red-400 animate-pulse" />
+                  ) : null}
                   {getApplicantCrmStatusLabel(row.currentStatusKey, row.currentStatusLabel)}
                 </Badge>
               </TableCell>
@@ -215,12 +223,13 @@ export const ApplicantCrmRowsTable = memo(function ApplicantCrmRowsTable({
                   {getApplicantCrmPriorityLabel(row.priority)}
                 </Badge>
               </TableCell>
-              <TableCell>{formatDate(row.travelDate)}</TableCell>
-              <TableCell>{formatDateTime(row.updatedAt)}</TableCell>
+              <TableCell className="font-mono text-white/65">{formatDate(row.travelDate)}</TableCell>
+              <TableCell className="font-mono text-white/65">{formatDateTime(row.updatedAt)}</TableCell>
               <TableCell>
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="rounded-full text-white/65 hover:bg-white/[0.04] hover:text-white group-hover:bg-blue-400/10 group-hover:text-blue-300"
                   onMouseEnter={() => onPrefetchApplicant(row.id)}
                   onFocus={() => onPrefetchApplicant(row.id)}
                   onClick={(event) => {
@@ -237,7 +246,7 @@ export const ApplicantCrmRowsTable = memo(function ApplicantCrmRowsTable({
         })}
         {rows.length === 0 && (
           <TableRow>
-            <TableCell colSpan={9} className="py-10 text-center text-sm text-gray-500">
+            <TableCell colSpan={9} className="py-10 text-center text-sm text-white/45">
               暂无符合当前筛选条件的申请人，建议调整筛选条件后重试。
             </TableCell>
           </TableRow>

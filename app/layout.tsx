@@ -2,8 +2,10 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import { NavBar } from "@/components/nav-bar"
+import { OpsAgentDock } from "@/components/ops-agent-dock"
 import { Providers } from "@/components/providers"
 import { LazyToaster } from "@/components/lazy-toaster"
+import { ProSpotlightProvider } from "@/components/pro-ui/pro-spotlight-provider"
 import "./globals.css"
 
 const inter = Inter({
@@ -25,13 +27,15 @@ export default function RootLayout({
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
-      <body className={`${inter.className} min-h-screen bg-white text-gray-900 antialiased overflow-x-hidden`}>
+      <body className={`${inter.className} min-h-screen bg-black text-white antialiased overflow-x-hidden`}>
         <Providers>
+          <ProSpotlightProvider />
           <div className="relative flex min-h-screen flex-col">
             <NavBar />
             <main className="flex-1">
               {children}
             </main>
+            <OpsAgentDock />
           </div>
           <LazyToaster richColors closeButton />
         </Providers>

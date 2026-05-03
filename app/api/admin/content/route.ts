@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import prisma from "@/lib/db"
 import { getAdminSession, adminForbiddenResponse } from "@/lib/admin-auth"
+import { isPublicUiPreviewEnabled } from "@/lib/public-ui-preview"
+import { getPublicUiPreviewAdminData } from "@/lib/public-ui-preview-admin-data"
 
 export async function GET() {
+  if (isPublicUiPreviewEnabled()) {
+    return NextResponse.json(getPublicUiPreviewAdminData("content"))
+  }
+
   const session = await getAdminSession()
   if (!session) return adminForbiddenResponse()
 

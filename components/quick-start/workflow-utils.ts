@@ -88,10 +88,10 @@ export function getStepStatusText(step: QuickStepState) {
 }
 
 export function getStepStatusClass(step: QuickStepState) {
-  if (step.status === "completed") return "border-emerald-200 bg-emerald-50 text-emerald-700"
-  if (step.status === "failed") return "border-red-200 bg-red-50 text-red-700"
-  if (step.status === "running") return "border-blue-200 bg-blue-50 text-blue-700"
-  return "border-gray-200 bg-gray-50 text-gray-500"
+  if (step.status === "completed") return "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
+  if (step.status === "failed") return "border-red-400/20 bg-red-400/10 text-red-300"
+  if (step.status === "running") return "border-blue-400/20 bg-blue-400/10 text-blue-300"
+  return "border-white/5 bg-white/[0.02] text-white/40"
 }
 
 export async function fetchFranceTasksForApplicant(applicantProfileId: string) {

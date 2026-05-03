@@ -78,6 +78,60 @@ def _trace(stage: str, detail: str = "") -> None:
     print(f"TRACE_JSON:{json.dumps(payload, ensure_ascii=False)}", file=sys.stderr, flush=True)
 
 
+def _page_body_head(page, limit: int = 500) -> str:
+    try:
+        text = page.locator("body").inner_text(timeout=3000) or ""
+    except Exception:
+        try:
+            text = page.content() or ""
+        except Exception:
+            text = ""
+    return re.sub(r"\s+", " ", html.unescape(str(text))).strip()[:limit]
+
+
+def _is_browser_network_error(page) -> bool:
+    url = ""
+    title = ""
+    try:
+        url = str(page.url or "")
+    except Exception:
+        pass
+    try:
+        title = str(page.title() or "")
+    except Exception:
+        pass
+    body = _page_body_head(page, limit=900)
+    combined = f"{url} {title} {body}".lower()
+    return bool(
+        "chrome-error://chromewebdata" in combined
+        or "err_connection_aborted" in combined
+        or "err_timed_out" in combined
+        or "err_aborted" in combined
+        or "err_too_many_redirects" in combined
+        or "this site can't be reached" in combined
+        or "无法访问此网站" in combined
+    )
+
+
+def _goto_page_with_retry(page, url: str, wait_until: str = "domcontentloaded", timeout_ms: int = 90000, retries: int = 3) -> bool:
+    last_error = ""
+    for attempt in range(1, max(1, retries) + 1):
+        try:
+            _trace("page.goto.retry.attempt", f"url={url};attempt={attempt}/{retries}")
+            page.goto(url, wait_until=wait_until, timeout=timeout_ms)
+            _trace("page.goto.retry.success", str(page.url))
+            return True
+        except Exception as exc:
+            last_error = str(exc).replace("\n", " ")[:220]
+            _trace("page.goto.retry.error", f"url={url};attempt={attempt};error={last_error}")
+            try:
+                page.wait_for_timeout(2000)
+            except Exception:
+                pass
+    _trace("page.goto.retry.failed", f"url={url};error={last_error}")
+    return False
+
+
 def _env_int(key: str, default: int) -> int:
     raw = str(os.environ.get(key, "") or "").strip()
     if not raw:
@@ -195,12 +249,40 @@ def _wait_and_select(page, selectors: List[str], value: str, field_name: str, ti
             loc = page.locator(sel).first
             if loc.count() == 0:
                 continue
-            loc.wait_for(state="visible", timeout=timeout)
+            loc.wait_for(state="attached", timeout=min(timeout, 5000))
+            matched = loc.evaluate(
+                """(el, wanted) => {
+                    const norm = (v) => String(v ?? '').trim().toLowerCase();
+                    const wantedNorm = norm(wanted);
+                    const options = Array.from(el.options || []);
+                    let hit = options.find((o) => norm(o.value) === wantedNorm);
+                    if (!hit) hit = options.find((o) => norm(o.textContent) === wantedNorm);
+                    if (!hit) hit = options.find((o) => norm(o.textContent).includes(wantedNorm));
+                    if (!hit) return null;
+                    el.value = hit.value;
+                    if (window.jQuery) {
+                        const item = window.jQuery(el);
+                        item.val(hit.value);
+                        item.trigger('input').trigger('change').trigger('blur');
+                    }
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    el.dispatchEvent(new Event('blur', { bubbles: true }));
+                    return { value: hit.value, text: (hit.textContent || '').trim() };
+                }""",
+                value,
+            )
+            if matched:
+                _trace(
+                    "ais.applicant.select",
+                    f"{field_name};selector={sel};value={value};matched={matched.get('value', '')}",
+                )
+                return True
             try:
-                loc.select_option(label=value, timeout=timeout)
+                loc.select_option(label=value, timeout=min(timeout, 3000))
             except Exception:
                 try:
-                    loc.select_option(value=value, timeout=timeout)
+                    loc.select_option(value=value, timeout=min(timeout, 3000))
                 except Exception:
                     options = loc.locator("option")
                     matched_value = ""
@@ -220,21 +302,259 @@ def _wait_and_select(page, selectors: List[str], value: str, field_name: str, ti
     return False
 
 
+def _wait_and_set_radio(page, name: str, bool_value: bool, field_name: str, timeout: int = 8000) -> bool:
+    value = "true" if bool_value else "false"
+    selector = f'input[type="radio"][name="{name}"][value="{value}"]'
+    try:
+        loc = page.locator(selector).first
+        if loc.count() == 0:
+            return False
+        loc.wait_for(state="attached", timeout=min(timeout, 5000))
+        selected = page.evaluate(
+            """(selector) => {
+                const el = document.querySelector(selector);
+                if (!el || el.disabled) return false;
+                if (window.jQuery) {
+                    const item = window.jQuery(el);
+                    if (typeof item.iCheck === 'function') item.iCheck('check');
+                    item.trigger('input').trigger('change').trigger('blur');
+                }
+                el.checked = true;
+                el.setAttribute('checked', 'checked');
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                el.dispatchEvent(new Event('blur', { bubbles: true }));
+                return el.checked === true;
+            }""",
+            selector,
+        )
+        if selected:
+            _trace("ais.applicant.radio", f"{field_name};selector={selector};value={value};dom_checked=true")
+            return True
+        try:
+            loc.check(timeout=min(timeout, 3000), force=True)
+        except TypeError:
+            loc.check(timeout=min(timeout, 3000))
+        _trace("ais.applicant.radio", f"{field_name};selector={selector};value={value};force_check=true")
+        return True
+    except Exception:
+        return False
+
+
 def _wait_and_check(page, selectors: List[str], field_name: str, timeout: int = 10000) -> bool:
     for sel in selectors:
         try:
             loc = page.locator(sel).first
             if loc.count() == 0:
                 continue
-            loc.wait_for(state="visible", timeout=timeout)
+            loc.wait_for(state="attached", timeout=min(timeout, 3000))
             try:
-                loc.check(timeout=timeout)
+                checked = bool(
+                    loc.evaluate(
+                        """(input) => {
+                            if (!input || input.disabled) return false;
+                            if (window.jQuery) {
+                                const item = window.jQuery(input);
+                                if (typeof item.iCheck === 'function') item.iCheck('check');
+                                item.trigger('input').trigger('change').trigger('blur');
+                            }
+                            input.checked = true;
+                            input.setAttribute('checked', 'checked');
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                            input.dispatchEvent(new Event('blur', { bubbles: true }));
+                            return input.checked === true;
+                        }"""
+                    )
+                )
+                if checked:
+                    _trace("ais.applicant.check", f"{field_name};selector={sel};dom_checked=true")
+                    return True
             except Exception:
-                loc.click(timeout=timeout)
+                pass
+            try:
+                loc.check(timeout=min(timeout, 3000), force=True)
+            except TypeError:
+                loc.check(timeout=min(timeout, 3000))
+            except Exception:
+                loc.click(timeout=min(timeout, 3000), force=True)
             _trace("ais.applicant.check", f"{field_name};selector={sel}")
             return True
         except Exception:
             continue
+    return False
+
+
+def _check_checkbox_by_text(page, patterns: List[str], field_name: str) -> bool:
+    try:
+        result = page.evaluate(
+            """(patterns) => {
+                const regexes = patterns.map((p) => new RegExp(p, 'i'));
+                const boxes = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+                const textFor = (input) => {
+                    const chunks = [];
+                    if (input.id) {
+                        const label = document.querySelector(`label[for="${CSS.escape(input.id)}"]`);
+                        if (label) chunks.push(label.textContent || '');
+                    }
+                    let node = input;
+                    for (let i = 0; i < 5 && node; i += 1) {
+                        chunks.push(node.textContent || '');
+                        node = node.parentElement;
+                    }
+                    return chunks.join(' ').replace(/\\s+/g, ' ').trim();
+                };
+                const matched = boxes.find((box) => {
+                    const text = textFor(box);
+                    return regexes.some((re) => re.test(text));
+                });
+                if (!matched) return { ok: false, count: boxes.length, reason: 'no_text_match' };
+                if (window.jQuery) {
+                    const item = window.jQuery(matched);
+                    if (typeof item.iCheck === 'function') item.iCheck('check');
+                    item.trigger('input').trigger('change').trigger('blur');
+                }
+                matched.checked = true;
+                matched.setAttribute('checked', 'checked');
+                matched.dispatchEvent(new Event('input', { bubbles: true }));
+                matched.dispatchEvent(new Event('change', { bubbles: true }));
+                matched.dispatchEvent(new Event('blur', { bubbles: true }));
+                return { ok: matched.checked === true, id: matched.id || '', name: matched.name || '', value: matched.value || '', text: textFor(matched).slice(0, 160) };
+            }""",
+            patterns,
+        )
+        if result and result.get("ok"):
+            _trace(
+                "ais.applicant.check",
+                f"{field_name};selector=text_match;id={result.get('id', '')};value={result.get('value', '')}",
+            )
+            return True
+        _trace("ais.applicant.check.failed", f"{field_name};result={result}")
+    except Exception as exc:
+        _trace("ais.applicant.check.failed", f"{field_name};error={str(exc)[:220]}")
+    return False
+
+
+def _check_login_terms_consent(page) -> bool:
+    selectors = [
+        "#policy_confirmed",
+        "#user_policy_confirmed",
+        'input[name="policy_confirmed"]',
+        'input[name="user[policy_confirmed]"]',
+        'form#new_user input[type="checkbox"]',
+        'form input[type="checkbox"]',
+    ]
+    for sel in selectors:
+        try:
+            loc = page.locator(sel)
+            if loc.count() == 0:
+                continue
+            target = loc.first
+            try:
+                target.check(timeout=5000, force=True)
+                _trace("ais.applicant.check", f"login_terms;selector={sel};force=true")
+                return True
+            except TypeError:
+                try:
+                    target.check(timeout=5000)
+                    _trace("ais.applicant.check", f"login_terms;selector={sel};check=true")
+                    return True
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            checked = False
+            try:
+                checked = bool(
+                    target.evaluate(
+                        """(input) => {
+                            input.checked = true;
+                            input.setAttribute('checked', 'checked');
+                            if (window.jQuery) {
+                                const item = window.jQuery(input);
+                                if (typeof item.iCheck === 'function') item.iCheck('check');
+                            }
+                            input.checked = true;
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                            return input.checked === true;
+                        }"""
+                    )
+                )
+            except Exception:
+                try:
+                    checked = bool(
+                        page.evaluate(
+                            """(selector) => {
+                                const input = document.querySelector(selector);
+                                if (!input || input.disabled) return false;
+                                input.checked = true;
+                                input.setAttribute('checked', 'checked');
+                                if (window.jQuery) {
+                                    const item = window.jQuery(input);
+                                    if (typeof item.iCheck === 'function') item.iCheck('check');
+                                }
+                                input.checked = true;
+                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                                input.dispatchEvent(new Event('change', { bubbles: true }));
+                                return input.checked === true;
+                            }""",
+                            sel,
+                        )
+                    )
+                except Exception:
+                    checked = False
+            if checked:
+                _trace("ais.applicant.check", f"login_terms;selector={sel};dom_checked=true")
+                return True
+        except Exception:
+            continue
+
+    if _wait_and_check(page, selectors, "login_terms", timeout=12000):
+        return True
+
+    label_selectors = [
+        'form#new_user label.icheck-label',
+        'form#new_user label',
+        'label.icheck-label',
+        'label',
+    ]
+    for sel in label_selectors:
+        try:
+            page.locator(sel).filter(has_text="read").first.click(timeout=10000)
+            _trace("ais.applicant.check", f"login_terms;selector={sel};label_text=read")
+            return True
+        except Exception:
+            continue
+
+    try:
+        checked = page.evaluate(
+            """() => {
+                const inputs = Array.from(document.querySelectorAll(
+                    '#policy_confirmed, #user_policy_confirmed, input[name="policy_confirmed"], input[name="user[policy_confirmed]"], form#new_user input[type="checkbox"], form input[type="checkbox"]'
+                ));
+                for (const input of inputs) {
+                    if (input.disabled) continue;
+                    input.checked = true;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                    return true;
+                }
+                const labels = Array.from(document.querySelectorAll('form#new_user label, label'));
+                const label = labels.find((node) => /read|privacy|terms/i.test(node.textContent || ''));
+                if (label) {
+                    label.click();
+                    return true;
+                }
+                return false;
+            }"""
+        )
+        if checked:
+            _trace("ais.applicant.check", "login_terms;selector=dom_fallback")
+            return True
+    except Exception:
+        pass
     return False
 
 
@@ -245,7 +565,25 @@ def _wait_and_click(page, selectors: List[str], step: str, timeout: int = 15000)
             if loc.count() == 0:
                 continue
             loc.wait_for(state="visible", timeout=timeout)
-            loc.click(timeout=timeout)
+            clicked = False
+            for click_action in (
+                lambda: loc.click(timeout=timeout),
+                lambda: loc.click(timeout=min(timeout, 5000), force=True),
+                lambda: loc.evaluate(
+                    """(el) => {
+                        el.click();
+                        return true;
+                    }"""
+                ),
+            ):
+                try:
+                    click_action()
+                    clicked = True
+                    break
+                except Exception:
+                    continue
+            if not clicked:
+                continue
             _trace("ais.flow.click", f"{step};selector={sel};url={page.url}")
             return True
         except Exception:
@@ -260,6 +598,8 @@ def _detect_known_signup_failure_text(text: str) -> str:
     patterns = [
         (r"email[^.。\n]{0,80}already[^.。\n]{0,80}taken", "Email has already been taken"),
         (r"email[^.。\n]{0,80}already[^.。\n]{0,80}registered", "Email has already been registered"),
+        (r"\bhas\s+already\s+been\s+taken\b", "Email has already been taken"),
+        (r"\balready\s+registered\b", "Email has already been registered"),
         (r"password[^.。\n]{0,80}(blank|required|too short|invalid)", "Password validation failed"),
         (r"terms[^.。\n]{0,120}(accept|agree|required|must)", "Terms of use must be accepted"),
         (r"(captcha|robot|recaptcha|verification)[^.。\n]{0,120}(failed|required|invalid)", "Captcha or verification failed"),
@@ -270,6 +610,8 @@ def _detect_known_signup_failure_text(text: str) -> str:
             start = max(0, match.start() - 60)
             end = min(len(normalized), match.end() + 80)
             snippet = normalized[start:end].strip(" |:;-")
+            if fallback.startswith("Email") and "email" not in snippet.lower():
+                return fallback
             return snippet or fallback
     return ""
 
@@ -330,7 +672,7 @@ def _extract_signup_error_text(page) -> str:
             continue
     joined = " | ".join(messages[:3]).strip()
     if joined:
-        return joined
+        return _detect_known_signup_failure_text(joined) or joined
     try:
         body_text = page.locator("body").inner_text(timeout=2500) or ""
         known = _detect_known_signup_failure_text(body_text)
@@ -412,8 +754,6 @@ def _wait_until_post_signup_ready(page, timeout_ms: int = 30000) -> str:
     while datetime.now().timestamp() < deadline:
         current_url = page.url or ""
         low_url = current_url.lower()
-        if "/schedule/" in low_url or "/payment" in low_url:
-            return "schedule_url"
         if _is_ais_activation_email_sent_page(page):
             return "activation_email_sent"
         if _is_ais_signup_url(current_url) and _extract_signup_error_text(page):
@@ -424,14 +764,63 @@ def _wait_until_post_signup_ready(page, timeout_ms: int = 30000) -> str:
                     return "applicant_form"
             except Exception:
                 continue
+        if "/applicants/new" in low_url:
+            return "applicant_form"
+        if "/schedule/" in low_url or "/payment" in low_url:
+            return "schedule_url"
         page.wait_for_timeout(1000)
 
+    low_url = (page.url or "").lower()
+    if "/applicants/new" in low_url:
+        return "applicant_form"
     return "still_signup" if _is_ais_signup_url(page.url) else "unknown"
 
 
 def _extract_schedule_id(url: str) -> str:
     m = re.search(r"/schedule/(\d+)", url or "")
     return m.group(1) if m else ""
+
+
+def _extract_ds160_number_from_text(text: str) -> str:
+    match = re.search(r"(?:^|[^0-9A-Z])(AA[0-9A-Z]{8,})(?=[^0-9A-Z]|$)", str(text or "").upper())
+    return match.group(1) if match else ""
+
+
+DS160_NUMBER_KEYS = ["DS-160 Number", "DS160 Number", "Application ID", "AA码", "aaCode"]
+
+
+def _get_ds160_number(personal_info: Dict) -> str:
+    return _first_non_empty(personal_info, DS160_NUMBER_KEYS)
+
+
+def _apply_ds160_number_override(personal_info: Dict, ds160_number: str) -> bool:
+    if _get_ds160_number(personal_info):
+        return False
+    normalized = _extract_ds160_number_from_text(ds160_number) or str(ds160_number or "").strip().upper()
+    if not normalized:
+        return False
+    for key in DS160_NUMBER_KEYS:
+        personal_info[key] = normalized
+    return True
+
+
+def _find_latest_ds160_number_near_excel(excel_path: str) -> str:
+    try:
+        directory = Path(excel_path).resolve().parent
+        candidates = []
+        for item in directory.iterdir():
+            if not item.is_file():
+                continue
+            ds160_number = _extract_ds160_number_from_text(item.name)
+            if not ds160_number:
+                continue
+            candidates.append((item.stat().st_mtime, ds160_number))
+        if not candidates:
+            return ""
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return candidates[0][1]
+    except Exception:
+        return ""
 
 
 def load_personal_info_from_excel(excel_path: str) -> List[Dict]:
@@ -597,7 +986,7 @@ def _complete_post_signup_flow(page, personal_info: Dict, out_dir: str) -> Dict:
         "CHINA",
     )
     passport_number = _first_non_empty(personal_info, ["passport_number", "护照号", "Passport Number"])
-    ds160_number = _first_non_empty(personal_info, ["DS-160 Number", "DS160 Number", "Application ID", "AA码"])
+    ds160_number = _get_ds160_number(personal_info)
     visa_class = _first_non_empty(
         personal_info,
         ["Visa Class", "签证类型"],
@@ -621,110 +1010,227 @@ def _complete_post_signup_flow(page, personal_info: Dict, out_dir: str) -> Dict:
     _trace("ais.flow.post_signup.start", page.url)
     if _is_ais_signup_url(page.url):
         raise RuntimeError("注册提交后仍停留在 signup 页面，未进入 Applicant 流程")
+    if "/payment" in (page.url or "").lower():
+        payment_shot = _save_ais_step_screenshot(page, out_dir, "12_payment_page")
+        _trace("ais.flow.post_signup.done", page.url)
+        return {
+            "payment_url": page.url,
+            "payment_screenshot": payment_shot,
+        }
 
-    # New Applicant 表单
-    _wait_and_select(page, ["#applicant_passport_country_code"], passport_country, "passport_country")
-    _wait_and_select(page, ["#applicant_birth_country_code"], birth_country, "birth_country")
-    _wait_and_select(page, ["#applicant_permanent_residency_country_code"], residency_country, "residency_country")
-    _wait_and_fill(page, ["#applicant_passport_number"], passport_number, "passport_number")
-    _wait_and_fill(page, ["#applicant_ds160_number"], ds160_number, "ds160_number")
-    _wait_and_select(page, ["#applicant_visa_class_id"], visa_class, "visa_class")
+    applicants_yes_selectors = [
+        'input[type="submit"][value="Yes"]',
+        'input[name="commit"][value="Yes"]',
+        'button:has-text("Yes")',
+        'a.button:has-text("Yes")',
+        'a:has-text("Yes")',
+    ]
 
-    if birth_parts:
-        _wait_and_select(page, ["#applicant_date_of_birth_3i"], birth_parts["day"], "dob_day")
-        _wait_and_select(page, ["#applicant_date_of_birth_2i"], birth_parts["month"], "dob_month")
-        _wait_and_select(page, ["#applicant_date_of_birth_1i"], birth_parts["year"], "dob_year")
+    def fill_new_applicant_form() -> None:
+        _wait_and_fill(
+            page,
+            ["#applicant_given_name", "#applicant_first_name", 'input[name="applicant[given_name]"]'],
+            _first_non_empty(personal_info, ["given_name", "名"]),
+            "given_name",
+            timeout=5000,
+        )
+        _wait_and_fill(
+            page,
+            ["#applicant_surname", "#applicant_last_name", 'input[name="applicant[surname]"]'],
+            _first_non_empty(personal_info, ["surname", "姓"]),
+            "surname",
+            timeout=5000,
+        )
+        _wait_and_select(page, ["#applicant_passport_country_code"], passport_country, "passport_country")
+        _wait_and_select(page, ["#applicant_birth_country_code"], birth_country, "birth_country")
+        _wait_and_select(page, ["#applicant_permanent_residency_country_code"], residency_country, "residency_country")
+        _wait_and_fill(page, ["#applicant_passport_number"], passport_number, "passport_number")
+        _wait_and_fill(page, ["#applicant_ds160_number"], ds160_number, "ds160_number")
+        _wait_and_select(page, ["#applicant_visa_class_id"], visa_class, "visa_class")
 
-    _wait_and_fill(page, ["#applicant_phone1"], primary_phone, "primary_phone")
-    _wait_and_fill(page, ["#applicant_email_address"], email, "email")
+        if birth_parts:
+            _wait_and_select(page, ["#applicant_date_of_birth_3i"], birth_parts["day"], "dob_day")
+            _wait_and_select(page, ["#applicant_date_of_birth_2i"], birth_parts["month"], "dob_month")
+            _wait_and_select(page, ["#applicant_date_of_birth_1i"], birth_parts["year"], "dob_year")
 
-    # 强制不勾选短信提醒
-    try:
-        alert_box = page.locator("#applicant_mobile_alerts").first
-        if alert_box.count() > 0 and alert_box.is_checked():
-            alert_box.uncheck(timeout=8000)
-    except Exception:
-        pass
+        _wait_and_fill(page, ["#applicant_phone1"], primary_phone, "primary_phone")
+        _wait_and_fill(page, ["#applicant_email_address"], email, "email")
 
-    _wait_and_click(
-        page,
-        [
-            'input[type="radio"][name="applicant[is_a_renewal]"][value="true"]' if is_renewal else 'input[type="radio"][name="applicant[is_a_renewal]"][value="false"]',
-            "#applicant_is_a_renewal_true" if is_renewal else "#applicant_is_a_renewal_false",
-        ],
-        "set_is_renewal",
-        timeout=8000,
-    )
-    _wait_and_click(
-        page,
-        [
-            'input[type="radio"][name="applicant[traveling_to_apply]"][value="true"]' if traveling_to_apply else 'input[type="radio"][name="applicant[traveling_to_apply]"][value="false"]',
-            "#applicant_traveling_to_apply_true" if traveling_to_apply else "#applicant_traveling_to_apply_false",
-        ],
-        "set_traveling_to_apply",
-        timeout=8000,
-    )
+        # 强制不勾选短信提醒
+        try:
+            alert_box = page.locator("#applicant_mobile_alerts").first
+            if alert_box.count() > 0 and alert_box.is_checked():
+                alert_box.uncheck(timeout=8000)
+        except Exception:
+            pass
 
-    if not _wait_and_click(
-        page,
-        [
-            'input[type="submit"][value="Create Applicant"]',
-            'input[name="commit"][value="Create Applicant"]',
-            'button:has-text("Create Applicant")',
-            'input[type="submit"][value*="Applicant"]',
-        ],
-        "create_applicant",
-        timeout=20000,
-    ):
-        raise RuntimeError("未找到 Create Applicant 按钮")
-    page.wait_for_load_state("domcontentloaded", timeout=90000)
-    page.wait_for_timeout(2500)
-    _save_ais_step_screenshot(page, out_dir, "10_after_create_applicant")
+        if not _wait_and_set_radio(page, "applicant[is_a_renewal]", is_renewal, "set_is_renewal", timeout=8000):
+            raise RuntimeError("未找到美国签证历史 Yes/No 单选项")
+        if not _wait_and_set_radio(
+            page,
+            "applicant[traveling_to_apply]",
+            traveling_to_apply,
+            "set_traveling_to_apply",
+            timeout=8000,
+        ):
+            raise RuntimeError("未找到跨国赴英申请 Yes/No 单选项")
+
+    def applicants_yes_visible() -> bool:
+        for selector in applicants_yes_selectors:
+            try:
+                loc = page.locator(selector).first
+                if loc.count() > 0 and loc.is_visible(timeout=1500):
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def conditions_page_visible() -> bool:
+        body = _page_body_head(page, limit=500).lower()
+        if "select the conditions" in body or "check all statements that apply" in body:
+            return True
+        try:
+            return (
+                page.locator('input[type="checkbox"]').count() > 0
+                and page.locator('input[type="submit"][value="Confirm"], button:has-text("Confirm")').count() > 0
+            )
+        except Exception:
+            return False
+
+    applicant_new_url = page.url
+    if "/applicants/new" not in applicant_new_url:
+        schedule_id = _extract_schedule_id(applicant_new_url)
+        if schedule_id:
+            applicant_new_url = f"https://ais.usvisa-info.com/en-gb/niv/schedule/{schedule_id}/applicants/new"
+
+    low_current_url = (page.url or "").lower()
+    skip_yes = False
+    skip_conditions = False
+    skip_additional_applicants = False
+    if "/courier" in low_current_url:
+        _trace("ais.flow.resume", f"courier_page;url={page.url}")
+        skip_yes = True
+        skip_conditions = True
+        skip_additional_applicants = True
+    elif "/add_additional_applicants" in low_current_url:
+        _trace("ais.flow.resume", f"add_additional_applicants_page;url={page.url}")
+        skip_yes = True
+        skip_conditions = True
+    elif conditions_page_visible():
+        _trace("ais.flow.resume", f"conditions_page;url={page.url}")
+        skip_yes = True
+    elif applicants_yes_visible():
+        _trace("ais.flow.resume", f"confirm_applicant_page;url={page.url}")
+    else:
+        create_submitted = False
+        for attempt in range(1, 4):
+            _trace("ais.applicant.create.attempt", f"attempt={attempt};url={page.url}")
+            if page.locator("#applicant_passport_number, #applicant_ds160_number").count() == 0:
+                if not _goto_page_with_retry(page, applicant_new_url, timeout_ms=120000, retries=3):
+                    raise RuntimeError(f"无法重新打开 New Applicant 页面: {applicant_new_url}")
+                page.wait_for_timeout(1500)
+
+            fill_new_applicant_form()
+            if not _wait_and_click(
+                page,
+                [
+                    'input[type="submit"][value="Create Applicant"]',
+                    'input[name="commit"][value="Create Applicant"]',
+                    'button:has-text("Create Applicant")',
+                    'input[type="submit"][value*="Applicant"]',
+                ],
+                f"create_applicant_attempt_{attempt}",
+                timeout=20000,
+            ):
+                raise RuntimeError("未找到 Create Applicant 按钮")
+
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=90000)
+            except Exception as exc:
+                _trace("ais.applicant.create.load_state_error", str(exc)[:220])
+            page.wait_for_timeout(2500)
+            _save_ais_step_screenshot(page, out_dir, f"10_after_create_applicant_attempt_{attempt}")
+
+            if applicants_yes_visible():
+                create_submitted = True
+                break
+            if conditions_page_visible():
+                create_submitted = True
+                skip_yes = True
+                break
+
+            body_head = _page_body_head(page, limit=260)
+            _trace(
+                "ais.applicant.create.unexpected_page",
+                f"attempt={attempt};url={page.url};network_error={_is_browser_network_error(page)};body={body_head}",
+            )
+            if attempt >= 3:
+                break
+            if not _goto_page_with_retry(page, applicant_new_url, timeout_ms=120000, retries=3):
+                break
+            page.wait_for_timeout(1500)
+
+        if not create_submitted:
+            raise RuntimeError(f"Create Applicant 后未进入确认页，当前 URL: {page.url}；页面: {_page_body_head(page, 180)}")
 
     # applicants 页面：点击 Yes
-    if not _wait_and_click(
-        page,
-        ['input[type="submit"][value="Yes"]', 'input[name="commit"][value="Yes"]'],
-        "applicants_yes",
-        timeout=20000,
-    ):
-        raise RuntimeError("未找到 Yes 按钮")
-    page.wait_for_load_state("domcontentloaded", timeout=90000)
-    page.wait_for_timeout(1500)
+    if not skip_yes:
+        if not _wait_and_click(
+            page,
+            applicants_yes_selectors,
+            "applicants_yes",
+            timeout=20000,
+        ):
+            raise RuntimeError("未找到 Yes 按钮")
+        page.wait_for_load_state("domcontentloaded", timeout=90000)
+        page.wait_for_timeout(1500)
 
-    # 勾选条件
-    if not _wait_and_check(
-        page,
-        [
-            "#scheduling_condition_question_answers_0",
-            'input[name="scheduling_condition_question_answers[]"][value="1"]',
-        ],
-        "uk_residency_checkbox",
-        timeout=12000,
-    ):
-        raise RuntimeError("未找到英国居留条件复选框")
+    if not skip_conditions:
+        # 勾选条件
+        if not _wait_and_check(
+            page,
+            [
+                "#scheduling_condition_question_answers_0",
+                "#scheduling_condition_question_answer_0",
+                'input[name="scheduling_condition_question_answers[]"][value="1"]',
+                'input[type="checkbox"][name*="scheduling_condition"]',
+            ],
+            "uk_residency_checkbox",
+            timeout=12000,
+        ) and not _check_checkbox_by_text(
+            page,
+            [
+                r"valid\s+UK\s+passport",
+                r"resident\s+status",
+                r"residence\s+permit",
+                r"long-term\s+visa",
+            ],
+            "uk_residency_checkbox",
+        ):
+            raise RuntimeError("未找到英国居留条件复选框")
 
-    if not _wait_and_click(
-        page,
-        ['input[type="submit"][value="Confirm"]', 'input[name="commit"][value="Confirm"]'],
-        "applicants_confirm",
-        timeout=20000,
-    ):
-        raise RuntimeError("未找到 Confirm 按钮")
-    page.wait_for_load_state("domcontentloaded", timeout=90000)
-    page.wait_for_timeout(2000)
-    _save_ais_step_screenshot(page, out_dir, "11_after_confirm")
+        if not _wait_and_click(
+            page,
+            ['input[type="submit"][value="Confirm"]', 'input[name="commit"][value="Confirm"]'],
+            "applicants_confirm",
+            timeout=20000,
+        ):
+            raise RuntimeError("未找到 Confirm 按钮")
+        page.wait_for_load_state("domcontentloaded", timeout=90000)
+        page.wait_for_timeout(2000)
+        _save_ais_step_screenshot(page, out_dir, "11_after_confirm")
 
     # add_additional_applicants 页面：点击 No
-    if not _wait_and_click(
-        page,
-        ['a.button.primary:has-text("No")', 'a[href*="/continue"]:has-text("No")'],
-        "add_additional_applicants_no",
-        timeout=20000,
-    ):
-        raise RuntimeError("未找到 No 按钮")
-    page.wait_for_load_state("domcontentloaded", timeout=90000)
-    page.wait_for_timeout(1500)
+    if not skip_additional_applicants:
+        if not _wait_and_click(
+            page,
+            ['a.button.primary:has-text("No")', 'a[href*="/continue"]:has-text("No")'],
+            "add_additional_applicants_no",
+            timeout=20000,
+        ):
+            raise RuntimeError("未找到 No 按钮")
+        page.wait_for_load_state("domcontentloaded", timeout=90000)
+        page.wait_for_timeout(1500)
 
     # 选择 London 取件点
     if not _wait_and_select(
@@ -930,6 +1436,7 @@ def register_ais(
     test_mode: bool = False,
     output_dir: str = "",
     login_existing_account: bool = False,
+    ds160_number_override: str = "",
 ) -> Dict:
     def callback(pct: int, msg: str) -> None:
         _progress(pct, msg)
@@ -955,6 +1462,13 @@ def register_ais(
             _trace("excel.parse.empty", "Excel 中未解析到有效数据")
             return {"success": False, "error": "Excel 中未解析到有效数据"}
         personal_info = personal_info_list[0]
+        if _apply_ds160_number_override(personal_info, ds160_number_override):
+            _trace("excel.parse.ds160_override", _get_ds160_number(personal_info))
+        if not _get_ds160_number(personal_info):
+            ds160_from_file = _find_latest_ds160_number_near_excel(excel_path)
+            if ds160_from_file:
+                _apply_ds160_number_override(personal_info, ds160_from_file)
+                _trace("excel.parse.ds160_fallback", ds160_from_file)
 
         given_name = str(personal_info.get("given_name", "") or personal_info.get("名", "") or "").strip()
         surname = str(personal_info.get("surname", "") or personal_info.get("姓", "") or "").strip()
@@ -1288,19 +1802,8 @@ def register_ais(
                     except Exception as ex:
                         raise RuntimeError(f"无法填写 AIS 登录密码: {ex}")
 
-                _wait_and_check(
-                    page,
-                    [
-                        "#policy_confirmed",
-                        "#user_policy_confirmed",
-                        'input[name="policy_confirmed"]',
-                        'input[name="user[policy_confirmed]"]',
-                        'form#new_user input[type="checkbox"]',
-                        'form input[type="checkbox"]',
-                    ],
-                    "login_terms",
-                    timeout=12000,
-                )
+                if not _check_login_terms_consent(page):
+                    _trace("step.login.terms.skipped", "no_terms_control_found")
 
                 if not _wait_and_click(
                     page,
@@ -1332,6 +1835,17 @@ def register_ais(
 
                 callback(45, "登录成功，正在进入申请人流程...")
                 _trace("step.login.flow.start", page.url)
+                state = _wait_until_post_signup_ready(page, timeout_ms=15000)
+                _trace("step.login.flow.initial_state", f"{state};url={page.url}")
+                if state == "applicant_form":
+                    _save_ais_step_screenshot(page, str(out_dir), "03_after_login_applicant_form")
+                    return state
+                if state == "schedule_url":
+                    _save_ais_step_screenshot(page, str(out_dir), "03_after_login_schedule_state")
+                    return state
+                if state == "activation_email_sent":
+                    raise RuntimeError("AIS 账号还没有完成邮箱激活，请先打开邮箱点击官方激活链接")
+
                 goto_with_retry(AIS_BASE_URL, wait_until="domcontentloaded", timeout_ms=120000, retries=3)
                 page.wait_for_timeout(3000)
                 _save_ais_step_screenshot(page, str(out_dir), "03_after_login_open_ais")
@@ -1696,6 +2210,7 @@ def main() -> None:
     parser.add_argument("--extra-email", default="", help="抄送邮箱")
     parser.add_argument("--test-mode", "-t", action="store_true", help="测试模式（仍使用无头，仅增加慢速执行）")
     parser.add_argument("--login-existing", action="store_true", help="跳过注册，直接登录已激活 AIS 账号并推进到支付页")
+    parser.add_argument("--ds160-number", default="", help="当 Excel 未包含 DS-160/AA 码时使用的补充值")
     args = parser.parse_args()
     result = register_ais(
         excel_path=args.excel_path,
@@ -1705,6 +2220,7 @@ def main() -> None:
         test_mode=args.test_mode,
         output_dir=args.output_dir,
         login_existing_account=args.login_existing,
+        ds160_number_override=args.ds160_number,
     )
     print(json.dumps(result, ensure_ascii=False))
 

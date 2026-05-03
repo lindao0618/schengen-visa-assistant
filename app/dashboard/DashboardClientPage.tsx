@@ -4,19 +4,22 @@ import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
 import {
+  Bot,
   UserCircle,
   FileText,
-  FolderKanban,
-  Award,
   Wallet,
   Bell,
   Settings,
+  Sparkles,
   LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ProCard } from "@/components/pro-ui/pro-card";
+import { ProShell } from "@/components/pro-ui/pro-shell";
+import { ProStatus } from "@/components/pro-ui/pro-status";
 
 // Define an interface for the module structure
 interface Module {
@@ -26,16 +29,39 @@ interface Module {
   component: React.ComponentType;
 }
 
+type DashboardAiModelOption = {
+  id: string;
+  label: string;
+  quality?: "fast" | "balanced" | "reasoning";
+}
+
+type DashboardAiPrefs = {
+  defaultModel: string;
+  deepAnalysisEnabled: boolean;
+  answerStyle: "concise" | "detailed" | "table-first" | "action-card-first";
+  outputFormat: "markdown" | "wechat-copy";
+  pinnedShortcuts: string[];
+}
+
+const dashboardFallbackAiModels: DashboardAiModelOption[] = [
+  { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", quality: "fast" },
+  { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", quality: "reasoning" },
+];
+
+const dashboardDefaultAiPrefs: DashboardAiPrefs = {
+  defaultModel: "deepseek-v4-flash",
+  deepAnalysisEnabled: false,
+  answerStyle: "action-card-first",
+  outputFormat: "wechat-copy",
+  pinnedShortcuts: ["查缺漏", "生成催办话术", "启动自动化"],
+};
+
 function ModuleLoadingCard({ title = "模块" }: { title?: string }) {
   return (
-    <Card className="w-full rounded-xl border border-gray-200/50 bg-white/70 shadow-xl backdrop-blur-md">
-      <CardHeader>
-        <CardTitle className="text-2xl font-bold text-gray-800">{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-gray-700">正在加载...</p>
-      </CardContent>
-    </Card>
+    <ProCard className="w-full p-6">
+      <h2 className="text-2xl font-bold text-white">{title}</h2>
+      <p className="mt-3 text-sm text-white/45">正在加载模块数据...</p>
+    </ProCard>
   );
 }
 
@@ -140,12 +166,12 @@ const UserProfileModule: React.FC = () => {
 
   if (status === "loading") {
     return (
-      <Card className="w-full bg-white/70 backdrop-blur-md shadow-xl rounded-xl border border-gray-200/50">
+      <Card className="w-full border-white/10 bg-white/[0.04] text-white shadow-xl backdrop-blur-md">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold text-gray-800">用户资料</CardTitle>
+          <CardTitle className="text-2xl font-bold text-white">用户资料</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-gray-700">正在加载用户信息...</p>
+          <p className="text-white/55">正在加载用户信息...</p>
         </CardContent>
       </Card>
     );
@@ -153,22 +179,22 @@ const UserProfileModule: React.FC = () => {
 
   if (!session) {
     return (
-      <Card className="w-full bg-white/70 backdrop-blur-md shadow-xl rounded-xl border border-gray-200/50">
+      <Card className="w-full border-white/10 bg-white/[0.04] text-white shadow-xl backdrop-blur-md">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold text-gray-800">用户资料</CardTitle>
+          <CardTitle className="text-2xl font-bold text-white">用户资料</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-gray-700">请先登录以查看您的用户资料。</p>
+          <p className="text-white/55">请先登录以查看您的用户资料。</p>
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card className="w-full bg-white/70 backdrop-blur-md shadow-xl rounded-xl border border-gray-200/50">
+    <Card className="w-full border-white/10 bg-white/[0.04] text-white shadow-xl backdrop-blur-md">
       <CardHeader>
-        <CardTitle className="text-2xl font-bold text-gray-800">用户资料</CardTitle>
-        <CardDescription className="text-gray-600">查看和编辑您的个人信息。</CardDescription>
+        <CardTitle className="text-2xl font-bold text-white">用户资料</CardTitle>
+        <CardDescription className="text-white/45">查看和编辑您的个人信息。</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {message && (
@@ -178,18 +204,18 @@ const UserProfileModule: React.FC = () => {
         )}
         
         <div className="space-y-1.5">
-          <Label htmlFor="email" className="text-sm font-medium text-gray-700">邮箱地址</Label>
+          <Label htmlFor="email" className="text-sm font-medium text-white/65">邮箱地址</Label>
           <Input
             id="email"
             type="email"
             value={session.user?.email || ""}
             disabled
-            className="bg-gray-100/70 border-gray-300/70 rounded-lg text-gray-700 cursor-not-allowed"
+            className="pro-input cursor-not-allowed rounded-lg border-white/10 bg-white/[0.05] text-white/50"
           />
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="name" className="text-sm font-medium text-gray-700">用户名称</Label>
+          <Label htmlFor="name" className="text-sm font-medium text-white/65">用户名称</Label>
           <div className="flex items-center space-x-3">
             <Input
               id="name"
@@ -197,18 +223,18 @@ const UserProfileModule: React.FC = () => {
               value={name}
               onChange={handleNameChange}
               disabled={!isEditingName || isLoading}
-              className={`border-gray-300/90 rounded-lg flex-grow ${!isEditingName ? 'bg-gray-100/70 text-gray-700 cursor-default' : 'text-gray-900'}`}
+              className={`pro-input flex-grow rounded-lg border-white/10 ${!isEditingName ? 'bg-white/[0.05] text-white/60 cursor-default' : 'bg-white/[0.08] text-white'}`}
             />
             {!isEditingName ? (
-              <Button variant="outline" onClick={() => { setIsEditingName(true); setMessage(null); }} className="rounded-lg border-gray-300/90 text-gray-700 hover:bg-gray-100/70 shrink-0">
+              <Button variant="outline" onClick={() => { setIsEditingName(true); setMessage(null); }} className="shrink-0 rounded-lg border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/[0.08] hover:text-white">
                 编辑
               </Button>
             ) : (
               <div className="flex items-center space-x-2 shrink-0">
-                <Button onClick={handleSaveName} disabled={isLoading || !name.trim() || name.trim() === session.user?.name} className="bg-black text-white hover:bg-gray-800 rounded-lg">
+                <Button onClick={handleSaveName} disabled={isLoading || !name.trim() || name.trim() === session.user?.name} className="rounded-lg bg-white text-black hover:bg-zinc-200">
                   {isLoading ? "保存中..." : "保存"}
                 </Button>
-                <Button variant="ghost" onClick={() => { setIsEditingName(false); setName(session.user?.name || ""); setMessage(null); }} disabled={isLoading} className="rounded-lg text-gray-600 hover:bg-gray-100/70">
+                <Button variant="ghost" onClick={() => { setIsEditingName(false); setName(session.user?.name || ""); setMessage(null); }} disabled={isLoading} className="rounded-lg text-white/55 hover:bg-white/[0.06] hover:text-white">
                   取消
                 </Button>
               </div>
@@ -216,14 +242,14 @@ const UserProfileModule: React.FC = () => {
           </div>
         </div>
 
-        <div className="pt-6 border-t border-gray-200/80 space-y-6">
+        <div className="space-y-6 border-t border-white/10 pt-6">
           <div>
             <div className="flex justify-between items-center mb-1.5">
-              <h3 className="text-lg font-semibold text-gray-800">修改密码</h3>
+              <h3 className="text-lg font-semibold text-white">修改密码</h3>
               {!showChangePasswordForm && (
                 <Button 
                   variant="outline" 
-                  className="rounded-lg border-gray-300/90 text-gray-700 hover:bg-gray-100/70 text-sm py-1.5 px-3"
+                  className="rounded-lg border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-white/70 hover:bg-white/[0.08] hover:text-white"
                   onClick={() => { setShowChangePasswordForm(true); setPasswordChangeMessage(null); }}
                 >
                   修改密码
@@ -231,62 +257,62 @@ const UserProfileModule: React.FC = () => {
               )}
             </div>
             {showChangePasswordForm ? (
-              <form onSubmit={handleChangePassword} className="space-y-4 mt-4 p-4 border border-gray-200/90 rounded-lg bg-white/50">
+              <form onSubmit={handleChangePassword} className="mt-4 space-y-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
                 {passwordChangeMessage && (
                   <div className={`p-3 rounded-md text-sm font-medium ${passwordChangeMessage.type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-red-100 text-red-800 border border-red-200'}`}>
                     {passwordChangeMessage.text}
                   </div>
                 )}
                 <div className="space-y-1.5">
-                  <Label htmlFor="currentPassword">当前密码</Label>
+                  <Label htmlFor="currentPassword" className="text-white/65">当前密码</Label>
                   <Input 
                     type="password" 
                     id="currentPassword" 
                     value={currentPassword} 
                     onChange={(e) => setCurrentPassword(e.target.value)} 
                     required 
-                    className="border-gray-300/90 rounded-lg"
+                    className="pro-input rounded-lg border-white/10"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="newPassword">新密码</Label>
+                  <Label htmlFor="newPassword" className="text-white/65">新密码</Label>
                   <Input 
                     type="password" 
                     id="newPassword" 
                     value={newPassword} 
                     onChange={(e) => setNewPassword(e.target.value)} 
                     required 
-                    className="border-gray-300/90 rounded-lg"
+                    className="pro-input rounded-lg border-white/10"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="confirmNewPassword">确认新密码</Label>
+                  <Label htmlFor="confirmNewPassword" className="text-white/65">确认新密码</Label>
                   <Input 
                     type="password" 
                     id="confirmNewPassword" 
                     value={confirmNewPassword} 
                     onChange={(e) => setConfirmNewPassword(e.target.value)} 
                     required 
-                    className="border-gray-300/90 rounded-lg"
+                    className="pro-input rounded-lg border-white/10"
                   />
                 </div>
                 <div className="flex space-x-3">
-                  <Button type="submit" disabled={isLoading} className="bg-black text-white hover:bg-gray-800 rounded-lg">
+                  <Button type="submit" disabled={isLoading} className="rounded-lg bg-white text-black hover:bg-zinc-200">
                     {isLoading ? '提交中...' : '确认修改密码'}
                   </Button>
-                  <Button type="button" variant="ghost" onClick={() => { setShowChangePasswordForm(false); setPasswordChangeMessage(null); setCurrentPassword(''); setNewPassword(''); setConfirmNewPassword('');}} disabled={isLoading} className="rounded-lg text-gray-600 hover:bg-gray-100/70">
+                  <Button type="button" variant="ghost" onClick={() => { setShowChangePasswordForm(false); setPasswordChangeMessage(null); setCurrentPassword(''); setNewPassword(''); setConfirmNewPassword('');}} disabled={isLoading} className="rounded-lg text-white/55 hover:bg-white/[0.06] hover:text-white">
                     取消
                   </Button>
                 </div>
               </form>
             ) : (
-              <p className="text-sm text-gray-600">为确保账户安全，建议定期修改密码。</p>
+              <p className="text-sm text-white/45">为确保账户安全，建议定期修改密码。</p>
             )}
           </div>
-          <div className="pt-6 border-t border-gray-200/80">
-            <h3 className="text-lg font-semibold text-gray-800 mb-1.5">头像上传</h3>
-            <p className="text-sm text-gray-600 mb-2.5">个性化您的账户，上传喜欢的头像。</p>
-            <Button variant="outline" className="rounded-lg border-gray-300/90 text-gray-700 hover:bg-gray-100/70" disabled> 
+          <div className="border-t border-white/10 pt-6">
+            <h3 className="mb-1.5 text-lg font-semibold text-white">头像上传</h3>
+            <p className="mb-2.5 text-sm text-white/45">个性化您的账户，上传喜欢的头像。</p>
+            <Button variant="outline" className="rounded-lg border-white/10 bg-white/[0.04] text-white/45 hover:bg-white/[0.08]" disabled> 
               上传头像 (暂不可用)
             </Button>
           </div>
@@ -297,71 +323,263 @@ const UserProfileModule: React.FC = () => {
 };
 
 const DocumentRepositoryModule: React.FC = () => (
-  <Card className="w-full bg-white/70 backdrop-blur-md shadow-xl rounded-xl border border-gray-200/50">
-    <CardHeader>
-      <CardTitle className="text-2xl font-bold text-gray-800">我的文档库</CardTitle>
-      <CardDescription className="text-gray-600">管理您的签证申请相关文件。</CardDescription>
-    </CardHeader>
-    <CardContent>
-      <p className="text-gray-700">文档库内容将在这里展示...</p>
-      {/* TODO: File upload, list, view, delete, categorize, tag features */}
-    </CardContent>
-  </Card>
+  <ProCard className="w-full p-6">
+    <h2 className="text-2xl font-bold text-white">我的文档库</h2>
+    <p className="mt-2 text-sm leading-6 text-white/45">管理您的签证申请相关文件。</p>
+    <div className="mt-6 rounded-2xl border border-dashed border-white/10 bg-white/[0.04] p-5 text-sm text-white/50">
+      文档库内容将在这里展示...
+    </div>
+  </ProCard>
 );
 
 const MembershipCenterModule: React.FC = () => (
-  <Card className="w-full bg-white/70 backdrop-blur-md shadow-xl rounded-xl border border-gray-200/50">
-    <CardHeader>
-      <CardTitle className="text-2xl font-bold text-gray-800">会员中心</CardTitle>
-      <CardDescription className="text-gray-600">查看您的会员状态、权益并管理您的会员计划。</CardDescription>
-    </CardHeader>
-    <CardContent>
-      <p className="text-gray-700">会员中心内容将在这里展示...</p>
-      {/* TODO: Membership status, benefits, upgrade/renew options, access to exclusive content */}
-    </CardContent>
-  </Card>
+  <ProCard className="w-full p-6">
+    <h2 className="text-2xl font-bold text-white">会员中心</h2>
+    <p className="mt-2 text-sm leading-6 text-white/45">查看您的会员状态、权益并管理您的会员计划。</p>
+    <div className="mt-6 rounded-2xl border border-dashed border-white/10 bg-white/[0.04] p-5 text-sm text-white/50">
+      会员中心内容将在这里展示...
+    </div>
+  </ProCard>
 );
 
 const WalletTopUpModule: React.FC = () => (
-  <Card className="w-full bg-white/70 backdrop-blur-md shadow-xl rounded-xl border border-gray-200/50">
-    <CardHeader>
-      <CardTitle className="text-2xl font-bold text-gray-800">钱包/充值中心</CardTitle>
-      <CardDescription className="text-gray-600">管理您的账户余额、充值并查看交易记录。</CardDescription>
-    </CardHeader>
-    <CardContent>
-      <p className="text-gray-700">钱包/充值中心内容将在这里展示...</p>
-      {/* TODO: Account balance, top-up options (payment integration needed), transaction history */}
-    </CardContent>
-  </Card>
+  <ProCard className="w-full p-6">
+    <h2 className="text-2xl font-bold text-white">钱包/充值中心</h2>
+    <p className="mt-2 text-sm leading-6 text-white/45">管理您的账户余额、充值并查看交易记录。</p>
+    <div className="mt-6 rounded-2xl border border-dashed border-white/10 bg-white/[0.04] p-5 text-sm text-white/50">
+      钱包/充值中心内容将在这里展示...
+    </div>
+  </ProCard>
 );
 
 const NotificationsModule: React.FC = () => (
-  <Card className="w-full bg-white/70 backdrop-blur-md shadow-xl rounded-xl border border-gray-200/50">
-    <CardHeader>
-      <CardTitle className="text-2xl font-bold text-gray-800">通知中心</CardTitle>
-      <CardDescription className="text-gray-600">查看您的重要提醒和消息。</CardDescription>
-    </CardHeader>
-    <CardContent>
-      <p className="text-gray-700">通知中心内容将在这里展示...</p>
-      {/* TODO: List of notifications: important alerts, application progress, system messages */}
-    </CardContent>
-  </Card>
+  <ProCard className="w-full p-6">
+    <h2 className="text-2xl font-bold text-white">通知中心</h2>
+    <p className="mt-2 text-sm leading-6 text-white/45">查看您的重要提醒和消息。</p>
+    <div className="mt-6 rounded-2xl border border-dashed border-white/10 bg-white/[0.04] p-5 text-sm text-white/50">
+      通知中心内容将在这里展示...
+    </div>
+  </ProCard>
 );
 
-const AccountSettingsModule: React.FC = () => (
-  <Card className="w-full bg-white/70 backdrop-blur-md shadow-xl rounded-xl border border-gray-200/50">
-    <CardHeader>
-      <CardTitle className="text-2xl font-bold text-gray-800">账户设置</CardTitle>
-      <CardDescription className="text-gray-600">管理您的账户偏好和安全设置。</CardDescription>
-    </CardHeader>
-    <CardContent>
-      <p className="text-gray-700">账户设置内容将在这里展示...</p>
-      {/* TODO: Notification preferences, security settings (2FA), privacy settings, logout/delete account */}
-      <Button variant="outline" className="mt-6 border-gray-300 text-gray-700 hover:bg-gray-100 hover:border-gray-400 rounded-lg">
-        退出登录
+function normalizeDashboardAiModels(value: unknown) {
+  if (!Array.isArray(value)) return dashboardFallbackAiModels;
+  const models = value
+    .map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      const source = item as Record<string, unknown>;
+      const id = typeof source.id === "string" ? source.id.trim() : "";
+      if (!id) return null;
+      return {
+        id,
+        label: typeof source.label === "string" && source.label.trim() ? source.label.trim() : id,
+        quality: source.quality === "balanced" || source.quality === "reasoning" ? source.quality : "fast",
+      } as DashboardAiModelOption;
+    })
+    .filter((item): item is DashboardAiModelOption => Boolean(item));
+  return models.length ? models : dashboardFallbackAiModels;
+}
+
+function normalizeDashboardAiPrefs(value: unknown): DashboardAiPrefs {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const answerStyle =
+    source.answerStyle === "concise" ||
+    source.answerStyle === "detailed" ||
+    source.answerStyle === "table-first"
+      ? source.answerStyle
+      : "action-card-first";
+  const outputFormat = source.outputFormat === "markdown" ? "markdown" : "wechat-copy";
+  const pinnedShortcuts = Array.isArray(source.pinnedShortcuts)
+    ? source.pinnedShortcuts
+        .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        .map((item) => item.trim())
+        .slice(0, 8)
+    : dashboardDefaultAiPrefs.pinnedShortcuts;
+
+  return {
+    defaultModel: typeof source.defaultModel === "string" && source.defaultModel.trim()
+      ? source.defaultModel.trim()
+      : dashboardDefaultAiPrefs.defaultModel,
+    deepAnalysisEnabled: typeof source.deepAnalysisEnabled === "boolean" ? source.deepAnalysisEnabled : false,
+    answerStyle,
+    outputFormat,
+    pinnedShortcuts,
+  };
+}
+
+const OpsAgentAiPreferencePanel: React.FC = () => {
+  const [models, setModels] = useState<DashboardAiModelOption[]>(dashboardFallbackAiModels);
+  const [prefs, setPrefs] = useState<DashboardAiPrefs>(dashboardDefaultAiPrefs);
+  const [shortcutText, setShortcutText] = useState(dashboardDefaultAiPrefs.pinnedShortcuts.join("\n"));
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch("/api/ops-agent/settings", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("读取 AI 设置失败");
+        return response.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        const nextModels = normalizeDashboardAiModels(data?.effective?.availableModels);
+        const nextPrefs = normalizeDashboardAiPrefs(data?.prefs || data?.effective);
+        setModels(nextModels);
+        setPrefs(nextPrefs);
+        setShortcutText(nextPrefs.pinnedShortcuts.join("\n"));
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setModels(dashboardFallbackAiModels);
+        setPrefs(dashboardDefaultAiPrefs);
+        setShortcutText(dashboardDefaultAiPrefs.pinnedShortcuts.join("\n"));
+        setMessage({ type: "error", text: error instanceof Error ? error.message : "读取 AI 设置失败" });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSave = async () => {
+    const pinnedShortcuts = shortcutText
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 8);
+    const payload = { ...prefs, pinnedShortcuts };
+
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/ops-agent/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "保存 AI 设置失败");
+      }
+      const data = await response.json().catch(() => ({}));
+      const nextPrefs = normalizeDashboardAiPrefs(data?.prefs || payload);
+      setPrefs(nextPrefs);
+      setShortcutText(nextPrefs.pinnedShortcuts.join("\n"));
+      setMessage({ type: "success", text: "AI 设置已保存" });
+    } catch (error: unknown) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "保存 AI 设置失败" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="mt-6 rounded-2xl border border-cyan-200/15 bg-cyan-300/[0.045] p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-lg font-semibold text-white">
+            <Bot className="h-5 w-5 text-cyan-200" />
+            AI 设置
+          </div>
+          <p className="mt-2 text-sm leading-6 text-white/55">
+            设置 Visa Ops Agent 的默认模型、深度分析和快捷指令。服务密钥由服务器环境变量统一读取，DeepSeek API Key 不在网页保存。
+          </p>
+        </div>
+        <span className="w-fit rounded-full border border-cyan-200/20 bg-cyan-300/10 px-3 py-1 text-xs font-semibold text-cyan-100">
+          deepseek-v4-flash
+        </span>
+      </div>
+
+      {message ? (
+        <div className={`mt-4 rounded-xl px-3 py-2 text-sm ${message.type === "success" ? "border border-emerald-300/20 bg-emerald-300/10 text-emerald-100" : "border border-amber-300/20 bg-amber-300/10 text-amber-100"}`}>
+          {message.text}
+        </div>
+      ) : null}
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <label className="space-y-2">
+          <span className="block text-sm font-medium text-white/70">默认模型</span>
+          <select
+            value={prefs.defaultModel}
+            onChange={(event) => setPrefs((current) => ({ ...current, defaultModel: event.target.value }))}
+            className="h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm font-medium text-white outline-none focus:border-cyan-200/40"
+          >
+            {models.map((model) => (
+              <option key={model.id} value={model.id} className="bg-slate-950 text-white">
+                {model.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="space-y-2">
+          <span className="block text-sm font-medium text-white/70">回复风格</span>
+          <select
+            value={prefs.answerStyle}
+            onChange={(event) => setPrefs((current) => ({ ...current, answerStyle: event.target.value as DashboardAiPrefs["answerStyle"] }))}
+            className="h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm font-medium text-white outline-none focus:border-cyan-200/40"
+          >
+            <option value="action-card-first" className="bg-slate-950 text-white">操作卡优先</option>
+            <option value="table-first" className="bg-slate-950 text-white">表格优先</option>
+            <option value="concise" className="bg-slate-950 text-white">简洁</option>
+            <option value="detailed" className="bg-slate-950 text-white">详细</option>
+          </select>
+        </label>
+
+        <label className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3 lg:col-span-2">
+          <span>
+            <span className="flex items-center gap-2 text-sm font-semibold text-white">
+              <Sparkles className="h-4 w-4 text-cyan-200" />
+              深度分析
+            </span>
+            <span className="mt-1 block text-xs leading-5 text-white/45">材料排查和失败诊断优先使用推理模型。</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={prefs.deepAnalysisEnabled}
+            onChange={(event) => setPrefs((current) => ({ ...current, deepAnalysisEnabled: event.target.checked }))}
+            className="h-5 w-5 accent-cyan-200"
+          />
+        </label>
+
+        <label className="space-y-2 lg:col-span-2">
+          <span className="block text-sm font-medium text-white/70">快捷指令</span>
+          <textarea
+            value={shortcutText}
+            onChange={(event) => setShortcutText(event.target.value)}
+            className="min-h-28 w-full resize-none rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-cyan-200/40"
+          />
+        </label>
+      </div>
+
+      <Button onClick={handleSave} disabled={saving || loading} className="mt-5 rounded-xl bg-cyan-200 text-slate-950 hover:bg-cyan-100">
+        {saving ? "保存中..." : "保存 AI 设置"}
       </Button>
-    </CardContent>
-  </Card>
+    </section>
+  );
+};
+
+const AccountSettingsModule: React.FC = () => (
+  <ProCard className="w-full p-6">
+    <h2 className="text-2xl font-bold text-white">账户设置</h2>
+    <p className="mt-2 text-sm leading-6 text-white/45">管理您的账户偏好和安全设置。</p>
+    <OpsAgentAiPreferencePanel />
+    <Button variant="outline" className="mt-6 rounded-lg border-white/10 bg-white/[0.04] text-white/70 hover:bg-red-400/10 hover:text-red-200">
+      退出登录
+    </Button>
+  </ProCard>
+);
+
+const AiSettingsModule: React.FC = () => (
+  <div className="w-full">
+    <OpsAgentAiPreferencePanel />
+  </div>
 );
 
 export default function DashboardClientPage() {
@@ -372,49 +590,76 @@ export default function DashboardClientPage() {
     { id: "visa-services", name: "我的签证服务", icon: FileText, component: VisaServicesModule },
     { id: "wallet-topup", name: "钱包/充值", icon: Wallet, component: WalletTopUpModule },
     { id: "notifications", name: "通知中心", icon: Bell, component: NotificationsModule },
+    { id: "ai-settings", name: "AI 设置", icon: Bot, component: AiSettingsModule },
     { id: "account-settings", name: "账户设置", icon: Settings, component: AccountSettingsModule },
   ];
 
   const ActiveModuleComponent = modules.find(module => module.id === activeModule)?.component || (() => <p>模块加载失败。</p>);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-200 text-gray-900 flex flex-col md:flex-row">
-      {/* Sidebar Navigation */}
-      <aside className="w-full md:w-72 bg-white/80 backdrop-blur-md p-4 md:p-6 shadow-lg space-y-4 border-b md:border-b-0 md:border-r border-gray-200/80 shrink-0">
-        <h2 className="text-xl md:text-2xl font-bold text-gray-800 mb-6 text-center md:text-left">个人中心</h2>
-        <nav className="space-y-1.5">
-          {modules.map((module) => (
+    <ProShell innerClassName="pt-44">
+      <div className="mb-8 grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
+        <ProCard className="p-5">
+          <div className="mb-6">
+            <ProStatus tone="info">Command Rail</ProStatus>
+            <h2 className="mt-4 text-2xl font-bold text-white">个人中心</h2>
+            <p className="mt-2 text-sm leading-6 text-white/42">统一管理账户、任务和签证自动化流程。</p>
+          </div>
+          <nav className="pro-module-nav space-y-2">
+            {modules.map((module) => (
+              <Button
+                key={module.id}
+                variant="ghost"
+                className={`w-full justify-start rounded-2xl px-4 py-5 text-left text-sm transition-all duration-150 ease-in-out ${
+                  activeModule === module.id
+                    ? "border border-white/15 bg-white text-black shadow-[0_16px_40px_rgba(255,255,255,0.12)] hover:bg-zinc-200 hover:text-black"
+                    : "border border-transparent text-white/58 hover:border-white/10 hover:bg-white/[0.06] hover:text-white"
+                }`}
+                onClick={() => setActiveModule(module.id)}
+              >
+                <module.icon className="mr-3 h-5 w-5 shrink-0" />
+                <span className="truncate">{module.name}</span>
+              </Button>
+            ))}
+          </nav>
+          <div className="mt-6 border-t border-white/10 pt-4">
             <Button
-              key={module.id}
-              variant="ghost" // Base variant is ghost for custom styling
-              className={`w-full justify-start text-left px-4 py-2.5 text-sm md:text-base rounded-lg transition-all duration-150 ease-in-out ${ 
-                activeModule === module.id
-                  ? "bg-black text-white shadow-md hover:bg-gray-800"
-                  : "text-gray-700 hover:bg-gray-100 hover:text-black"
-              }`}
-              onClick={() => setActiveModule(module.id)}
-            >
-              <module.icon className="mr-3 h-5 w-5 shrink-0" />
-              <span className="truncate">{module.name}</span>
-            </Button>
-          ))}
-        </nav>
-        <div className="pt-4 mt-auto border-t border-gray-200/60">
-           <Button
               variant="ghost"
-              className="w-full justify-start text-left px-4 py-2.5 text-sm md:text-base text-gray-600 hover:bg-gray-100 hover:text-red-600 rounded-lg transition-all duration-150 ease-in-out"
-              // onClick={handleLogout} // TODO: Add logout functionality later
+              className="w-full justify-start rounded-2xl px-4 py-5 text-left text-sm text-white/45 hover:bg-red-400/10 hover:text-red-200"
             >
               <LogOut className="mr-3 h-5 w-5 shrink-0" />
               <span className="truncate">退出登录</span>
             </Button>
-        </div>
-      </aside>
+          </div>
+        </ProCard>
 
-      {/* Main Content Area */}
-      <main className="flex-1 p-6 md:p-10 overflow-auto">
-        <ActiveModuleComponent />
-      </main>
-    </div>
+        <main className="space-y-6">
+          <ProCard className="p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <ProStatus tone="online">Workspace Overview</ProStatus>
+                <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white">VISTORIA 618 PRO 工作台</h1>
+                <p className="mt-3 max-w-2xl text-sm leading-7 text-white/45">
+                  跟踪签证任务、材料审核、预约监控和账户状态，所有操作从这里进入。
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-3 text-center">
+                {[
+                  ["Tasks", "04"],
+                  ["Alerts", "02"],
+                  ["Sync", "Live"],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+                    <div className="text-lg font-bold text-white">{value}</div>
+                    <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/30">{label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </ProCard>
+          <ActiveModuleComponent />
+        </main>
+      </div>
+    </ProShell>
   );
 }

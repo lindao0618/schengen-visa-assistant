@@ -1,6 +1,6 @@
 "use client"
 
-import type { Dispatch, SetStateAction } from "react"
+import type { Dispatch, ReactNode, SetStateAction } from "react"
 
 import { TabsContent } from "@/components/ui/tabs"
 import { CaseDetailForm } from "@/app/applicants/[id]/detail/case-detail-form"
@@ -19,6 +19,7 @@ export function CasesTabContent({
   canAssignCase,
   canEditApplicant,
   savingCase,
+  caseContextRail,
   onOpenCreateCase,
   onSaveCase,
 }: {
@@ -33,21 +34,13 @@ export function CasesTabContent({
   canAssignCase: boolean
   canEditApplicant: boolean
   savingCase: boolean
+  caseContextRail?: ReactNode
   onOpenCreateCase: () => void
   onSaveCase: () => Promise<void>
 }) {
   return (
-    <TabsContent value="cases" className="space-y-6">
-      <CaseSwitcherPanel cases={cases} selectedCaseId={selectedCaseId} onSelectCaseId={onSelectCaseId} />
-
-      <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
-        <CaseListPanel
-          cases={cases}
-          selectedCaseId={selectedCaseId}
-          onSelectCaseId={onSelectCaseId}
-          canEditApplicant={canEditApplicant}
-          onOpenCreateCase={onOpenCreateCase}
-        />
+    <TabsContent value="cases" className="space-y-6" data-case-workspace="detail-first-right-rail">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
         <CaseDetailForm
           selectedCase={selectedCase}
           caseForm={caseForm}
@@ -59,6 +52,18 @@ export function CasesTabContent({
           savingCase={savingCase}
           onSaveCase={onSaveCase}
         />
+
+        <aside className="space-y-5 xl:sticky xl:top-28">
+          <CaseListPanel
+            cases={cases}
+            selectedCaseId={selectedCaseId}
+            onSelectCaseId={onSelectCaseId}
+            canEditApplicant={canEditApplicant}
+            onOpenCreateCase={onOpenCreateCase}
+          />
+          {caseContextRail}
+          <CaseSwitcherPanel cases={cases} selectedCaseId={selectedCaseId} onSelectCaseId={onSelectCaseId} />
+        </aside>
       </div>
     </TabsContent>
   )

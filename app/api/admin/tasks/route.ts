@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import prisma from "@/lib/db"
 import { getAdminSession, adminForbiddenResponse } from "@/lib/admin-auth"
 import { deleteMaterialTasks, listAllMaterialTasks } from "@/lib/material-tasks"
+import { isPublicUiPreviewEnabled } from "@/lib/public-ui-preview"
+import { getPublicUiPreviewAdminData } from "@/lib/public-ui-preview-admin-data"
 
 type TaskSource = "us-visa" | "french-visa" | "material"
 
 export async function GET(request: NextRequest) {
+  if (isPublicUiPreviewEnabled()) {
+    return NextResponse.json(getPublicUiPreviewAdminData("tasks"))
+  }
+
   const session = await getAdminSession()
   if (!session) return adminForbiddenResponse()
 

@@ -11,6 +11,7 @@ import {
   ApplicantDetailFrame,
   ApplicantDetailLoadingState,
 } from "@/app/applicants/[id]/detail/applicant-detail-frame"
+import { ApplicantDetailWorkRail } from "@/app/applicants/[id]/detail/applicant-detail-work-rail"
 import { resolveSelectedFranceCase, resolveTlsAccountCaseSource } from "@/app/applicants/[id]/detail/cases-tab"
 import {
   ACTIVE_APPLICANT_PROFILE_KEY,
@@ -77,6 +78,29 @@ function persistSelectedApplicantCase(applicantId: string, caseId?: string | nul
   writeStoredApplicantCaseId(applicantId, normalizedCaseId)
   dispatchActiveApplicantProfileChange(applicantId)
   dispatchActiveApplicantCaseChange(applicantId, normalizedCaseId || undefined)
+}
+
+function formatActiveCaseTitle(caseRecord?: VisaCaseRecord | null) {
+  if (!caseRecord) return "暂无处理中的业务"
+  return [caseRecord.visaType || caseRecord.caseType || "签证业务", caseRecord.applyRegion || caseRecord.tlsCity]
+    .filter(Boolean)
+    .join(" · ")
+}
+
+function formatPriorityLabel(value?: string | null) {
+  if (value === "high") return "优先"
+  if (value === "urgent") return "紧急"
+  if (value === "low") return "低优先级"
+  return "普通"
+}
+
+function formatDaysToSubmission(value?: string | null) {
+  if (!value) return "未填写"
+  const target = new Date(value)
+  if (Number.isNaN(target.getTime())) return "未填写"
+  const diffDays = Math.ceil((target.getTime() - Date.now()) / 86_400_000)
+  if (diffDays < 0) return "已过期"
+  return `${diffDays} 天`
 }
 
 export default function ApplicantDetailClientPage({
@@ -457,6 +481,20 @@ export default function ApplicantDetailClientPage({
     }
   }
 
+  const handleCaseStatusUpdated = useCallback((updatedCase: VisaCaseRecord) => {
+    setDetail((prev) => {
+      if (!prev) return prev
+      const nextDetail = {
+        ...prev,
+        cases: prev.cases.map((item) => (item.id === updatedCase.id ? updatedCase : item)),
+      }
+      primeApplicantDetailCache(nextDetail)
+      return nextDetail
+    })
+    setSelectedCaseId(updatedCase.id)
+    setMessage("案件进度已人工更新")
+  }, [primeApplicantDetailCache, setDetail, setMessage, setSelectedCaseId])
+
   if (loading) {
     return <ApplicantDetailLoadingState />
   }
@@ -471,12 +509,25 @@ export default function ApplicantDetailClientPage({
         .filter(Boolean)
         .join(" · ")
     : "暂无选中 Case"
+  const activeCaseTracker = selectedCase
+    ? {
+        title: formatActiveCaseTitle(selectedCase),
+        priorityLabel: formatPriorityLabel(selectedCase.priority),
+        stageLabel: selectedCase.subStatus || selectedCase.mainStatus || "材料补充",
+        daysToSubmission: formatDaysToSubmission(selectedCase.submissionDate || selectedCase.travelDate),
+        createdAt: selectedCase.createdAt,
+        assignedLabel: selectedCase.assignedTo?.name || selectedCase.assignedTo?.email || selectedCase.assignedRole || "未指派",
+        systemId: selectedCase.id,
+        cityLabel: selectedCase.tlsCity || selectedCase.applyRegion || "-",
+      }
+    : undefined
 
   return (
     <>
       <ApplicantDetailFrame
         activeTab={activeTab}
         defaultTab={defaultTab}
+        applicantId={detail.profile.id}
         applicantTitle={detail.profile.name || detail.profile.label}
         phone={detail.profile.phone}
         email={detail.profile.email}
@@ -488,11 +539,14 @@ export default function ApplicantDetailClientPage({
         caseCount={detail.cases.length}
         materialCount={materialCount}
         selectedCaseSummary={selectedCaseSummary}
+        activeCaseTracker={activeCaseTracker}
         message={message}
         deletingApplicant={deletingApplicant}
+        savingProfile={savingProfile}
         canEditApplicant={canEditApplicant}
         onTabChange={(value) => setActiveTab(resolveApplicantDetailTab(value))}
         onRefresh={loadDetail}
+        onSaveProfile={saveProfile}
         onDeleteApplicant={deleteApplicant}
         onCopyText={copyRailValue}
       >
@@ -500,6 +554,7 @@ export default function ApplicantDetailClientPage({
             <BasicTabContent
               applicantId={detail.profile.id}
               profile={detail.profile}
+              selectedCaseType={selectedCase?.caseType}
               basicForm={basicForm}
               setBasicForm={setBasicForm}
               tlsAccountTemplateText={tlsAccountTemplateText}
@@ -524,6 +579,28 @@ export default function ApplicantDetailClientPage({
               canAssignCase={canAssignCase}
               canEditApplicant={canEditApplicant}
               savingCase={savingCase}
+              caseContextRail={
+                <ApplicantDetailWorkRail
+                  placement="caseColumn"
+                  activeTab={activeTab}
+                  applicantTitle={detail.profile.name || detail.profile.label}
+                  archiveId={`APP-${detail.profile.id.slice(0, 8).toUpperCase()}`}
+                  phone={detail.profile.phone}
+                  email={detail.profile.email}
+                  wechat={detail.profile.wechat}
+                  passportNumber={detail.profile.passportNumber}
+                  passportLast4={detail.profile.passportLast4}
+                  selectedCaseSummary={selectedCaseSummary}
+                  activeCaseTracker={activeCaseTracker}
+                  caseCount={detail.cases.length}
+                  materialCount={materialCount}
+                  canEditApplicant={canEditApplicant}
+                  isReadOnlyViewer={isReadOnlyViewer}
+                  onTabChange={(value) => setActiveTab(resolveApplicantDetailTab(value))}
+                  onRefresh={loadDetail}
+                  onCopyText={copyRailValue}
+                />
+              }
               onOpenCreateCase={() => setCreateCaseOpen(true)}
               onSaveCase={saveCase}
             />
@@ -535,6 +612,7 @@ export default function ApplicantDetailClientPage({
               activeTab={activeTab}
               detail={detail}
               selectedCaseId={selectedCase?.id}
+              selectedCaseType={selectedCase?.caseType}
               canEditApplicant={canEditApplicant}
               canRunAutomation={canRunAutomation}
               preview={preview}
@@ -555,6 +633,8 @@ export default function ApplicantDetailClientPage({
               applicantProfileId={detail.profile.id}
               applicantName={detail.profile.name || detail.profile.label}
               selectedCase={selectedCase}
+              canEditApplicant={canEditApplicant}
+              onCaseStatusUpdated={handleCaseStatusUpdated}
             />
           ) : null}
       </ApplicantDetailFrame>

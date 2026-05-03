@@ -11,6 +11,8 @@ import {
   CardHeader, 
   CardTitle 
 } from "@/components/ui/card";
+import { ProCard } from "@/components/pro-ui/pro-card";
+import { ProStatus } from "@/components/pro-ui/pro-status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,7 +37,7 @@ const MATERIAL_EXPLANATION_TASK_IDS_KEY = "material-explanation-letter-task-ids"
 
 function TaskListLoading() {
   return (
-    <div className="rounded-xl border border-dashed border-gray-200 bg-white/70 p-4 text-sm text-gray-500">
+    <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.04] p-4 text-sm text-white/45">
       正在加载任务列表...
     </div>
   );
@@ -696,59 +698,82 @@ export function VisaServicesModule() {
   }, []);
 
   return (
-    <Card className="w-full bg-white/70 backdrop-blur-md shadow-xl rounded-xl border border-gray-200/50">
-      <CardHeader>
-        <CardTitle className="text-2xl font-bold text-gray-800">我的签证服务</CardTitle>
-        <CardDescription className="text-gray-600">
-          管理您的签证申请、自动填表、预约和监控服务
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="mb-8">
-          <Tabs defaultValue="us-tasks">
-            <TabsList className="grid w-full grid-cols-4 mb-4">
-              <TabsTrigger value="us-tasks" className="flex items-center gap-2">
+    <ProCard className="w-full p-6">
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <ProStatus tone="info">Operations Stream</ProStatus>
+          <h2 className="mt-4 text-2xl font-bold text-white">我的签证服务</h2>
+          <p className="mt-2 text-sm leading-6 text-white/45">管理您的签证申请、自动填表、预约和监控服务。</p>
+        </div>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold text-white/65 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+        >
+          <RefreshCw className="h-4 w-4" />
+          刷新
+        </button>
+      </div>
+
+      {showStatusUpdate ? (
+        <div className="mb-5 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+          有预约任务正在处理中，系统会自动刷新状态。
+        </div>
+      ) : null}
+
+      <Tabs defaultValue="us-tasks">
+        <TabsList className="mb-5 grid h-auto w-full grid-cols-2 rounded-2xl border border-white/10 bg-white/[0.04] p-1 text-white/45 md:grid-cols-4">
+          <TabsTrigger
+            value="us-tasks"
+            className="flex items-center gap-2 rounded-xl data-[state=active]:bg-white data-[state=active]:text-black"
+          >
                 <Plane className="h-4 w-4" />
                 美签任务
-              </TabsTrigger>
-              <TabsTrigger value="schengen-tasks" className="flex items-center gap-2">
+          </TabsTrigger>
+          <TabsTrigger
+            value="schengen-tasks"
+            className="flex items-center gap-2 rounded-xl data-[state=active]:bg-white data-[state=active]:text-black"
+          >
                 <Globe className="h-4 w-4" />
                 申根任务
-              </TabsTrigger>
-              <TabsTrigger value="material-review-tasks" className="flex items-center gap-2">
+          </TabsTrigger>
+          <TabsTrigger
+            value="material-review-tasks"
+            className="flex items-center gap-2 rounded-xl data-[state=active]:bg-white data-[state=active]:text-black"
+          >
                 <FileText className="h-4 w-4" />
                 材料审核
-              </TabsTrigger>
-              <TabsTrigger value="material-custom-tasks" className="flex items-center gap-2">
+          </TabsTrigger>
+          <TabsTrigger
+            value="material-custom-tasks"
+            className="flex items-center gap-2 rounded-xl data-[state=active]:bg-white data-[state=active]:text-black"
+          >
                 <FileText className="h-4 w-4" />
                 材料定制
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="us-tasks" className="space-y-3">
-              <TaskList title="美签任务" pollInterval={4000} />
-            </TabsContent>
-            <TabsContent value="schengen-tasks" className="space-y-3">
-              <FranceTaskList title="申根任务" pollInterval={4000} />
-            </TabsContent>
-            <TabsContent value="material-review-tasks" className="space-y-3">
-              <MaterialTaskList
-                title="材料审核任务"
-                taskIds={materialReviewTaskIds}
-                filterTaskTypes={["material-review"]}
-                pollInterval={4000}
-              />
-            </TabsContent>
-            <TabsContent value="material-custom-tasks" className="space-y-3">
-              <MaterialTaskList
-                title="材料定制任务"
-                taskIds={materialCustomizationTaskIds}
-                pollInterval={4000}
-              />
-            </TabsContent>
-          </Tabs>
-        </div>
-      </CardContent>
-    </Card>
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="us-tasks" className="dark pro-task-surface space-y-3 rounded-[28px] border border-white/10 bg-black/20 p-4">
+          <TaskList title="美签任务" pollInterval={4000} />
+        </TabsContent>
+        <TabsContent value="schengen-tasks" className="dark pro-task-surface space-y-3 rounded-[28px] border border-white/10 bg-black/20 p-4">
+          <FranceTaskList title="申根任务" pollInterval={4000} />
+        </TabsContent>
+        <TabsContent value="material-review-tasks" className="dark pro-task-surface space-y-3 rounded-[28px] border border-white/10 bg-black/20 p-4">
+          <MaterialTaskList
+            title="材料审核任务"
+            taskIds={materialReviewTaskIds}
+            filterTaskTypes={["material-review"]}
+            pollInterval={4000}
+          />
+        </TabsContent>
+        <TabsContent value="material-custom-tasks" className="dark pro-task-surface space-y-3 rounded-[28px] border border-white/10 bg-black/20 p-4">
+          <MaterialTaskList
+            title="材料定制任务"
+            taskIds={materialCustomizationTaskIds}
+            pollInterval={4000}
+          />
+        </TabsContent>
+      </Tabs>
+    </ProCard>
   );
 }
-

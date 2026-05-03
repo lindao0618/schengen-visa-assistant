@@ -8,6 +8,8 @@ import {
   updateUsaReminderLogStatus,
 } from "@/lib/usa-cases"
 import { runUsaReminderTasks } from "@/lib/usa-reminder-runner"
+import { isPublicUiPreviewEnabled } from "@/lib/public-ui-preview"
+import { getPublicUiPreviewAdminData } from "@/lib/public-ui-preview-admin-data"
 
 export const dynamic = "force-dynamic"
 
@@ -20,6 +22,10 @@ const ALLOWED_REMINDER_SEND_STATUSES = new Set([
 ])
 
 export async function GET(request: NextRequest) {
+  if (isPublicUiPreviewEnabled()) {
+    return NextResponse.json(getPublicUiPreviewAdminData("usa-cases"))
+  }
+
   const session = await getAdminSession()
   if (!session) return adminForbiddenResponse()
 

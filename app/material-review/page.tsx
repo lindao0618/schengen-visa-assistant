@@ -2,16 +2,16 @@
 
 import dynamic from "next/dynamic"
 
-const MaterialReviewClientPage = dynamic(() => import("./MaterialReviewClientPage"), {
+const AuditEngineHomeClientPage = dynamic(() => import("./AuditEngineHomeClientPage"), {
   ssr: false,
   loading: () => (
-    <div className="min-h-screen bg-white pt-20">
-      <div className="mx-auto max-w-4xl rounded-xl border border-gray-200 bg-white p-6 shadow-lg">
-        <div className="mb-6 h-8 w-36 animate-pulse rounded bg-gray-200" />
-        <div className="space-y-4">
-          <div className="h-12 animate-pulse rounded bg-gray-100" />
-          <div className="h-32 animate-pulse rounded border border-dashed border-gray-200 bg-gray-50" />
-          <div className="h-12 animate-pulse rounded bg-gray-100" />
+    <div className="min-h-screen bg-black px-4 pt-36 text-white">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <div className="h-10 w-44 animate-pulse rounded-full bg-white/[0.06]" />
+        <div className="h-16 max-w-2xl animate-pulse rounded-3xl bg-white/[0.06]" />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="h-72 animate-pulse rounded-[32px] border border-white/5 bg-white/[0.03]" />
+          <div className="h-72 animate-pulse rounded-[32px] border border-white/5 bg-white/[0.03]" />
         </div>
       </div>
     </div>
@@ -19,5 +19,5 @@ const MaterialReviewClientPage = dynamic(() => import("./MaterialReviewClientPag
 })
 
 export default function MaterialReviewPage() {
-  return <MaterialReviewClientPage />
+  return <AuditEngineHomeClientPage />
 }

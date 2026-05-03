@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { UserPlus, Loader2, AlertCircle, Plus, Trash2, UserRound, FileSpreadsheet, Copy, Wand2, PlayCircle } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
+import { useActiveApplicantProfile, type ActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
 
 const MANUAL_OPTION = "__manual__"
 
@@ -80,6 +80,20 @@ function normalizeBoolean(value: unknown): boolean | undefined {
   return undefined
 }
 
+function extractDs160Number(value: unknown) {
+  const match = sanitizeText(value).toUpperCase().match(/(?:^|[^0-9A-Z])(AA[0-9A-Z]{8,})(?=[^0-9A-Z]|$)/)
+  return match?.[1] || ""
+}
+
+function extractDs160NumberFromFiles(files: ActiveApplicantProfile["files"] | undefined) {
+  if (!files) return ""
+  for (const file of Object.values(files)) {
+    const hit = extractDs160Number(file?.originalName)
+    if (hit) return hit
+  }
+  return ""
+}
+
 function toIsoDateString(value: unknown) {
   const raw = sanitizeText(value)
   if (!raw) return ""
@@ -123,10 +137,11 @@ function buildExternalAisFormPayload(applicant: ReturnType<typeof useActiveAppli
       intakeFields.countryOfPermanentResidence,
       intakeFields.residencyCountry,
       intakeFields.residenceCountry,
+      "CHINA",
     ),
     passport_number: pickFirst(intakeFields.passportNumber, applicant?.passportNumber, applicant?.usVisa?.passportNumber),
-    ds160_number: pickFirst(intakeFields.applicationId, applicant?.usVisa?.aaCode),
-    visa_class: pickFirst(intakeFields.visaClass, intakeFields.visaType),
+    ds160_number: pickFirst(intakeFields.applicationId, applicant?.usVisa?.aaCode, extractDs160NumberFromFiles(applicant?.files)),
+    visa_class: pickFirst(intakeFields.visaClass, intakeFields.visaType, "B1/B2 Business & Tourism (Temporary visitor)"),
     date_of_birth: toIsoDateString(pickFirst(intakeFields.dateOfBirth, intakeFields.birthDate)),
     phone: pickFirst(intakeFields.primaryPhone, applicant?.phone).replace(/\D/g, ""),
     email: pickFirst(intakeFields.personalEmail, applicant?.email),
@@ -172,6 +187,11 @@ function buildExternalAisScript(payload: ExternalAisFormPayload) {
     const el = $(selector);
     if (!el) return false;
     el.checked = !!checked;
+    if (window.jQuery) {
+      const item = window.jQuery(el);
+      if (typeof item.iCheck === "function") item.iCheck(checked ? "check" : "uncheck");
+    }
+    el.checked = !!checked;
     fire(el);
     return true;
   };
@@ -215,6 +235,8 @@ function buildExternalAisScript(payload: ExternalAisFormPayload) {
     if (!m) return null;
     return { y: m[1], m: String(Number(m[2])), d: String(Number(m[3])) };
   };
+
+  setCheckbox("#policy_confirmed", true);
 
   setSelectByTextOrValue("#applicant_passport_country_code", data.passport_country);
   setSelectByTextOrValue("#applicant_birth_country_code", data.birth_country);

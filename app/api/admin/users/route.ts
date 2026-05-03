@@ -5,8 +5,14 @@ import { APP_ROLE_VALUES, normalizeAppRole } from "@/lib/access-control"
 import { buildStoredRoleWhere } from "@/lib/access-control-server"
 import { adminForbiddenResponse, getAdminSession, getBossSession } from "@/lib/admin-auth"
 import prisma from "@/lib/db"
+import { isPublicUiPreviewEnabled } from "@/lib/public-ui-preview"
+import { getPublicUiPreviewAdminData } from "@/lib/public-ui-preview-admin-data"
 
 export async function GET(request: NextRequest) {
+  if (isPublicUiPreviewEnabled()) {
+    return NextResponse.json(getPublicUiPreviewAdminData("users"))
+  }
+
   const session = await getAdminSession()
   if (!session) return adminForbiddenResponse()
 

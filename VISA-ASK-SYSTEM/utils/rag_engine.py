@@ -190,8 +190,7 @@ class RAGEngine:
         if not results:
             return ""
         
-        context_parts = []
-        current_length = 0
+        context = ""
         
         for i, result in enumerate(results):
             question = result["question"]
@@ -199,14 +198,23 @@ class RAGEngine:
             similarity = result.get("similarity", 0)
             
             part = f"相关问题{i+1}（相似度：{similarity:.2f}）：\n问：{question}\n答：{answer}\n"
+            separator = "\n" if context else ""
+            remaining_length = max_length - len(context) - len(separator)
             
-            if current_length + len(part) > max_length:
+            if remaining_length <= 0:
                 break
-            
-            context_parts.append(part)
-            current_length += len(part)
+
+            if len(part) <= remaining_length:
+                context += separator + part
+                continue
+
+            if remaining_length > 3:
+                context += separator + part[: remaining_length - 3].rstrip() + "..."
+            else:
+                context += separator + part[:remaining_length]
+            break
         
-        return "\n".join(context_parts)
+        return context
     
     def save_index(self):
         """保存索引和嵌入向量"""

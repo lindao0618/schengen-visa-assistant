@@ -412,7 +412,11 @@ export function SubmitDS160Form() {
         </Card>
       )}
 
-      <Button onClick={handleBatchSubmit} disabled={groups.length === 0 || loading} className="w-full py-3">
+      <Button
+        onClick={handleBatchSubmit}
+        disabled={groups.length === 0 || loading}
+        className="pro-cta-glow w-full rounded-full bg-white py-3 text-black hover:bg-white/90"
+      >
         {loading ? (
           <>
             <Loader2 className="mr-2 h-5 w-5 animate-spin" />

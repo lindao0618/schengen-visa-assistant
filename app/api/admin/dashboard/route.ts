@@ -2,11 +2,17 @@ import { NextRequest, NextResponse } from "next/server"
 import prisma from "@/lib/db"
 import { getAdminSession, adminForbiddenResponse } from "@/lib/admin-auth"
 import { listAllMaterialTasks } from "@/lib/material-tasks"
+import { isPublicUiPreviewEnabled } from "@/lib/public-ui-preview"
+import { getPublicUiPreviewAdminData } from "@/lib/public-ui-preview-admin-data"
 
 export const dynamic = "force-dynamic"
 
 export async function GET(request: NextRequest) {
   try {
+    if (isPublicUiPreviewEnabled()) {
+      return NextResponse.json(getPublicUiPreviewAdminData("dashboard"))
+    }
+
     // 验证管理员权限
     const session = await getAdminSession()
     if (!session) return adminForbiddenResponse()
@@ -140,7 +146,6 @@ export async function GET(request: NextRequest) {
     }, { status: 500 })
   }
 }
-
 
 
 

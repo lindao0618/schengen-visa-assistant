@@ -9,16 +9,17 @@ import { getApplicantProfile, getApplicantProfileFileByCandidates } from '@/lib/
 import { writeOutputAccessMetadata } from '@/lib/task-route-access'
 import { getPythonRuntimeCommand } from '@/lib/python-runtime'
 
-/** 当 Python 未返回 screenshot 时，扫描输出目录查找最新错误截图 */
-async function findLatestAisErrorScreenshot(outputDir: string) {
+async function findLatestFileByMtime(
+  outputDir: string,
+  predicate: (filename: string, stat: { size: number }) => boolean
+) {
   try {
     const files = await fs.readdir(outputDir)
-    const errorShots = files.filter((f) => /^ais_register_error_.*\.png$/i.test(f))
-    if (errorShots.length === 0) return null
-    let latest = errorShots[0]
+    let latest: string | null = null
     let latestMtime = 0
-    for (const f of errorShots) {
+    for (const f of files) {
       const stat = await fs.stat(path.join(outputDir, f))
+      if (!predicate(f, { size: stat.size })) continue
       if (stat.mtimeMs > latestMtime) {
         latestMtime = stat.mtimeMs
         latest = f
@@ -28,6 +29,21 @@ async function findLatestAisErrorScreenshot(outputDir: string) {
   } catch {
     return null
   }
+}
+
+/** 当 Python 未返回 screenshot 时，扫描输出目录查找最新错误截图 */
+async function findLatestAisErrorScreenshot(outputDir: string) {
+  return findLatestFileByMtime(outputDir, (f) => /^ais_register_error_.*\.png$/i.test(f))
+}
+
+/** 405/nginx 白页截图通常很小；优先给用户展示最后一张有表单内容的步骤截图 */
+async function findLatestAisStepScreenshot(outputDir: string) {
+  const useful = await findLatestFileByMtime(
+    outputDir,
+    (f, stat) => /^ais_register_step_.*\.png$/i.test(f) && stat.size >= 50_000
+  )
+  if (useful) return useful
+  return findLatestFileByMtime(outputDir, (f) => /^ais_register_step_.*\.png$/i.test(f))
 }
 
 const env = {
@@ -52,6 +68,7 @@ async function runAisRegisterInBackground(
   password: string,
   sendActivationEmail: boolean,
   extraEmail: string,
+  ds160NumberOverride: string,
   testMode: boolean,
   loginExisting: boolean
 ): Promise<void> {
@@ -66,6 +83,7 @@ async function runAisRegisterInBackground(
   ]
   if (!sendActivationEmail) args.push('--no-email')
   if (extraEmail) args.push('--extra-email', extraEmail)
+  if (ds160NumberOverride) args.push('--ds160-number', ds160NumberOverride)
   if (testMode) args.push('--test-mode')
   if (loginExisting) args.push('--login-existing')
 
@@ -179,15 +197,22 @@ async function runAisRegisterInBackground(
           },
         })
       } else {
+        const artifactDir = outputDir
         let screenshotFilename: string | undefined = data.screenshot ?? undefined
         if (!screenshotFilename) {
-          const outputDir = path.join(process.cwd(), 'temp', 'ais-register-outputs', outputId)
-          screenshotFilename = (await findLatestAisErrorScreenshot(outputDir)) ?? undefined
+          screenshotFilename = (await findLatestAisErrorScreenshot(artifactDir)) ?? undefined
         }
+        const lastStepScreenshotFilename = (await findLatestAisStepScreenshot(artifactDir)) ?? undefined
         const screenshot = screenshotFilename
           ? {
               filename: screenshotFilename,
               downloadUrl: `/api/usa-visa/ais-register/download/${outputId}/${encodeURIComponent(screenshotFilename)}`,
+            }
+          : undefined
+        const lastStepScreenshot = lastStepScreenshotFilename
+          ? {
+              filename: lastStepScreenshotFilename,
+              downloadUrl: `/api/usa-visa/ais-register/download/${outputId}/${encodeURIComponent(lastStepScreenshotFilename)}`,
             }
           : undefined
         const debugHtml = data.debug_html
@@ -209,6 +234,7 @@ async function runAisRegisterInBackground(
             email: data.email,
             debugLogs: debugLogs.slice(-60),
             ...(screenshot && { screenshot }),
+            ...(lastStepScreenshot && { lastStepScreenshot }),
             ...(debugHtml && { debugHtml }),
           },
         })
@@ -265,6 +291,7 @@ export async function POST(request: NextRequest) {
     const applicantProfileId = (formData.get('applicantProfileId') as string | null)?.trim() || ''
     const caseId = (formData.get('caseId') as string | null)?.trim() || ''
     const applicantProfile = applicantProfileId ? await getApplicantProfile(session.user.id, applicantProfileId) : null
+    const ds160NumberOverride = applicantProfile?.usVisa?.aaCode || ''
     const testMode = formData.get('test_mode') === 'true'
     const loginExisting =
       formData.get('login_existing') === 'true' ||
@@ -335,6 +362,7 @@ export async function POST(request: NextRequest) {
         password,
         sendActivationEmail,
         extraEmail,
+        ds160NumberOverride,
         testMode,
         loginExisting
       ).catch((err) => {

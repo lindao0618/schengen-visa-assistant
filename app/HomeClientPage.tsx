@@ -1,11 +1,239 @@
 "use client"
 
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import Link from "next/link"
-import { Book, Users, Hammer, ArrowRight, MessageSquare } from "lucide-react"
+import { motion } from "framer-motion"
+import {
+  Activity,
+  ArrowRight,
+  Bot,
+  Clock,
+  Database,
+  FileCheck,
+  Globe2,
+  RadioTower,
+  SearchCheck,
+  ShieldCheck,
+  Sparkles,
+  UserCheck,
+} from "lucide-react"
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
+
+import { ProCard } from "@/components/pro-ui/pro-card"
+import { ProShell } from "@/components/pro-ui/pro-shell"
+import { ProStatus } from "@/components/pro-ui/pro-status"
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.08, delayChildren: 0.12 },
+  },
+}
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 24 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] } },
+}
+
+const metricCards = [
+  {
+    label: "全球成功率",
+    value: "95%+",
+    detail: "Global Success Rate",
+    tone: "emerald",
+    chart: "line",
+    dataKey: "score",
+    data: [
+      { label: "D1", score: 86 },
+      { label: "D2", score: 91 },
+      { label: "D3", score: 89 },
+      { label: "D4", score: 94 },
+      { label: "D5", score: 92 },
+      { label: "D6", score: 96 },
+      { label: "D7", score: 95 },
+    ],
+  },
+  {
+    label: "活跃申请",
+    value: "1,248",
+    detail: "Active Requests",
+    tone: "cyan",
+    chart: "bar",
+    dataKey: "count",
+    data: [
+      { label: "D1", count: 142 },
+      { label: "D2", count: 168 },
+      { label: "D3", count: 151 },
+      { label: "D4", count: 196 },
+      { label: "D5", count: 176 },
+      { label: "D6", count: 221 },
+      { label: "D7", count: 194 },
+    ],
+  },
+  {
+    label: "自动化处理延迟",
+    value: "14pt",
+    detail: "Latency Optimized",
+    tone: "amber",
+    chart: "line",
+    dataKey: "latency",
+    data: [
+      { label: "D1", latency: 28 },
+      { label: "D2", latency: 24 },
+      { label: "D3", latency: 21 },
+      { label: "D4", latency: 19 },
+      { label: "D5", latency: 17 },
+      { label: "D6", latency: 15 },
+      { label: "D7", latency: 14 },
+    ],
+  },
+] as const
+
+const oversightTrend = [
+  { day: "Mon", applications: 82 },
+  { day: "Tue", applications: 126 },
+  { day: "Wed", applications: 108 },
+  { day: "Thu", applications: 158 },
+  { day: "Fri", applications: 141 },
+  { day: "Sat", applications: 176 },
+  { day: "Sun", applications: 149 },
+]
+
+const oversightStats = [
+  { icon: FileCheck, label: "审核通过率", value: "89.4%", detail: "Audit pass" },
+  { icon: Clock, label: "平均审核时长", value: "04m", detail: "Avg review" },
+  { icon: RadioTower, label: "平均预约耗时", value: "24h", detail: "Slot pulse" },
+  { icon: ShieldCheck, label: "安全文档评分", value: "AES", detail: "Secure docs" },
+]
+
+const processSteps = [
+  {
+    title: "身份验证",
+    description: "Passport + profile match",
+    status: "Verified",
+    progress: 100,
+    icon: UserCheck,
+    tone: "emerald",
+  },
+  {
+    title: "材料交叉核验",
+    description: "Funds / itinerary / hotel logic",
+    status: "Running",
+    progress: 72,
+    icon: SearchCheck,
+    tone: "cyan",
+  },
+  {
+    title: "预约监控",
+    description: "TLS / AIS slot telemetry",
+    status: "Live",
+    progress: 58,
+    icon: RadioTower,
+    tone: "amber",
+  },
+  {
+    title: "面签简报",
+    description: "Interview brief generation",
+    status: "Queued",
+    progress: 34,
+    icon: Bot,
+    tone: "slate",
+  },
+] as const
+
+const services = [
+  {
+    name: "申根签证",
+    description: "法国、德国、西班牙等申根材料清单、预约监控和自动化流程。",
+    href: "/schengen-visa",
+    tag: "Schengen Hub",
+    status: "Active",
+    icon: Globe2,
+    accent: "cyan",
+  },
+  {
+    name: "美国签证",
+    description: "DS-160、AIS 账号、付款流、面试材料和签证任务状态。",
+    href: "/usa-visa",
+    tag: "DS-160 Sync",
+    status: "Online",
+    icon: Database,
+    accent: "emerald",
+  },
+  {
+    name: "综合材料审核",
+    description: "交叉比对行程、酒店、资金和身份链，提前发现高风险材料。",
+    href: "/material-review/comprehensive",
+    tag: "Logic Engine",
+    status: "Realtime",
+    icon: ShieldCheck,
+    accent: "amber",
+  },
+  {
+    name: "AI 签证顾问",
+    description: "根据国家、所在地和申请人身份，生成可执行的签证建议。",
+    href: "/ai-assistant",
+    tag: "RAG Console",
+    status: "Ready",
+    icon: Bot,
+    accent: "sky",
+  },
+] as const
+
+const accentClasses = {
+  emerald: {
+    text: "text-emerald-300",
+    bg: "bg-emerald-400",
+    glow: "shadow-[0_0_32px_rgba(52,211,153,0.28)]",
+    border: "group-hover:border-emerald-300/30",
+    haze: "bg-emerald-400/20",
+    stroke: "#34d399",
+  },
+  cyan: {
+    text: "text-cyan-300",
+    bg: "bg-cyan-400",
+    glow: "shadow-[0_0_32px_rgba(34,211,238,0.28)]",
+    border: "group-hover:border-cyan-300/30",
+    haze: "bg-cyan-400/20",
+    stroke: "#22d3ee",
+  },
+  amber: {
+    text: "text-amber-300",
+    bg: "bg-amber-400",
+    glow: "shadow-[0_0_32px_rgba(251,191,36,0.24)]",
+    border: "group-hover:border-amber-300/30",
+    haze: "bg-amber-400/20",
+    stroke: "#fbbf24",
+  },
+  sky: {
+    text: "text-sky-300",
+    bg: "bg-sky-400",
+    glow: "shadow-[0_0_32px_rgba(56,189,248,0.26)]",
+    border: "group-hover:border-sky-300/30",
+    haze: "bg-sky-400/20",
+    stroke: "#38bdf8",
+  },
+  slate: {
+    text: "text-white/42",
+    bg: "bg-white/35",
+    glow: "shadow-[0_0_24px_rgba(255,255,255,0.14)]",
+    border: "group-hover:border-white/20",
+    haze: "bg-white/10",
+    stroke: "#94a3b8",
+  },
+} as const
 
 export default function HomeClientPage() {
   const router = useRouter()
@@ -17,283 +245,258 @@ export default function HomeClientPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen w-full bg-white dark:bg-black overflow-x-hidden">
-      {/* Hero Section */}
-      <div className="flex-1 flex flex-col items-center justify-center px-4 py-20 bg-gradient-to-b from-white via-white to-gray-100 dark:bg-gradient-to-b dark:from-gray-900 dark:to-gray-950">
-        <div className="w-16 h-16 bg-gradient-to-b from-white to-gray-200 dark:from-gray-800 dark:to-black rounded-2xl flex items-center justify-center mb-8 shadow-lg border border-gray-200/50 dark:border-white/10">
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="w-8 h-8 text-gray-800 dark:text-white"
-          >
-            <path d="M20 12H4" />
-            <path d="M4 12l6-6" />
-            <path d="M4 12l6 6" />
-          </svg>
-        </div>
-        <h1 className="text-5xl md:text-6xl font-extrabold bg-clip-text text-transparent bg-gradient-to-b from-gray-900 to-gray-700 dark:from-white dark:to-gray-400 text-center mb-4 animate-fade-in">
-          欢迎使用 Vistoria
-        </h1>
-        <div className="relative mb-8">
-          <p className="text-gray-600 dark:text-gray-300 text-center text-lg max-w-3xl mb-2 animate-fade-in delay-100">
-            专为在英留学生设计的智能签证申请助手，提供申根签证、美国签证等多国签证申请指导和支持。
-          </p>
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mt-4 max-w-2xl mx-auto">
-            <p className="text-blue-700 dark:text-blue-300 text-sm font-medium text-center">
-              🎓 特别服务：英国留学生圣诞节、复活节假期申根签证快速办理
-            </p>
+    <ProShell innerClassName="pt-32 sm:pt-36">
+      <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-24">
+        <motion.header
+          variants={itemVariants}
+          className="grid gap-8 pb-16 pt-10 lg:grid-cols-[minmax(0,1fr)_32rem] lg:items-start"
+        >
+          <div className="space-y-7">
+            <ProStatus tone="info" className="rounded-lg">
+              VISTORIA 618 PRO
+            </ProStatus>
+            <div className="space-y-5">
+              <h1 className="max-w-4xl bg-gradient-to-r from-white via-cyan-100 to-emerald-200 bg-clip-text text-5xl font-semibold tracking-tight text-transparent sm:text-6xl lg:text-7xl">
+                Architecture of Trust
+              </h1>
+              <p className="max-w-2xl text-base leading-8 text-white/52 sm:text-lg">
+                为签证团队和申请人打造的 AI 自动化工作台，统一处理申根、美签、材料审核、预约监控和申请进度。
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={handleStartApplication}
+                disabled={status === "loading"}
+                className="inline-flex h-12 items-center justify-center gap-3 rounded-2xl bg-cyan-100 px-6 text-sm font-bold text-black shadow-[0_0_34px_rgba(34,211,238,0.18)] transition hover:-translate-y-0.5 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                进入工作台
+                <ArrowRight className="h-4 w-4" />
+              </button>
+              <Link
+                href="/ai-assistant"
+                className="inline-flex h-12 items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-6 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:border-cyan-300/25 hover:bg-white/[0.08] hover:text-cyan-100"
+              >
+                咨询 AI 顾问
+                <Sparkles className="h-4 w-4 text-cyan-300" />
+              </Link>
+            </div>
           </div>
-          <div className="absolute -inset-6 -z-10 blur-xl bg-gradient-to-r from-gray-200 via-transparent to-gray-200 dark:from-gray-800 dark:via-transparent dark:to-gray-800 opacity-30 rounded-3xl"></div>
-        </div>
-        <div className="flex flex-col items-center gap-2 animate-fade-in delay-200">
-          <div className="flex gap-4">
-            <Button size="lg" onClick={handleStartApplication} disabled={status === "loading"} className="bg-gray-900 hover:bg-black text-white shadow-lg shadow-gray-300/30 dark:shadow-black/30 border border-gray-800">
-              开始申请
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={() => router.push("/guest")}
-              className="border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-            >
-              游客模式
-            </Button>
-          </div>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mt-4 font-medium flex items-center">
-            <span className="inline-flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 h-5 w-5 text-xs mr-2">3</span>
-            步完成签证申请，平均仅需 5 分钟
-          </p>
-        </div>
-      </div>
 
-      {/* UK Students Special Section */}
-      <div className="container mx-auto px-4 py-16 bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-800 dark:to-purple-800">
-        <div className="text-center text-white mb-12">
-          <h2 className="text-3xl font-bold mb-4">🇬🇧 英国留学生专属服务</h2>
-          <p className="text-blue-100 text-lg max-w-3xl mx-auto">
-            针对15万+在英中国留学生的申根签证需求，我们提供季节性高峰期的专业申请服务
-          </p>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-          <div className="bg-white/10 backdrop-blur-md rounded-xl p-6 border border-white/20">
-            <div className="text-4xl mb-4">🎄</div>
-            <h3 className="text-xl font-bold text-white mb-2">圣诞假期专线</h3>
-            <p className="text-blue-100 text-sm">12月-1月申根签证快速办理，避开高峰期预约难题</p>
+          <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1 lg:pt-4">
+            {metricCards.map((metric) => (
+              <MetricGlassCard key={metric.label} metric={metric} />
+            ))}
           </div>
-          
-          <div className="bg-white/10 backdrop-blur-md rounded-xl p-6 border border-white/20">
-            <div className="text-4xl mb-4">🐰</div>
-            <h3 className="text-xl font-bold text-white mb-2">复活节特快</h3>
-            <p className="text-blue-100 text-sm">3月-4月春季旅游签证优先处理，成功率95%+</p>
-          </div>
-          
-          <div className="bg-white/10 backdrop-blur-md rounded-xl p-6 border border-white/20">
-            <div className="text-4xl mb-4">📚</div>
-            <h3 className="text-xl font-bold text-white mb-2">学生身份优化</h3>
-            <p className="text-blue-100 text-sm">专门针对英国留学生身份的材料清单和申请策略</p>
-          </div>
-        </div>
-        
-        <div className="text-center mt-8">
-          <Button 
-            size="lg" 
-            className="bg-white text-blue-600 hover:bg-blue-50 font-semibold px-8 py-3"
-            onClick={() => router.push("/schengen-visa")}
-          >
-            立即申请申根签证 →
-          </Button>
-        </div>
-      </div>
+        </motion.header>
 
-      {/* Feature Cards */}
-      <div className="container mx-auto px-4 py-20 bg-gradient-to-b from-gray-100 to-gray-200 dark:bg-gradient-to-b dark:from-gray-950 dark:to-black rounded-b-3xl">
-        <h2 className="text-3xl font-bold text-center mb-12 bg-clip-text text-transparent bg-gradient-to-b from-gray-900 to-gray-700 dark:from-white dark:to-gray-400">我们能为您提供的服务</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-          <Link href="/visa-info" className="block group">
-            <Card className="backdrop-blur-md bg-white dark:bg-gray-800 border-2 border-l-4 border-gray-300 dark:border-gray-700 border-l-blue-500 dark:border-l-blue-600 hover:border-gray-300 dark:hover:border-gray-500 hover:border-l-blue-500 dark:hover:border-l-blue-400 transition-all duration-300 rounded-2xl overflow-hidden h-full transform hover:scale-[1.02] shadow-lg hover:shadow-2xl"
-            >
-              <CardHeader className="border-b border-gray-100 dark:border-gray-800/50">
-                <div className="h-12 w-12 rounded-2xl bg-blue-50 dark:bg-gray-700 flex items-center justify-center mb-4">
-                  <Book className="w-6 h-6 text-gray-900 dark:text-white" />
+        <motion.section variants={itemVariants} className="grid gap-8 lg:grid-cols-12">
+          <ProCard className="relative min-h-[560px] overflow-hidden p-7 sm:p-10 lg:col-span-8">
+            <div className="pointer-events-none absolute -right-28 top-0 h-72 w-72 rounded-full bg-cyan-500/10 blur-3xl" />
+            <div className="relative z-10 flex h-full flex-col justify-between gap-10">
+              <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-3">
+                  <div className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1">
+                    <Activity className="h-3 w-3 text-cyan-300" />
+                    <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/38">
+                      Real-time Dashboard
+                    </span>
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold tracking-tight text-white">Intelligence Oversight</h2>
+                    <p className="mt-3 max-w-xl text-sm leading-7 text-white/42">
+                      以材料一致性、预约状态、DS-160 数据和面试准备为核心，持续扫描近 7 天申请趋势与关键风险点。
+                    </p>
+                  </div>
                 </div>
-                <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">签证指南</CardTitle>
-              </CardHeader>
-              <CardContent className="text-gray-600 dark:text-gray-200 pt-4 text-sm">
-                获取最新的各国签证申请要求和流程信息，包括申根、美国、日本等。
-              </CardContent>
-            </Card>
-          </Link>
-
-
-
-          <Link href="/feedback" className="block group">
-            <Card className="backdrop-blur-md bg-white dark:bg-gray-800 border-2 border-l-4 border-gray-300 dark:border-gray-700 border-l-blue-500 dark:border-l-blue-600 hover:border-gray-300 dark:hover:border-gray-500 hover:border-l-blue-500 dark:hover:border-l-blue-400 transition-all duration-300 rounded-2xl overflow-hidden h-full transform hover:scale-[1.02] shadow-lg hover:shadow-2xl">
-              <CardHeader className="border-b border-gray-100 dark:border-gray-700">
-                <div className="h-12 w-12 rounded-2xl bg-blue-50 dark:bg-gray-700 flex items-center justify-center mb-4">
-                  <Hammer className="w-6 h-6 text-gray-900 dark:text-white" />
-                </div>
-                <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">材料审核</CardTitle>
-              </CardHeader>
-              <CardContent className="text-gray-600 dark:text-gray-200 pt-4 text-sm">专业审核您的申请材料，提高签证申请成功率。</CardContent>
-            </Card>
-          </Link>
-
-          <Link href="/ai-assistant" className="block group">
-            <Card className="backdrop-blur-md bg-white dark:bg-gray-800 border-2 border-l-4 border-gray-300 dark:border-gray-700 border-l-blue-500 dark:border-l-blue-600 hover:border-gray-300 dark:hover:border-gray-500 hover:border-l-blue-500 dark:hover:border-l-blue-400 transition-all duration-300 rounded-2xl overflow-hidden h-full transform hover:scale-[1.02] shadow-lg hover:shadow-2xl">
-              <CardHeader className="border-b border-gray-100 dark:border-gray-700">
-                <div className="h-12 w-12 rounded-2xl bg-blue-50 dark:bg-gray-700 flex items-center justify-center mb-4">
-                  <MessageSquare className="w-6 h-6 text-gray-900 dark:text-white" />
-                </div>
-                <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">AI答疑</CardTitle>
-              </CardHeader>
-              <CardContent className="text-gray-600 dark:text-gray-200 pt-4 text-sm">实时解答您关于签证申请的各类问题，智能助手随时为您服务。</CardContent>
-            </Card>
-          </Link>
-        </div>
-        
-        {/* Statistics Section */}
-        <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 mt-12 border border-gray-200 dark:border-gray-800">
-          <h3 className="text-2xl font-bold text-center mb-8 text-gray-900 dark:text-white">📊 英国留学生申根签证需求数据</h3>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-2">15.1万+</div>
-              <div className="text-gray-600 dark:text-gray-400 text-sm">在英中国留学生总数</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-green-600 dark:text-green-400 mb-2">85%</div>
-              <div className="text-gray-600 dark:text-gray-400 text-sm">计划申请申根签证比例</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-purple-600 dark:text-purple-400 mb-2">1.8次</div>
-              <div className="text-gray-600 dark:text-gray-400 text-sm">年均申请次数</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-orange-600 dark:text-orange-400 mb-2">95%+</div>
-              <div className="text-gray-600 dark:text-gray-400 text-sm">我们的申请成功率</div>
-            </div>
-          </div>
-        </div>
-        
-        <div className="h-6"></div>
-      </div>
-
-      {/* Footer Section */}
-      <footer className="border-t border-gray-200 dark:border-gray-800 py-12 bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-black shadow-md mt-4">
-        <div className="container mx-auto px-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8 max-w-6xl mx-auto">
-            {/* Company Info */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Vistoria</h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">您的专业签证申请助手，提供高效、可靠的签证申请服务。</p>
-              <div className="flex space-x-4">
-                <Link href="#" className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
-                  <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M24 4.557c-.883.392-1.832.656-2.828.775 1.017-.609 1.798-1.574 2.165-2.724-.951.564-2.005.974-3.127 1.195-.897-.957-2.178-1.555-3.594-1.555-3.179 0-5.515 2.966-4.797 6.045-4.091-.205-7.719-2.165-10.148-5.144-1.29 2.213-.669 5.108 1.523 6.574-.806-.026-1.566-.247-2.229-.616-.054 2.281 1.581 4.415 3.949 4.89-.693.188-1.452.232-2.224.084.626 1.956 2.444 3.379 4.6 3.419-2.07 1.623-4.678 2.348-7.29 2.04 2.179 1.397 4.768 2.212 7.548 2.212 9.142 0 14.307-7.721 13.995-14.646.962-.695 1.797-1.562 2.457-2.549z"></path></svg>
-                </Link>
-                <Link href="#" className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
-                  <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"></path></svg>
-                </Link>
-                <Link href="#" className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
-                  <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm0 22c-5.514 0-10-4.486-10-10s4.486-10 10-10 10 4.486 10 10-4.486 10-10 10zm-2.426-7.366l-1.484-1.484 1.484-1.484-1.484-1.484 1.484-1.484 2.97 2.968-2.97 2.968zm6.281-2.968l-2.97 2.968-1.484-1.484 1.484-1.484-1.484-1.484 1.484-1.484 2.97 2.968z"></path></svg>
-                </Link>
-              </div>
-            </div>
-            
-            {/* Quick Links */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">快速链接</h3>
-              <ul className="space-y-2">
-                <li>
-                  <Link href="/dashboard" className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white text-sm">个人中心</Link>
-                </li>
-                <li>
-                  <Link href="/visa-info" className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white text-sm">签证指南</Link>
-                </li>
-                <li>
-                  <Link href="/community" className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white text-sm">社区交流</Link>
-                </li>
-                <li>
-                  <Link href="/feedback" className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white text-sm">材料审核</Link>
-                </li>
-              </ul>
-            </div>
-            
-            {/* FAQ */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">常见问题</h3>
-              <ul className="space-y-2">
-                <li>
-                  <Link href="/faq" className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white text-sm">签证申请流程</Link>
-                </li>
-                <li>
-                  <Link href="/faq/docs" className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white text-sm">所需材料清单</Link>
-                </li>
-                <li>
-                  <Link href="/faq/appointment" className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white text-sm">预约指南</Link>
-                </li>
-                <li>
-                  <Link href="/docs/common-issues" className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white text-sm">常见问题与解决方案</Link>
-                </li>
-              </ul>
-            </div>
-            
-            {/* Contact */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">联系我们</h3>
-              <div className="space-y-2">
-                <p className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                  <svg className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
-                  support@vistoria.com
-                </p>
-                <p className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                  <svg className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                  </svg>
-                  +86 123 4567 8910
-                </p>
-                <div className="flex items-center mt-4">
-                  <Button variant="outline" size="sm" className="mr-2 border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300">
-                    <svg className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                    </svg>
-                    在线客服
-                  </Button>
-                  <Button variant="outline" size="sm" className="border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300">
-                    <svg className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4" />
-                    </svg>
-                    微信咨询
-                  </Button>
+                <div className="flex gap-2">
+                  <ProStatus tone="online">SECURED</ProStatus>
+                  <ProStatus tone="info">AUTO SYNC</ProStatus>
                 </div>
               </div>
+
+              <div className="relative h-64 overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.025] p-4">
+                <div className="scan-line pointer-events-none absolute inset-x-0 top-0 h-px opacity-30" />
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={oversightTrend} margin={{ top: 12, right: 6, left: -28, bottom: 0 }}>
+                    <CartesianGrid stroke="rgba(255,255,255,0.07)" vertical={false} />
+                    <XAxis
+                      dataKey="day"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: "rgba(255,255,255,0.34)", fontSize: 11 }}
+                    />
+                    <YAxis hide domain={[0, 200]} />
+                    <Tooltip
+                      cursor={{ fill: "rgba(34,211,238,0.08)" }}
+                      contentStyle={{
+                        background: "rgba(0,0,0,0.84)",
+                        border: "1px solid rgba(255,255,255,0.12)",
+                        borderRadius: 16,
+                        color: "#fff",
+                      }}
+                      labelStyle={{ color: "rgba(255,255,255,0.58)" }}
+                    />
+                    <Bar dataKey="applications" radius={[14, 14, 4, 4]} fill="url(#oversightGradient)" />
+                    <defs>
+                      <linearGradient id="oversightGradient" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.92} />
+                        <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.28} />
+                      </linearGradient>
+                    </defs>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="grid gap-4 border-t border-white/10 pt-8 sm:grid-cols-4">
+                {oversightStats.map((stat) => (
+                  <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                    <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.18em] text-white/28">
+                      <stat.icon className="h-3.5 w-3.5" />
+                      {stat.detail}
+                    </div>
+                    <div className="mt-3 text-xl font-bold text-white">{stat.value}</div>
+                    <div className="mt-1 text-xs text-white/42">{stat.label}</div>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-          
-          <div className="border-t border-gray-200 dark:border-gray-800 mt-10 pt-6 flex flex-col md:flex-row justify-between items-center">
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              &copy; {new Date().getFullYear()} Vistoria. 所有权利均已保留。
-            </p>
-            <div className="flex space-x-4 mt-4 md:mt-0">
-              <Link href="/privacy" className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
-                隐私政策
-              </Link>
-              <Link href="/terms" className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
-                用户协议
-              </Link>
-              <Link href="/about" className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
-                关于我们
-              </Link>
+          </ProCard>
+
+          <ProCard className="relative overflow-hidden p-7 lg:col-span-4">
+            <div className="pointer-events-none absolute -right-20 -top-20 h-48 w-48 rounded-full bg-blue-500/10 blur-3xl" />
+            <div className="relative z-10 mb-8 flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Process Stream</span>
+              <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-[0_0_18px_rgba(34,211,238,0.95)]" />
             </div>
+            <div className="relative z-10 space-y-6">
+              {processSteps.map((step, index) => {
+                const accent = accentClasses[step.tone]
+                return (
+                  <div key={step.title} className="group relative grid grid-cols-[2.75rem_minmax(0,1fr)] gap-4">
+                    {index < processSteps.length - 1 ? (
+                      <div className="absolute left-[1.35rem] top-12 h-[calc(100%+0.75rem)] w-px bg-white/10" />
+                    ) : null}
+                    <div className={`relative z-10 flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] ${accent.text} ${accent.glow}`}>
+                      <step.icon className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="text-sm font-semibold text-white">{step.title}</h3>
+                        <span className={`text-[10px] font-bold uppercase tracking-[0.16em] ${accent.text}`}>
+                          {step.status}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-white/38">{step.description}</p>
+                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className={`${accent.bg} h-full rounded-full ${accent.glow}`}
+                          style={{ width: `${step.progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </ProCard>
+        </motion.section>
+
+        <motion.section id="core-infrastructure" variants={itemVariants} className="space-y-10 border-t border-white/10 pt-12">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300">Core Infrastructure</div>
+              <h2 className="mt-3 text-3xl font-bold tracking-tight text-white">核心服务模块</h2>
+            </div>
+            <Link href="/dashboard" className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/35 transition hover:text-cyan-100">
+              See all modules
+            </Link>
           </div>
+
+          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+            {services.map((service) => {
+              const accent = accentClasses[service.accent]
+              return (
+                <Link key={service.href} href={service.href} className="group block">
+                  <ProCard
+                    className={`relative flex min-h-[320px] flex-col overflow-hidden p-7 transition duration-300 hover:-translate-y-1 ${accent.border}`}
+                  >
+                    <div
+                      className={`absolute -bottom-8 -right-8 h-24 w-24 rounded-full blur-[60px] transition-all duration-300 group-hover:scale-150 ${accent.haze}`}
+                    />
+                    <div className="relative z-10 flex items-start justify-between">
+                      <div className={`flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] text-white transition duration-300 group-hover:scale-110 group-hover:bg-white group-hover:text-black ${accent.glow}`}>
+                        <service.icon className="h-6 w-6" />
+                      </div>
+                      <div className="text-right">
+                        <div className="rounded-md bg-white/[0.05] px-2 py-1 text-[8px] font-bold uppercase tracking-[0.2em] text-white/35">
+                          {service.tag}
+                        </div>
+                        <div className={`mt-2 text-[10px] font-bold uppercase ${accent.text}`}>{service.status}</div>
+                      </div>
+                    </div>
+                    <div className="relative z-10 mt-10">
+                      <h3 className="text-xl font-bold text-white">{service.name}</h3>
+                      <p className="mt-4 text-sm leading-7 text-white/42">{service.description}</p>
+                    </div>
+                    <div className="relative z-10 mt-auto pt-8">
+                      <div className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/35 transition group-hover:text-white">
+                        Interface Start
+                        <ArrowRight className="h-3 w-3 transition group-hover:translate-x-1" />
+                      </div>
+                    </div>
+                  </ProCard>
+                </Link>
+              )
+            })}
+          </div>
+        </motion.section>
+
+        <motion.footer variants={itemVariants} className="border-t border-white/10 pt-10 text-sm text-white/35">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>VISTORIA.PRO</span>
+            <span>Visa automation, material intelligence, appointment operations.</span>
+          </div>
+        </motion.footer>
+      </motion.div>
+    </ProShell>
+  )
+}
+
+function MetricGlassCard({ metric }: { metric: (typeof metricCards)[number] }) {
+  const accent = accentClasses[metric.tone]
+  const chartColor = accent.stroke
+
+  return (
+    <ProCard className="relative overflow-hidden p-6">
+      <div className={`pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full ${accent.haze} blur-3xl`} />
+      <div className="relative z-10 grid grid-cols-[minmax(0,1fr)_8.5rem] items-center gap-4">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/30">{metric.detail}</div>
+          <div className="mt-3 text-4xl font-bold tracking-tight text-white">{metric.value}</div>
+          <div className={`mt-3 text-[10px] font-bold uppercase tracking-[0.16em] ${accent.text}`}>{metric.label}</div>
         </div>
-      </footer>
-    </div>
+        <div className="h-20">
+          <ResponsiveContainer width="100%" height="100%">
+            {metric.chart === "bar" ? (
+              <BarChart data={[...metric.data]} margin={{ top: 6, right: 0, left: 0, bottom: 0 }}>
+                <Bar dataKey={metric.dataKey} radius={[6, 6, 2, 2]} fill={chartColor} fillOpacity={0.72} />
+              </BarChart>
+            ) : (
+              <LineChart data={[...metric.data]} margin={{ top: 8, right: 4, left: 4, bottom: 8 }}>
+                <Line
+                  type="monotone"
+                  dataKey={metric.dataKey}
+                  stroke={chartColor}
+                  strokeWidth={2.4}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            )}
+          </ResponsiveContainer>
+        </div>
+      </div>
+    </ProCard>
   )
 }

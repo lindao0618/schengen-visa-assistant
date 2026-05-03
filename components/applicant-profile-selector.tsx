@@ -146,6 +146,7 @@ export type ApplicantProfileSelectorScope = "all" | "usa-visa" | "france-schenge
 
 interface ApplicantProfileSelectorProps {
   scope?: ApplicantProfileSelectorScope
+  variant?: "stickyLight" | "embeddedDark"
 }
 
 export { ACTIVE_APPLICANT_CASE_KEY, ACTIVE_APPLICANT_PROFILE_KEY }
@@ -307,7 +308,7 @@ function getScopeHint(scope: ApplicantProfileSelectorScope) {
   }
 }
 
-export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSelectorProps = {}) {
+export function ApplicantProfileSelector({ scope = "all", variant = "stickyLight" }: ApplicantProfileSelectorProps = {}) {
   const router = useRouter()
   const { data: session } = useSession()
   const viewerRole = normalizeAppRole(session?.user?.role)
@@ -320,6 +321,7 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
   const [caseLoading, setCaseLoading] = useState(false)
   const [compactMode, setCompactMode] = useState(false)
   const [casesByApplicantId, setCasesByApplicantId] = useState<Record<string, ApplicantCaseOption[]>>({})
+  const embeddedDark = variant === "embeddedDark"
 
   const scopedProfiles = useMemo(
     () => profiles.filter((profile) => profileMatchesScope(profile, casesByApplicantId[profile.id], scope)),
@@ -544,6 +546,10 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
 
   useEffect(() => {
     const updateCompactMode = () => {
+      if (embeddedDark) {
+        setCompactMode(false)
+        return
+      }
       const node = containerRef.current
       if (!node) return
       const rect = node.getBoundingClientRect()
@@ -557,28 +563,30 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
       window.removeEventListener("scroll", updateCompactMode)
       window.removeEventListener("resize", updateCompactMode)
     }
-  }, [])
+  }, [embeddedDark])
 
   return (
     <Card
       ref={containerRef}
       className={cn(
-        "sticky top-20 z-30 mb-6 overflow-hidden border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,_rgba(239,246,255,0.95),_rgba(255,255,255,0.98)_45%,_rgba(248,250,252,0.98)_100%)] p-4 shadow-[0_12px_40px_-18px_rgba(15,23,42,0.28)] backdrop-blur supports-[backdrop-filter]:bg-white/80",
-        compactMode && "shadow-[0_18px_40px_-20px_rgba(15,23,42,0.32)]",
+        embeddedDark
+          ? "mb-0 overflow-visible rounded-[28px] border border-white/5 bg-white/[0.025] p-4 text-white shadow-none backdrop-blur-xl"
+          : "sticky top-20 z-30 mb-6 overflow-hidden border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,_rgba(239,246,255,0.95),_rgba(255,255,255,0.98)_45%,_rgba(248,250,252,0.98)_100%)] p-4 shadow-[0_12px_40px_-18px_rgba(15,23,42,0.28)] backdrop-blur supports-[backdrop-filter]:bg-white/80",
+        compactMode && !embeddedDark && "shadow-[0_18px_40px_-20px_rgba(15,23,42,0.32)]",
       )}
     >
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="space-y-2">
           <div className="flex items-center gap-2.5">
-            <div className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold tracking-[0.16em] text-white/90">
-              当前办理
+            <div className={cn("rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.16em]", embeddedDark ? "border border-white/10 bg-white/[0.04] text-white/70" : "bg-slate-900 text-white/90")}>
+              {embeddedDark ? "切换申请人" : "当前办理"}
             </div>
-            <div className="text-sm font-semibold text-gray-900">{getScopeTitle(scope)}</div>
+            <div className={cn("text-sm font-semibold", embeddedDark ? "text-white" : "text-gray-900")}>{getScopeTitle(scope)}</div>
             <Badge variant="outline" className={cn("border-gray-200 bg-gray-50 text-gray-600", compactMode && "hidden")}>
               {scopedProfiles.length} 个档案
             </Badge>
           </div>
-          <div className={cn("max-w-xl text-xs leading-6 text-gray-500", compactMode && "hidden")}>{getScopeHint(scope)}</div>
+          <div className={cn("max-w-xl text-xs leading-6", embeddedDark ? "text-white/42" : "text-gray-500", compactMode && "hidden")}>{getScopeHint(scope)}</div>
           {compactMode && activeProfile ? (
             <div className="flex flex-wrap gap-2 text-xs text-gray-500 [&>span]:rounded-full [&>span]:border [&>span]:border-slate-200 [&>span]:bg-white/85 [&>span]:px-2.5 [&>span]:py-1">
               <span className="rounded-full border border-slate-200 bg-white/85 px-2.5 py-1">{activeProfile.name || activeProfile.label}</span>
@@ -599,14 +607,15 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
                 aria-expanded={open}
                 className={cn(
                   "h-auto w-full justify-between gap-3 rounded-2xl border-slate-200 bg-white/90 px-4 py-3 text-left shadow-sm transition-all hover:bg-white hover:shadow-md md:w-[480px]",
+                  embeddedDark && "border-white/10 bg-white/[0.035] text-white hover:bg-white/[0.055] hover:shadow-none",
                   compactMode && "md:w-[440px]",
                 )}
               >
                 <div className="min-w-0 space-y-1">
-                  <div className="truncate text-sm font-semibold text-gray-900">
+                  <div className={cn("truncate text-sm font-semibold", embeddedDark ? "text-white" : "text-gray-900")}>
                     {activeProfile ? activeProfile.name || activeProfile.label : "选择申请人档案"}
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <div className={cn("flex items-center gap-2 text-xs", embeddedDark ? "text-white/42" : "text-gray-500")}>
                     <Search className="h-3.5 w-3.5 text-slate-400" />
                     <span className="truncate">{activeSummary || "支持按姓名、护照尾号、手机号、微信号搜索"}</span>
                   </div>
@@ -616,7 +625,10 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
             </PopoverTrigger>
 
             <PopoverContent
-              className="w-[calc(100vw-2rem)] rounded-2xl border-slate-200 p-0 shadow-2xl shadow-slate-200/60 md:w-[480px]"
+              className={cn(
+                "w-[calc(100vw-2rem)] rounded-2xl p-0 shadow-2xl md:w-[480px]",
+                embeddedDark ? "border-white/10 bg-[#101012] text-white shadow-black/60" : "border-slate-200 shadow-slate-200/60",
+              )}
               align="end"
             >
               {open ? (
@@ -626,6 +638,7 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
                   otherProfiles={otherProfiles}
                   selectedId={selectedId}
                   onProfileChange={handleProfileChange}
+                  theme={embeddedDark ? "dark" : "light"}
                 />
               ) : null}
             </PopoverContent>
@@ -634,7 +647,10 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
           {activeProfile && (
             <Button
               variant="outline"
-              className="rounded-2xl border-slate-200 bg-slate-900 text-white shadow-sm hover:bg-slate-800 hover:text-white"
+              className={cn(
+                "rounded-2xl text-white shadow-sm hover:text-white",
+                embeddedDark ? "border-white/10 bg-white/[0.055] hover:bg-white/[0.08]" : "border-slate-200 bg-slate-900 hover:bg-slate-800",
+              )}
               title={canEditApplicants ? "编辑当前档案" : "查看当前档案"}
               asChild
             >
@@ -649,7 +665,7 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
             </Button>
           )}
 
-          <Button variant="outline" className="rounded-2xl border-slate-200 bg-white/90 shadow-sm hover:bg-white" asChild>
+          <Button variant="outline" className={cn("rounded-2xl shadow-sm", embeddedDark ? "border-white/10 bg-white/[0.035] text-white/70 hover:bg-white/[0.06] hover:text-white" : "border-slate-200 bg-white/90 hover:bg-white")} asChild>
             <Link href="/applicants">
               <FolderOpen className="mr-2 h-4 w-4" />
               管理档案
@@ -658,7 +674,7 @@ export function ApplicantProfileSelector({ scope = "all" }: ApplicantProfileSele
         </div>
       </div>
 
-      {activeProfile && !compactMode && (
+      {activeProfile && !compactMode && !embeddedDark && (
         <div className="mt-5 space-y-4 rounded-3xl border border-white/70 bg-white/72 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-sm">
           <div className="flex flex-wrap gap-2 text-xs text-gray-600 [&>span]:rounded-full [&>span]:border [&>span]:border-slate-200 [&>span]:bg-white [&>span]:px-3 [&>span]:py-1">
             <span>姓名: {activeProfile.name || activeProfile.label}</span>

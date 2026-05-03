@@ -96,7 +96,7 @@ type StatusFilter = "all" | "completed" | "failed" | "running"
 /** 详情内容单独组件，便于在 ScrollArea 外用单一受控 Dialog 渲染（避免 Radix ScrollArea 内嵌 Dialog 触发无效） */
 function UsVisaTaskDetailBody({ task }: { task: UsVisaTask }) {
   return (
-    <div className="space-y-2 text-xs text-gray-700 dark:text-gray-300">
+    <div className="space-y-2 text-xs text-white/65">
       {task.caseLabel && <p>所属案件: {task.caseLabel}</p>}
       <p>任务ID: {task.task_id}</p>
       <p>任务类型: {TYPE_LABELS[task.type] || task.type}</p>
@@ -106,26 +106,29 @@ function UsVisaTaskDetailBody({ task }: { task: UsVisaTask }) {
       <p>最近更新时间: {formatTimestamp(task.updated_at || task.created_at)}</p>
       {task.status === "failed" && (
         <div className="space-y-2">
-          {task.error && <p className="text-red-600 dark:text-red-400 break-words whitespace-pre-wrap">错误: {task.error}</p>}
+          {task.error && <p className="whitespace-pre-wrap break-words text-red-300">错误: {task.error}</p>}
           {(() => {
             const logs = ((task.result as { debugLogs?: unknown } | undefined)?.debugLogs ?? []) as string[]
             if (!Array.isArray(logs) || logs.length === 0) return null
             const recent = logs.slice(-20)
             return (
-              <div className="rounded border bg-gray-50 dark:bg-gray-900/50 p-2">
+              <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
                 <p className="mb-1">最近日志（最多20条）</p>
-                <pre className="whitespace-pre-wrap break-all max-h-40 overflow-y-auto">{recent.join("\n")}</pre>
+                <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-all font-mono text-white/55">{recent.join("\n")}</pre>
               </div>
             )
           })()}
           {(() => {
             const errorResult = task.result as {
               screenshot?: { downloadUrl?: string; filename?: string }
+              lastStepScreenshot?: { downloadUrl?: string; filename?: string }
+              debugHtml?: { downloadUrl?: string; filename?: string }
               errorHtml?: { downloadUrl?: string; filename?: string }
             } | undefined
             const screenshot = errorResult?.screenshot
-            const errorHtml = errorResult?.errorHtml
-            if (screenshot?.downloadUrl || errorHtml?.downloadUrl) {
+            const lastStepScreenshot = errorResult?.lastStepScreenshot
+            const debugHtml = errorResult?.debugHtml ?? errorResult?.errorHtml
+            if (screenshot?.downloadUrl || lastStepScreenshot?.downloadUrl || debugHtml?.downloadUrl) {
               return (
                 <div className="flex flex-wrap gap-2">
                   {screenshot?.downloadUrl && (
@@ -136,9 +139,17 @@ function UsVisaTaskDetailBody({ task }: { task: UsVisaTask }) {
                       </a>
                     </Button>
                   )}
-                  {errorHtml?.downloadUrl && (
+                  {lastStepScreenshot?.downloadUrl && (
                     <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" asChild>
-                      <a href={errorHtml.downloadUrl} target="_blank" rel="noopener noreferrer">
+                      <a href={lastStepScreenshot.downloadUrl} target="_blank" rel="noopener noreferrer">
+                        <ImageIcon className="h-3.5 w-3.5" />
+                        查看最后步骤截图
+                      </a>
+                    </Button>
+                  )}
+                  {debugHtml?.downloadUrl && (
+                    <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" asChild>
+                      <a href={debugHtml.downloadUrl} target="_blank" rel="noopener noreferrer">
                         <ExternalLink className="h-3.5 w-3.5" />
                         下载错误 HTML
                       </a>
@@ -150,12 +161,12 @@ function UsVisaTaskDetailBody({ task }: { task: UsVisaTask }) {
             return null
           })()}
           {!task.error && !(task.result as { screenshot?: unknown } | undefined)?.screenshot && (
-            <p className="text-amber-600 dark:text-amber-400">无详细错误信息</p>
+            <p className="text-amber-300">无详细错误信息</p>
           )}
         </div>
       )}
-      <div className="rounded border bg-gray-50 dark:bg-gray-900/50 p-2">
-        <pre className="whitespace-pre-wrap break-all">{JSON.stringify(task.result ?? {}, null, 2)}</pre>
+      <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
+        <pre className="whitespace-pre-wrap break-all font-mono text-white/55">{JSON.stringify(task.result ?? {}, null, 2)}</pre>
       </div>
     </div>
   )
@@ -297,13 +308,19 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
   }, [fetchTasks, interval, autoRefresh, status, isPageVisible, tasks.length])
 
   return (
-    <Card className="border-[#e5e5ea] dark:border-gray-800">
-      <CardHeader className="pb-2 flex flex-row items-center justify-between">
-        <CardTitle className="text-base flex items-center gap-2">
+    <Card className="rounded-[28px] border border-white/5 bg-white/[0.02] text-white shadow-none">
+      <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-3">
+        <CardTitle className="flex items-center gap-2 text-base text-white">
           <ListTodo className="h-5 w-5" />
           {title}
         </CardTitle>
-        <Button variant="ghost" size="sm" onClick={() => void fetchTasks()} disabled={loading} className="gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => void fetchTasks()}
+          disabled={loading}
+          className="gap-1 rounded-full text-white/55 hover:bg-white/[0.06] hover:text-white"
+        >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           刷新
         </Button>
@@ -316,11 +333,11 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
               placeholder="搜索文件名、任务ID..."
               value={searchKeyword}
               onChange={(e) => setSearchKeyword(e.target.value)}
-              className="pl-8 h-9"
+              className="pro-input h-9 rounded-xl border-white/10 bg-white/[0.035] pl-8 text-white"
             />
           </div>
           <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
-            <SelectTrigger className="w-full sm:w-[120px] h-9">
+            <SelectTrigger className="h-9 w-full border-white/10 bg-white/[0.035] text-white sm:w-[120px]">
               <SelectValue placeholder="状态" />
             </SelectTrigger>
             <SelectContent>
@@ -332,13 +349,13 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
           </Select>
         </div>
         {activeApplicant?.id && (
-          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+          <div className="flex items-center gap-2 rounded-2xl border border-white/5 bg-white/[0.025] px-3 py-2 text-sm text-white/55">
             <input
               id="us-only-current-applicant"
               type="checkbox"
               checked={onlyCurrentApplicant}
               onChange={(e) => setOnlyCurrentApplicant(e.target.checked)}
-              className="rounded"
+              className="h-4 w-4 rounded border-white/20 bg-black/30"
             />
             <label htmlFor="us-only-current-applicant" className="cursor-pointer">
               只看当前申请人：{activeApplicant.name || activeApplicant.label}
@@ -346,7 +363,7 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
           </div>
         )}
         {activeApplicant?.id && activeApplicant.activeCaseId && onlyCurrentApplicant && (
-          <p className="text-xs text-amber-600 dark:text-amber-300">
+          <p className="text-xs text-amber-300">
             当前已按所选案件过滤任务列表。
           </p>
         )}
@@ -354,7 +371,7 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
           <div className="py-4 text-center">
             {needsLogin ? (
               <div className="space-y-2">
-                <p className="text-sm text-gray-600 dark:text-gray-400">登录后查看您的任务列表</p>
+                <p className="text-sm text-white/42">登录后查看您的任务列表</p>
                 <div className="flex justify-center gap-2">
                   <Button variant="outline" size="sm" asChild>
                     <Link href="/login?callbackUrl=/usa-visa">登录</Link>
@@ -365,9 +382,9 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
                 </div>
               </div>
             ) : tasks.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">暂无任务</p>
+              <p className="text-sm text-white/42">暂无任务</p>
             ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400">无匹配结果，可尝试调整筛选或搜索条件</p>
+              <p className="text-sm text-white/42">无匹配结果，可尝试调整筛选或搜索条件</p>
             )}
           </div>
         )}
@@ -376,24 +393,24 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
             {displayedTasks.map((task) => (
               <div
                 key={task.task_id}
-                className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-2"
+                className="space-y-3 rounded-2xl border border-white/[0.06] bg-white/[0.025] p-4 shadow-sm shadow-black/20"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium truncate">
+                  <span className="truncate text-sm font-bold text-white">
                     {TYPE_LABELS[task.type] || task.type}
                     {" · "}
                     {getTaskFilename(task)}
                   </span>
                   <StatusBadge status={task.status} />
                 </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{task.message}</p>
+                <p className="text-xs text-white/45">{task.message}</p>
                 {task.applicantName && (
-                  <p className="text-xs text-blue-600 dark:text-blue-300">申请人: {task.applicantName}</p>
+                  <p className="text-xs text-blue-300">申请人: {task.applicantName}</p>
                 )}
                 {task.caseLabel && (
-                  <p className="text-xs text-violet-600 dark:text-violet-300">所属案件: {task.caseLabel}</p>
+                  <p className="text-xs text-violet-300">所属案件: {task.caseLabel}</p>
                 )}
-                <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] uppercase tracking-[0.12em] text-white/32">
                   <span>创建时间: {formatTimestamp(task.created_at)}</span>
                   <span>最近更新时间: {formatTimestamp(task.updated_at || task.created_at)}</span>
                 </div>
@@ -403,22 +420,22 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
                     className="h-2"
                   />
                   {(task.status === "running" || task.status === "pending") && (
-                    <p className="text-xs text-gray-400">进度: {task.progress || 0}%</p>
+                    <p className="text-xs text-white/35">进度: {task.progress || 0}%</p>
                   )}
                 </div>
                 {task.status === "failed" && (
                   <div className="space-y-2">
                     {task.error && (
-                      <p className="text-xs text-red-600 dark:text-red-400 break-words whitespace-pre-wrap max-h-24 overflow-y-auto">{task.error}</p>
+                      <p className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded-2xl border border-red-400/15 bg-red-400/[0.06] p-3 text-xs text-red-200">{task.error}</p>
                     )}
                     {(() => {
                       const logs = ((task.result as { debugLogs?: unknown } | undefined)?.debugLogs ?? []) as string[]
                       if (!Array.isArray(logs) || logs.length === 0) return null
                       const recent = logs.slice(-5)
                       return (
-                        <div className="rounded border bg-gray-50 dark:bg-gray-900/50 p-2">
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-1">最近日志</p>
-                          <pre className="text-[11px] whitespace-pre-wrap break-words max-h-28 overflow-y-auto">
+                        <div className="rounded-2xl border border-red-400/15 bg-red-400/[0.06] p-3">
+                          <p className="mb-1 text-[11px] text-red-200/70">最近日志</p>
+                          <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] text-red-100/75">
                             {recent.join("\n")}
                           </pre>
                         </div>
@@ -427,11 +444,14 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
                     {(() => {
                       const errorResult = task.result as {
                         screenshot?: { downloadUrl?: string; filename?: string }
+                        lastStepScreenshot?: { downloadUrl?: string; filename?: string }
+                        debugHtml?: { downloadUrl?: string; filename?: string }
                         errorHtml?: { downloadUrl?: string; filename?: string }
                       } | undefined
                       const screenshot = errorResult?.screenshot
-                      const errorHtml = errorResult?.errorHtml
-                      if (screenshot?.downloadUrl || errorHtml?.downloadUrl) {
+                      const lastStepScreenshot = errorResult?.lastStepScreenshot
+                      const debugHtml = errorResult?.debugHtml ?? errorResult?.errorHtml
+                      if (screenshot?.downloadUrl || lastStepScreenshot?.downloadUrl || debugHtml?.downloadUrl) {
                         return (
                           <div className="flex flex-wrap gap-2">
                             {screenshot?.downloadUrl && (
@@ -442,9 +462,17 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
                                 </a>
                               </Button>
                             )}
-                            {errorHtml?.downloadUrl && (
+                            {lastStepScreenshot?.downloadUrl && (
                               <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" asChild>
-                                <a href={errorHtml.downloadUrl} target="_blank" rel="noopener noreferrer">
+                                <a href={lastStepScreenshot.downloadUrl} target="_blank" rel="noopener noreferrer">
+                                  <ImageIcon className="h-3.5 w-3.5" />
+                                  查看最后步骤截图
+                                </a>
+                              </Button>
+                            )}
+                            {debugHtml?.downloadUrl && (
+                              <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" asChild>
+                                <a href={debugHtml.downloadUrl} target="_blank" rel="noopener noreferrer">
                                   <ExternalLink className="h-3.5 w-3.5" />
                                   下载错误 HTML
                                 </a>
@@ -456,7 +484,7 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
                       return null
                     })()}
                     {!task.error && !(task.result as { screenshot?: unknown } | undefined)?.screenshot && (
-                      <p className="text-xs text-amber-600 dark:text-amber-400">无详细错误信息，请重新提交任务</p>
+                      <p className="text-xs text-amber-300">无详细错误信息，请重新提交任务</p>
                     )}
                   </div>
                 )}
@@ -468,7 +496,7 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-7 gap-1.5 text-xs"
+                    className="h-7 gap-1.5 rounded-full border-white/10 bg-white/[0.035] text-xs text-white/65 hover:bg-white/[0.06] hover:text-white"
                     onClick={() => setDetailTaskId(task.task_id)}
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
@@ -480,7 +508,7 @@ export function TaskList({ filterTaskIds, filterTaskTypes, title = "任务列表
           </div>
         </ScrollArea>
         <Dialog open={detailTaskId !== null} onOpenChange={(open) => !open && setDetailTaskId(null)}>
-          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto border-white/10 bg-[#101012] text-white">
             <DialogHeader>
               <DialogTitle>任务详情</DialogTitle>
             </DialogHeader>

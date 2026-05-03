@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Loader2, CheckCircle2, Plus, Trash2, ExternalLink, UserRound, FileSpreadsheet, ImageIcon } from "lucide-react"
+import { Loader2, CheckCircle2, Plus, Trash2, UserRound, FileSpreadsheet, ImageIcon } from "lucide-react"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { useActiveApplicantProfile } from "@/hooks/use-active-applicant-profile"
 
@@ -342,29 +342,6 @@ export function DS160Form() {
       <Card className="border-[#e5e5ea] shadow-sm overflow-hidden bg-white dark:bg-gray-900 dark:border-gray-800">
         <CardContent className="p-6 pt-6 space-y-6">
           <Card className="border-[#e5e5ea] dark:border-gray-800 shadow-sm">
-            <CardContent className="pt-6 pb-6">
-              <div className="flex items-start gap-4">
-                <ExternalLink className="h-10 w-10 text-[#1c1c1e] dark:text-white flex-shrink-0 mt-1" />
-                <div>
-                  <h3 className="text-lg font-semibold mb-2">手动填表入口</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                    如果需要手动填写，也可以直接访问美国政府官方 DS-160 网站。
-                  </p>
-                  <a
-                    href="https://ceac.state.gov/genniv/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-black dark:border-white hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-medium"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    前往官方 DS-160 填表网站
-                  </a>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-[#e5e5ea] dark:border-gray-800 shadow-sm">
             <CardContent className="pt-6 space-y-4">
               <div className="space-y-1">
                 <div className="text-lg font-semibold">申请组说明</div>
@@ -688,7 +665,7 @@ export function DS160Form() {
           <Button
             onClick={handleBatchSubmit}
             disabled={groups.length === 0 || loading}
-            className="w-full md:w-3/4 lg:w-1/2 py-6 text-lg font-semibold"
+            className="pro-cta-glow w-full rounded-full bg-white py-6 text-lg font-semibold text-black hover:bg-white/90 md:w-3/4 lg:w-1/2"
             size="lg"
           >
             {loading ? (

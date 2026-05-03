@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
-import Image from "next/image"
 import { useSession } from "next-auth/react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -13,7 +12,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  ArrowLeft,
   FileText,
   UserPlus,
   FilePlus,
@@ -26,6 +24,15 @@ import {
   X,
   RefreshCw,
   Wallet,
+  FolderOpen,
+  Settings,
+  Play,
+  RotateCcw,
+  Trash2,
+  Search,
+  SlidersHorizontal,
+  Terminal,
+  CircleDot,
 } from "lucide-react"
 import { toast } from "sonner"
 import { AuthPromptProvider, useAuthPrompt } from "@/app/usa-visa/contexts/AuthPromptContext"
@@ -45,7 +52,7 @@ import { getFranceTlsCityLabel, normalizeFranceTlsCity } from "@/lib/france-tls-
 const FranceTaskList = dynamic(() => import("./FranceTaskList").then((mod) => mod.FranceTaskList), {
   ssr: false,
   loading: () => (
-    <div className="rounded-2xl border border-dashed border-gray-200 bg-white/70 p-4 text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-900/50">
+    <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/40">
       正在加载任务列表...
     </div>
   ),
@@ -54,7 +61,7 @@ const FranceTaskList = dynamic(() => import("./FranceTaskList").then((mod) => mo
 const FranceQuickStartCard = dynamic(() => import("./FranceQuickStartCard").then((mod) => mod.FranceQuickStartCard), {
   ssr: false,
   loading: () => (
-    <div className="mb-6 rounded-2xl border border-dashed border-gray-200 bg-white/70 p-4 text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-900/50">
+    <div className="mb-6 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/40">
       正在加载快速上手...
     </div>
   ),
@@ -318,8 +325,8 @@ function CaptchaBalanceCard() {
   }
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-gray-200 bg-white/80 px-4 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
-      <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-400">
+    <div className="mb-4 flex flex-wrap items-center gap-4 rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3 shadow-none">
+      <div className="flex items-center gap-2 text-sm font-medium text-white/45">
         <Wallet className="h-4 w-4" />
         验证码余额
       </div>
@@ -341,6 +348,216 @@ function CaptchaBalanceCard() {
   )
 }
 
+const franceStopPresets = [
+  "01. 注册",
+  "02. 生成申请",
+  "03. TLS填表",
+  "04. 交外包商",
+] as const
+
+const francePipelineSteps = [
+  { code: "01", title: "注册准备", detail: "FV & TLS 双边注册" },
+  { code: "02", title: "生成新申请", detail: "France-visas 申请 JSON" },
+  { code: "03", title: "TLS 填表提交", detail: "TLS 面签资料填写" },
+  { code: "04", title: "提交外包商", detail: "交由外包商抢取 Slot" },
+]
+
+function getFrancePassportTail(activeApplicant: ReturnType<typeof useActiveApplicantProfile>) {
+  const passport = activeApplicant?.passportLast4 || activeApplicant?.passportNumber || ""
+  return passport ? passport.slice(-4) : "----"
+}
+
+function FranceAutomationContextBanner({
+  activeApplicant,
+  activeApplicantName,
+}: {
+  activeApplicant: ReturnType<typeof useActiveApplicantProfile>
+  activeApplicantName?: string
+}) {
+  const activeCase = activeApplicant?.activeCase
+  const status = activeCase?.mainStatus || "PENDING_PAYMENT"
+  const tlsCity = activeCase?.tlsCity || activeApplicant?.schengen?.city || "TLS-LON"
+
+  return (
+    <section className="pro-spotlight pro-spotlight-blue relative overflow-hidden rounded-[32px] border border-white/5 bg-[#080808] p-6 md:p-8">
+      <div className="pointer-events-none absolute bottom-0 left-16 h-px w-1/2 bg-white/10" />
+      <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex min-w-0 flex-col gap-7 md:flex-row md:items-start">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] font-mono text-2xl font-bold text-white">
+            FR
+          </div>
+          <div className="min-w-0">
+            <div className="mb-3 flex flex-wrap gap-2">
+              <span className="rounded-full border border-blue-400/20 bg-blue-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-blue-300">
+                Dashboard Hero Banner
+              </span>
+              <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-300">
+                待付款 / 报价已发送
+              </span>
+            </div>
+            <h1 className="truncate text-3xl font-bold tracking-tight text-white md:text-4xl">
+              {activeApplicantName || "林志（测试）"}
+            </h1>
+            <div className="mt-8 grid max-w-3xl gap-3 sm:grid-cols-3">
+              {[
+                ["护照尾号", getFrancePassportTail(activeApplicant)],
+                ["当前状态", status],
+                ["TLS 递签城市", tlsCity],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-white/35">{label}</div>
+                  <div className="mt-2 font-mono text-lg font-bold text-white">{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href={activeApplicant?.id ? `/applicants/${activeApplicant.id}?tab=materials` : "/applicants"}
+            className="inline-flex h-11 items-center gap-2 rounded-full border border-white/10 bg-white/[0.02] px-5 text-sm font-bold text-white/85 transition active:scale-95"
+          >
+            <FolderOpen className="h-4 w-4" />
+            管理档案
+          </Link>
+          <button
+            type="button"
+            className="pro-cta-glow inline-flex h-11 items-center gap-2 rounded-full bg-white px-5 text-sm font-bold text-black transition active:scale-95"
+          >
+            <Settings className="h-4 w-4" />
+            配置参数
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function FranceExecutionPanel({
+  stopStep,
+  onStopStepChange,
+}: {
+  stopStep: string
+  onStopStepChange: (value: string) => void
+}) {
+  return (
+    <section className="grid gap-6 lg:grid-cols-[0.9fr_1.85fr]">
+      <div className="pro-spotlight pro-spotlight-emerald rounded-[32px] border border-white/5 bg-white/[0.02] p-6 md:p-8">
+        <div className="mb-8 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.04] text-white">
+          <Terminal className="h-5 w-5" />
+        </div>
+        <h2 className="text-2xl font-bold tracking-tight text-white">法签一键启动</h2>
+        <p className="mt-3 text-sm leading-6 text-white/45">配置自动化卡点并一键执行任务流。</p>
+
+        <label className="mt-8 block rounded-2xl border border-white/5 bg-black/30 p-4">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-white/38">自动化卡点预设</span>
+          <select
+            value={stopStep}
+            onChange={(event) => onStopStepChange(event.target.value)}
+            className="mt-3 h-12 w-full rounded-xl border border-white/10 bg-transparent px-3 font-bold text-white outline-none"
+          >
+            {franceStopPresets.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="pro-status-glow-success mt-5 rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-white/38">当前状态</div>
+          <div className="mt-3 flex items-center gap-2 text-base font-bold text-white">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-40" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
+            </span>
+            就绪待发
+          </div>
+        </div>
+
+        <button
+          type="button"
+          className="pro-cta-glow mt-8 inline-flex h-14 w-full items-center justify-center gap-3 rounded-full bg-white text-base font-bold text-black transition active:scale-95"
+        >
+          <Play className="h-4 w-4 fill-black" />
+          开始自动运行
+        </button>
+      </div>
+
+      <div className="pro-spotlight pro-spotlight-blue rounded-[32px] border border-white/5 bg-white/[0.02] p-6 md:p-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight text-white">法签案件进度</h2>
+            <p className="mt-2 text-sm text-white/42">Updated: <span className="font-mono">2026/05/01 22:30:00</span></p>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" className="inline-flex h-10 items-center gap-2 rounded-full border border-white/10 px-4 text-sm text-white/72 transition active:scale-95">
+              <RotateCcw className="h-4 w-4" />
+              续跑
+            </button>
+            <button type="button" className="inline-flex h-10 items-center gap-2 rounded-full border border-red-400/20 px-4 text-sm text-red-300 transition active:scale-95">
+              <Trash2 className="h-4 w-4" />
+              清空
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-14 grid gap-5 md:grid-cols-4">
+          {francePipelineSteps.map((step, index) => {
+            const active = index === 0
+            return (
+              <div key={step.code} className="relative">
+                {index < francePipelineSteps.length - 1 ? <div className="absolute left-14 right-0 top-7 hidden h-px bg-white/10 md:block" /> : null}
+                <div className={active ? "relative z-10 flex h-14 w-14 items-center justify-center rounded-2xl bg-white font-mono text-lg font-bold text-black" : "relative z-10 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] font-mono text-lg font-bold text-white/35"}>
+                  {step.code}
+                </div>
+                <div className="mt-5 font-bold text-white">{step.title}</div>
+                <div className="mt-2 text-xs text-white/38">{step.detail}</div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="mt-10 grid gap-4 rounded-3xl border border-white/5 bg-black/25 p-5 sm:grid-cols-2">
+          {["FV 注册预备", "TLS 注册预备"].map((item) => (
+            <div key={item}>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-white/35">{item}</div>
+              <div className="mt-2 font-mono text-lg font-bold text-white">未开始</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function FranceResultOutputCard() {
+  return (
+    <div className="pro-status-glow-success rounded-3xl border border-white/5 bg-white/[0.02] p-5">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+            <span className="font-mono text-sm font-bold text-white">TASK-9920-6OZJG9</span>
+            <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-emerald-300">
+              success
+            </span>
+          </div>
+          <div className="mt-4 grid gap-3 text-xs text-white/44 sm:grid-cols-3">
+            <span>案件号 <strong className="font-mono text-white/75">FR-2026-0448</strong></span>
+            <span>执行时间 <strong className="font-mono text-white/75">03m 42s</strong></span>
+            <span>网关邮箱 <strong className="font-mono text-white/75">tls-lon@vistoria.pro</strong></span>
+          </div>
+        </div>
+        <button type="button" className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-white/10 px-4 text-sm font-bold text-white/72 transition active:scale-95">
+          <Terminal className="h-4 w-4" />
+          输出日志
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function FranceAutomationContent() {
   const { showLoginPrompt } = useAuthPrompt()
   const { data: session } = useSession()
@@ -357,6 +574,7 @@ function FranceAutomationContent() {
 
   const hasSchengenProfileExcel = Boolean(activeApplicant?.files?.schengenExcel || activeApplicant?.files?.franceExcel)
   const activeApplicantName = activeApplicant?.name || activeApplicant?.label
+  const [stopStep, setStopStep] = useState<(typeof franceStopPresets)[number]>("03. TLS填表")
 
   useEffect(() => {
     const loadProfiles = async () => {
@@ -388,79 +606,104 @@ function FranceAutomationContent() {
     }
   }, [franceProfilesCacheKey])
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-black">
-      <div className="container mx-auto px-4 py-8">
-        <ApplicantProfileSelector scope="france-schengen" />
-        <CaptchaBalanceCard />
-        <div className="mb-6">
-          <FranceCaseProgressCard
-            applicantProfileId={activeApplicant?.id}
-            applicantName={activeApplicantName}
-            caseId={activeApplicant?.activeCaseId || undefined}
+    <div className="pro-task-surface min-h-screen overflow-hidden bg-black text-white">
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_82%_0%,rgba(255,255,255,0.055),transparent_28rem)]" />
+      <main className="relative z-10 mx-auto max-w-7xl px-4 pb-20 pt-40 sm:px-6 lg:px-8">
+        <div className="space-y-7">
+          <FranceAutomationContextBanner activeApplicant={activeApplicant} activeApplicantName={activeApplicantName} />
+          <FranceExecutionPanel
+            stopStep={stopStep}
+            onStopStepChange={(value) => setStopStep(value as (typeof franceStopPresets)[number])}
           />
-        </div>
-        <FranceQuickStartCard />
-
-        <div className="mb-6 flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/schengen-visa/automation">
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-          </Button>
-          <div className="flex items-center gap-3">
-            <div className="relative h-10 w-10 overflow-hidden rounded-lg">
-              <Image src="https://flagcdn.com/w80/fr.png" alt="法国" width={40} height={40} className="object-cover" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">法签自动化</h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                France-visas 注册信息提取、账号注册、生成申请、填写回执、提交最终表。
-              </p>
-            </div>
+          <ApplicantProfileSelector scope="france-schengen" />
+          <CaptchaBalanceCard />
+          <div>
+            <FranceCaseProgressCard
+              applicantProfileId={activeApplicant?.id}
+              applicantName={activeApplicantName}
+              caseId={activeApplicant?.activeCaseId || undefined}
+            />
           </div>
-        </div>
+          <FranceQuickStartCard />
 
-        <Tabs defaultValue="extract" className="w-full">
-          <div className="mb-6 flex flex-col gap-4">
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                FV 表（France-visas）
-              </p>
-              <TabsList className="grid h-12 w-full grid-cols-2 rounded-2xl border border-gray-200/50 bg-gray-100/80 p-1 shadow-lg backdrop-blur-xl sm:grid-cols-4 dark:border-white/10 dark:bg-black/50">
-                <TabsTrigger value="extract" className="flex items-center justify-center gap-2">
-                  <FileText className="h-4 w-4 shrink-0" />
-                  <span className="truncate">FV注册</span>
-                </TabsTrigger>
-                <TabsTrigger value="create-app" className="flex items-center justify-center gap-2">
-                  <FilePlus className="h-4 w-4 shrink-0" />
-                  <span className="truncate">生成新申请</span>
-                </TabsTrigger>
-                <TabsTrigger value="fill-receipt" className="flex items-center justify-center gap-2">
-                  <ClipboardList className="h-4 w-4 shrink-0" />
-                  <span className="truncate">填写回执单</span>
-                </TabsTrigger>
-                <TabsTrigger value="submit-final" className="flex items-center justify-center gap-2">
-                  <Send className="h-4 w-4 shrink-0" />
-                  <span className="truncate">提交最终表</span>
-                </TabsTrigger>
-              </TabsList>
+            <section className="pro-spotlight pro-spotlight-blue rounded-[32px] border border-white/5 bg-[#080808] p-5 md:p-7">
+            <div className="mb-6 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-widest text-white/35">Data Modules & Logs</div>
+                <h2 className="mt-3 text-2xl font-bold tracking-tight text-white">法签自动化业务看板</h2>
+                <p className="mt-2 text-sm text-white/42">细粒度控制 France-visas 注册信息提取、账号注册、生成申请、填写回执、提交最终表与 TLS Contact 输出。</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="rounded-full bg-white px-4 py-2 text-xs font-bold text-black">France-Visas (FV)</span>
+                <span className="rounded-full border border-white/10 bg-white/[0.02] px-4 py-2 text-xs font-bold text-white/45">TLS Contact</span>
+              </div>
             </div>
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                TLS 表
-              </p>
-              <TabsList className="grid h-12 w-full grid-cols-2 rounded-2xl border border-gray-200/50 bg-gray-100/80 p-1 shadow-lg backdrop-blur-xl dark:border-white/10 dark:bg-black/50">
-                <TabsTrigger value="tls-register" className="flex items-center justify-center gap-2">
-                  <UserPlus className="h-4 w-4 shrink-0" />
-                  <span className="truncate">TLS 账户注册</span>
-                </TabsTrigger>
-                <TabsTrigger value="tls-apply" className="flex items-center justify-center gap-2">
-                  <Send className="h-4 w-4 shrink-0" />
-                  <span className="truncate">TLS 填表提交</span>
-                </TabsTrigger>
-              </TabsList>
+
+            <div className="mb-6 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
+                <input
+                    className="pro-input pro-focus-glow h-12 w-full rounded-2xl border border-white/5 bg-white/[0.02] pl-11 pr-20 text-sm text-white outline-none placeholder:text-white/25"
+                  placeholder="搜索任务号、申请人、模块或网关邮箱..."
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-white/10 px-2 py-1 font-mono text-[10px] text-white/35">
+                  Cmd K
+                </span>
+              </div>
+              <label className="inline-flex h-12 items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.02] px-4 text-sm text-white/55">
+                <input type="checkbox" className="h-4 w-4 rounded border-white/20" />
+                仅看当前申请人
+                <SlidersHorizontal className="h-4 w-4 text-white/30" />
+              </label>
             </div>
-          </div>
+
+            <FranceResultOutputCard />
+
+            <Tabs defaultValue="extract" className="mt-6 w-full">
+              <div className="mb-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-white/35">
+                <CircleDot className="h-4 w-4 text-white/50" />
+                Pipeline Modules
+              </div>
+              <div className="mb-6 flex flex-col gap-4">
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-white/35">
+                    France-Visas (FV)
+                  </p>
+                  <TabsList className="grid h-12 w-full grid-cols-2 rounded-[24px] border border-white/5 bg-white/[0.02] p-1 sm:grid-cols-4">
+                    <TabsTrigger value="extract" className="flex items-center justify-center gap-2 rounded-2xl data-[state=active]:bg-white data-[state=active]:text-black">
+                      <FileText className="h-4 w-4 shrink-0" />
+                      <span className="truncate">01.FV注册</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="create-app" className="flex items-center justify-center gap-2 rounded-2xl data-[state=active]:bg-white data-[state=active]:text-black">
+                      <FilePlus className="h-4 w-4 shrink-0" />
+                      <span className="truncate">02.生成新申请</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="fill-receipt" className="flex items-center justify-center gap-2 rounded-2xl data-[state=active]:bg-white data-[state=active]:text-black">
+                      <ClipboardList className="h-4 w-4 shrink-0" />
+                      <span className="truncate">03.填写回执单</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="submit-final" className="flex items-center justify-center gap-2 rounded-2xl data-[state=active]:bg-white data-[state=active]:text-black">
+                      <Send className="h-4 w-4 shrink-0" />
+                      <span className="truncate">04.提交最终表</span>
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-white/35">
+                    TLS Contact
+                  </p>
+                  <TabsList className="grid h-12 w-full grid-cols-2 rounded-[24px] border border-white/5 bg-white/[0.02] p-1">
+                    <TabsTrigger value="tls-register" className="flex items-center justify-center gap-2 rounded-2xl data-[state=active]:bg-white data-[state=active]:text-black">
+                      <UserPlus className="h-4 w-4 shrink-0" />
+                      <span className="truncate">TLS 账户注册</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="tls-apply" className="flex items-center justify-center gap-2 rounded-2xl data-[state=active]:bg-white data-[state=active]:text-black">
+                      <Send className="h-4 w-4 shrink-0" />
+                      <span className="truncate">TLS 填表提交</span>
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+              </div>
 
           <TabsContent value="extract">
             <StepCard
@@ -570,7 +813,9 @@ function FranceAutomationContent() {
             </div>
           </TabsContent>
         </Tabs>
-      </div>
+          </section>
+        </div>
+      </main>
     </div>
   )
 }
@@ -729,10 +974,10 @@ function StepCard({
   }
 
   return (
-    <Card className="overflow-hidden rounded-2xl border border-gray-200/50 bg-gradient-to-b from-white to-gray-50 shadow-2xl backdrop-blur-md dark:border-gray-800/50 dark:from-gray-900 dark:to-black">
-      <CardHeader className="border-b border-gray-100 dark:border-gray-800/50">
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+    <Card className="pro-spotlight pro-spotlight-blue overflow-hidden rounded-[32px] border border-white/5 bg-white/[0.02] text-white shadow-none backdrop-blur-md">
+      <CardHeader className="border-b border-white/5">
+        <CardTitle className="text-white">{title}</CardTitle>
+        <CardDescription className="text-white/42">{description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5 pt-6">
         {canUseApplicantProfile && activeApplicantId && (
@@ -748,9 +993,9 @@ function StepCard({
             const profile = getGroupProfile(group)
             const autoExcel = getProfileFranceExcel(profile)
             return (
-              <div key={group.id} className="rounded-2xl border border-gray-200/70 bg-white/80 p-4 shadow-sm">
+              <div key={group.id} className="rounded-2xl border border-white/5 bg-black/25 p-4 shadow-none">
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className="text-sm font-semibold text-gray-900">{title}申请组 {index + 1}</div>
+                  <div className="text-sm font-semibold text-white">{title}申请组 {index + 1}</div>
                   <Button type="button" variant="ghost" size="icon" onClick={() => removeGroup(group.id)} disabled={groups.length === 1}>
                     <X className="h-4 w-4" />
                   </Button>
@@ -802,7 +1047,7 @@ function StepCard({
             <Plus className="mr-2 h-4 w-4" />
             新增申请组
           </Button>
-          <Button onClick={handleSubmit} disabled={loading} className="h-10 min-w-[180px] gap-2">
+          <Button onClick={handleSubmit} disabled={loading} className="h-10 min-w-[180px] gap-2 bg-white text-black hover:bg-white/90 active:scale-95">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             <span>{loading ? "处理中..." : buttonLabel}</span>
           </Button>
@@ -975,10 +1220,10 @@ function FranceReviewClipboardCard({
   ]
 
   return (
-    <Card className="overflow-hidden rounded-2xl border border-gray-200/50 bg-white/80 shadow-lg backdrop-blur-md dark:border-gray-800/50 dark:bg-gray-900/60">
-      <CardHeader className="border-b border-gray-100 dark:border-gray-800/50">
-        <CardTitle>个人信息复制模板</CardTitle>
-        <CardDescription>自动读取“生成新申请”产出的 applicants JSON，生成可复制的审核信息模板。</CardDescription>
+    <Card className="pro-spotlight pro-spotlight-blue overflow-hidden rounded-[32px] border border-white/5 bg-white/[0.02] text-white shadow-none backdrop-blur-md">
+      <CardHeader className="border-b border-white/5">
+        <CardTitle className="text-white">个人信息复制模板</CardTitle>
+        <CardDescription className="text-white/42">自动读取“生成新申请”产出的 applicants JSON，生成可复制的审核信息模板。</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 pt-6">
         {activeApplicantId && (
@@ -1178,10 +1423,10 @@ function TlsRegisterCard({
   }
 
   return (
-    <Card className="overflow-hidden rounded-2xl border border-gray-200/50 bg-gradient-to-b from-white to-gray-50 shadow-2xl backdrop-blur-md dark:border-gray-800/50 dark:from-gray-900 dark:to-black">
-      <CardHeader className="border-b border-gray-100 dark:border-gray-800/50">
-        <CardTitle>TLS 账户注册</CardTitle>
-        <CardDescription>
+    <Card className="pro-spotlight pro-spotlight-blue overflow-hidden rounded-[32px] border border-white/5 bg-white/[0.02] text-white shadow-none backdrop-blur-md">
+      <CardHeader className="border-b border-white/5">
+        <CardTitle className="text-white">TLS 账户注册</CardTitle>
+        <CardDescription className="text-white/42">
           默认只用原始 Excel：可直接上传 Excel，或自动使用申请人档案里的申根 Excel，系统内部直接读取注册所需信息，不再要求单独准备中间 JSON。
         </CardDescription>
       </CardHeader>
@@ -1256,7 +1501,7 @@ function TlsRegisterCard({
           <Button
             onClick={handleSubmit}
             disabled={loading || (!excelFile && !applicantProfileId.trim())}
-            className="h-10 min-w-[180px] gap-2"
+            className="h-10 min-w-[180px] gap-2 bg-white text-black hover:bg-white/90 active:scale-95"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             <span>{loading ? "处理中..." : "开始 TLS 注册"}</span>
@@ -1529,10 +1774,10 @@ function TlsApplyCard({
   }
 
   return (
-    <Card className="overflow-hidden rounded-2xl border border-gray-200/50 bg-gradient-to-b from-white to-gray-50 shadow-2xl backdrop-blur-md dark:border-gray-800/50 dark:from-gray-900 dark:to-black">
-      <CardHeader className="border-b border-gray-100 dark:border-gray-800/50">
-        <CardTitle>TLS 填表提交</CardTitle>
-        <CardDescription>
+    <Card className="pro-spotlight pro-spotlight-blue overflow-hidden rounded-[32px] border border-white/5 bg-white/[0.02] text-white shadow-none backdrop-blur-md">
+      <CardHeader className="border-b border-white/5">
+        <CardTitle className="text-white">TLS 填表提交</CardTitle>
+        <CardDescription className="text-white/42">
           与填写回执单相同，TLS 登录邮箱、密码从所选档案的<strong className="font-medium text-foreground">申根 Excel</strong>自动读取；applicants 可手动上传，不上传时自动使用“生成新申请”已存档 JSON。
         </CardDescription>
       </CardHeader>
@@ -1641,7 +1886,7 @@ function TlsApplyCard({
           <Button
             onClick={handleSubmitTls}
             disabled={loading || !applicantProfileId.trim() || !selectedHasSchengenExcel}
-            className="h-10 min-w-[180px] gap-2"
+            className="h-10 min-w-[180px] gap-2 bg-white text-black hover:bg-white/90 active:scale-95"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             <span>{loading ? "处理中..." : "开始 TLS 填表"}</span>

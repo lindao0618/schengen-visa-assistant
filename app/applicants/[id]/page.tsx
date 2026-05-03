@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 
 import ApplicantDetailClientEntry from "@/app/applicants/[id]/ApplicantDetailClientEntry"
 import { authOptions } from "@/lib/auth"
+import { getPublicUiPreviewSession } from "@/lib/public-ui-preview"
 
 export default async function ApplicantDetailPage({
   params,
@@ -11,7 +12,7 @@ export default async function ApplicantDetailPage({
   params: { id: string }
   searchParams?: Record<string, string | string[] | undefined>
 }) {
-  const session = await getServerSession(authOptions)
+  const session = await getServerSession(authOptions) || getPublicUiPreviewSession()
 
   if (!session?.user?.id) {
     const nextSearchParams = new URLSearchParams()

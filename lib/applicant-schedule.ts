@@ -27,6 +27,7 @@ const scheduleCaseSelect = Prisma.validator<Prisma.VisaCaseSelect>()({
   applyRegion: true,
   tlsCity: true,
   slotTime: true,
+  submissionDate: true,
   mainStatus: true,
   subStatus: true,
   priority: true,
@@ -66,10 +67,10 @@ export async function listApplicantSchedule(
     AND: [
       sharedWhere,
       {
-        slotTime: {
-          gte: from,
-          lte: to,
-        },
+        OR: [
+          { slotTime: { gte: from, lte: to } },
+          { slotTime: null, submissionDate: { gte: from, lte: to } },
+        ],
       },
       {
         mainStatus: {
@@ -85,6 +86,7 @@ export async function listApplicantSchedule(
     AND: [
       sharedWhere,
       { slotTime: null },
+      { submissionDate: null },
       {
         mainStatus: {
           notIn: ["SUBMITTED", "COMPLETED"],
@@ -107,13 +109,9 @@ export async function listApplicantSchedule(
       },
       {
         OR: [
-          {
-            slotTime: {
-              gte: from,
-              lte: to,
-            },
-          },
-          { slotTime: null },
+          { slotTime: { gte: from, lte: to } },
+          { slotTime: null, submissionDate: { gte: from, lte: to } },
+          { slotTime: null, submissionDate: null },
         ],
       },
     ],
@@ -122,7 +120,7 @@ export async function listApplicantSchedule(
   const [activeCases, missingSlotCases, submittedCases] = await Promise.all([
     prisma.visaCase.findMany({
       where: activeWhere,
-      orderBy: [{ slotTime: "asc" }, { updatedAt: "desc" }],
+      orderBy: [{ slotTime: "asc" }, { submissionDate: "asc" }, { updatedAt: "desc" }],
       select: scheduleCaseSelect,
       take: 500,
     }),
@@ -136,7 +134,7 @@ export async function listApplicantSchedule(
       : Promise.resolve([] as ScheduleCaseRecord[]),
     prisma.visaCase.findMany({
       where: submittedWhere,
-      orderBy: [{ slotTime: "desc" }, { updatedAt: "desc" }],
+      orderBy: [{ slotTime: "desc" }, { submissionDate: "desc" }, { updatedAt: "desc" }],
       select: scheduleCaseSelect,
       take: 500,
     }),
@@ -224,6 +222,7 @@ function mapScheduleCase(record: ScheduleCaseRecord): ApplicantScheduleItem {
     applyRegion: record.applyRegion,
     tlsCity: record.tlsCity,
     slotTime: record.slotTime?.toISOString() ?? null,
+    submissionDate: record.submissionDate?.toISOString() ?? null,
     mainStatus: record.mainStatus,
     subStatus: record.subStatus,
     priority: record.priority,

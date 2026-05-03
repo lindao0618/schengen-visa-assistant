@@ -712,7 +712,7 @@ export default function ApplicantsCrmClientPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white px-4 py-8">
+    <div className="pro-task-surface min-h-screen bg-black px-4 pb-20 pt-40 text-white">
       <div className="mx-auto max-w-7xl space-y-6">
         <ApplicantCrmPageHeader
           canOpenAdmin={canOpenAdmin}
@@ -726,7 +726,7 @@ export default function ApplicantsCrmClientPage() {
         />
 
         {message && (
-          <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+          <div className="pro-status-glow-success rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3 text-sm text-white/70">
             {message}
           </div>
         )}
@@ -786,7 +786,7 @@ export default function ApplicantsCrmClientPage() {
           if (!open) resetBatchActionState()
         }}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg border-white/10 bg-[#080808] text-white">
           <DialogHeader>
             <DialogTitle>设置申请人分组</DialogTitle>
             <DialogDescription>
@@ -799,6 +799,7 @@ export default function ApplicantsCrmClientPage() {
               id="applicant-group-name"
               value={groupNameInput}
               onChange={(event) => setGroupNameInput(event.target.value)}
+              className="pro-input pro-focus-glow"
               placeholder="例如：英国法签 2026-04-14 12:30"
             />
           </div>
@@ -819,7 +820,7 @@ export default function ApplicantsCrmClientPage() {
           if (!open) resetBatchActionState()
         }}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg border-white/10 bg-[#080808] text-white">
           <DialogHeader>
             <DialogTitle>确认批量删除</DialogTitle>
             <DialogDescription>

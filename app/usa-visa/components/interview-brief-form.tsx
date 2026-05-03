@@ -17,7 +17,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
 
 type InterviewBriefIssue = {
   field: string
@@ -204,7 +203,6 @@ function PreviewBlock({ block }: { block: InterviewBriefBlock }) {
 
 export function InterviewBriefForm() {
   const profile = useActiveApplicantProfile()
-  const [templateFile, setTemplateFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [result, setResult] = useState<GenerationResult | null>(null)
@@ -256,9 +254,6 @@ export function InterviewBriefForm() {
     try {
       const formData = new FormData()
       formData.append("applicantProfileId", profile.id)
-      if (templateFile) {
-        formData.append("template", templateFile)
-      }
 
       const response = await fetch("/api/usa-visa/interview-brief/generate", {
         method: "POST",
@@ -279,20 +274,18 @@ export function InterviewBriefForm() {
     }
   }
 
-  const usingDefaultTemplate = !templateFile
-
   return (
     <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <Card className="overflow-hidden border border-slate-200 bg-white shadow-[0_18px_45px_-24px_rgba(15,23,42,0.35)]">
-          <CardHeader className="border-b border-slate-100 bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.12),_transparent_42%),linear-gradient(135deg,_#ffffff,_#f8fafc)]">
+        <Card className="overflow-hidden rounded-[28px] border border-white/5 bg-white/[0.02] text-white shadow-none">
+          <CardHeader className="border-b border-white/5 bg-[#0b0b0c]">
             <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-slate-900 p-2 text-white shadow-lg">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-2 text-white shadow-lg shadow-black/20">
                 <Sparkles className="h-5 w-5" />
               </div>
               <div>
-                <CardTitle className="text-xl text-slate-900">美签面试必看生成器</CardTitle>
-                <CardDescription className="text-slate-600">
+                <CardTitle className="text-xl text-white">美签面试必看生成器</CardTitle>
+                <CardDescription className="text-white/42">
                   默认使用系统模板，按当前申请人的个人信息定制中间问答区，并导出新的 Word / PDF。
                 </CardDescription>
               </div>
@@ -301,45 +294,29 @@ export function InterviewBriefForm() {
 
           <CardContent className="space-y-5 p-6">
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-                <div className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">当前申请人</div>
-                <div className="text-base font-semibold text-slate-900">{profile?.name || profile?.label || "未选择"}</div>
-                <div className="mt-1 text-sm text-slate-500">
+              <div className="rounded-2xl border border-white/5 bg-white/[0.025] p-4">
+                <div className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-white/35">当前申请人</div>
+                <div className="text-base font-semibold text-white">{profile?.name || profile?.label || "未选择"}</div>
+                <div className="mt-1 text-sm text-white/42">
                   {hasUsVisaExcel(profile) ? "已找到可用的个人信息资料" : "未找到可用的个人信息资料"}
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+              <div className="rounded-2xl border border-white/5 bg-white/[0.025] p-4">
+                <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-white/35">
                   <WandSparkles className="h-3.5 w-3.5" />
                   模板模式
                 </div>
-                <Badge className="rounded-full bg-slate-900 px-3 py-1 text-white hover:bg-slate-900">
-                  {usingDefaultTemplate ? "系统默认模板" : "自定义模板"}
+                <Badge className="rounded-full border border-white/10 bg-white/[0.055] px-3 py-1 text-white hover:bg-white/[0.055]">
+                  系统默认模板
                 </Badge>
-                <div className="mt-2 text-sm text-slate-500">
-                  正常流程不需要上传 Word。只有你临时想替换模板时，才在下面选择一个自定义 `.docx`。
+                <div className="mt-2 text-sm text-white/42">
+                  模板由系统统一维护，生成时只替换中间“美签常见问题”区间。
                 </div>
               </div>
             </div>
 
-            <div className="rounded-[26px] border border-slate-200 bg-slate-50/70 p-4">
-              <div className="mb-2 text-sm font-medium text-slate-900">可选：临时覆盖模板</div>
-              <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-sky-300 bg-sky-50/80 px-4 py-3 transition hover:border-sky-400">
-                <FileText className="h-4 w-4 text-sky-700" />
-                <span className="text-sm text-slate-700">
-                  {templateFile ? templateFile.name : "不上传则直接使用系统内置模板"}
-                </span>
-                <Input
-                  type="file"
-                  accept=".docx"
-                  className="hidden"
-                  onChange={(event) => setTemplateFile(event.target.files?.[0] || null)}
-                />
-              </label>
-            </div>
-
-            <div className="rounded-[26px] border border-amber-200 bg-amber-50/90 p-4 text-sm text-amber-900">
+            <div className="rounded-[26px] border border-amber-300/20 bg-amber-300/[0.08] p-4 text-sm text-amber-100/85">
               <div className="mb-1 flex items-center gap-2 font-medium">
                 <AlertTriangle className="h-4 w-4" />
                 生成规则
@@ -349,12 +326,12 @@ export function InterviewBriefForm() {
               </div>
             </div>
 
-            {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div> : null}
+            {error ? <div className="rounded-2xl border border-rose-400/20 bg-rose-400/[0.08] p-4 text-sm text-rose-200">{error}</div> : null}
 
             <Button
               onClick={handleGenerate}
               disabled={loading || !profile?.id}
-              className="h-11 rounded-2xl bg-slate-900 px-5 text-white shadow-lg hover:bg-slate-800"
+              className="pro-cta-glow h-11 rounded-full bg-white px-5 text-black shadow-lg shadow-white/10 hover:bg-white/90"
             >
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
               一键生成预览与导出文件
@@ -362,21 +339,21 @@ export function InterviewBriefForm() {
           </CardContent>
         </Card>
 
-        <Card className="border border-slate-200 bg-[linear-gradient(180deg,_#ffffff,_#f8fafc)] shadow-[0_18px_45px_-24px_rgba(15,23,42,0.25)]">
+        <Card className="rounded-[28px] border border-white/5 bg-white/[0.02] text-white shadow-none">
           <CardHeader>
-            <CardTitle className="text-lg text-slate-900">识别摘要</CardTitle>
-            <CardDescription>先把资料里能稳定提取的关键信息列出来，生成前就能看出有没有串内容。</CardDescription>
+            <CardTitle className="text-lg text-white">识别摘要</CardTitle>
+            <CardDescription className="text-white/42">先把资料里能稳定提取的关键信息列出来，生成前就能看出有没有串内容。</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
             {summaryCards.length > 0 ? (
               summaryCards.map((item) => (
-                <div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-400">{item.label}</div>
-                  <div className="mt-2 text-sm font-medium text-slate-800">{item.value}</div>
+                <div key={item.label} className="rounded-2xl border border-white/5 bg-white/[0.025] p-4 shadow-sm shadow-black/20">
+                  <div className="text-xs uppercase tracking-[0.18em] text-white/32">{item.label}</div>
+                  <div className="mt-2 text-sm font-medium text-white/78">{item.value}</div>
                 </div>
               ))
             ) : (
-              <div className="col-span-full rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+              <div className="col-span-full rounded-2xl border border-dashed border-white/10 bg-white/[0.025] p-5 text-sm text-white/42">
                 生成后这里会显示从当前资料中整理出的学校、专业、行程、酒店和支付信息。
               </div>
             )}

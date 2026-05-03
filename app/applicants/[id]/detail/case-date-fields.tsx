@@ -6,6 +6,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
+const labelClass = "text-[10px] font-bold uppercase tracking-widest text-white/35"
+const inputClass = "h-12 rounded-2xl border-white/10 bg-white/[0.055] text-white placeholder:text-white/25 focus-visible:ring-2 focus-visible:ring-blue-500/20"
+const selectTriggerClass = "min-h-12 border-white/10 bg-white/[0.055] text-white hover:border-blue-300/40"
+
 const SLOT_TIME_OPTIONS = Array.from({ length: 20 }, (_, index) => {
   const totalMinutes = 7 * 60 + index * 30
   const hour = Math.floor(totalMinutes / 60)
@@ -42,12 +46,13 @@ export function BookingWindowRangeField({
 
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
+      <Label className={labelClass}>{label}</Label>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         <Input
           type="date"
           value={start}
           disabled={disabled}
+          className={inputClass}
           onChange={(event) => {
             const nextStart = event.target.value
             const nextEnd = end && nextStart && end < nextStart ? "" : end
@@ -63,10 +68,11 @@ export function BookingWindowRangeField({
           min={start || undefined}
           value={end}
           disabled={disabled}
+          className={inputClass}
           onChange={(event) => onChange(mergeBookingWindow(start, event.target.value))}
         />
       </div>
-      <p className="text-xs text-gray-500">保存格式：YYYY/MM/DD - YYYY/MM/DD</p>
+      <p className="text-xs text-white/35">保存格式：YYYY/MM/DD - YYYY/MM/DD</p>
     </div>
   )
 }
@@ -84,12 +90,13 @@ export function SlotTimeField({
 
   return (
     <div className="space-y-2">
-      <Label>slot 时间</Label>
+      <Label className={labelClass}>slot 时间</Label>
       <div className="grid gap-2 md:grid-cols-2">
         <Input
           type="date"
           value={date}
           disabled={disabled}
+          className={inputClass}
           onChange={(event) => {
             const nextDate = event.target.value
             if (!nextDate) {
@@ -112,7 +119,7 @@ export function SlotTimeField({
             onChange(mergeDateTimeLocal(targetDate, next))
           }}
         >
-          <SelectTrigger>
+          <SelectTrigger className={selectTriggerClass}>
             <SelectValue placeholder="选择时间：07:00-16:30" />
           </SelectTrigger>
           <SelectContent>
@@ -125,7 +132,7 @@ export function SlotTimeField({
           </SelectContent>
         </Select>
       </div>
-      <p className="text-xs text-gray-500">可选时间：07:00 - 16:30，每 30 分钟一档。</p>
+      <p className="text-xs text-white/35">可选时间：07:00 - 16:30，每 30 分钟一档。</p>
     </div>
   )
 }
